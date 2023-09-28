@@ -17,4 +17,4 @@ based on information from Fiel\Koolk.
  - [SharpDX 4.2.0](https://www.nuget.org/packages/SharpDX)
 
 ### License
-https://raw.githubusercontent.com/lastbattle/MapleLib-core/main/LICENSE
+[https://raw.githubusercontent.com/lastbattle/MapleLib/main/LICENSE](License)
