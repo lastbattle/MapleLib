@@ -30,7 +30,7 @@ namespace MapleLib.WzLib.Util
 
 		public static string SanitizeText(string text)
 		{
-			string fixedText = "";
+			StringBuilder fixedText = new StringBuilder("");
 			bool charFixed;
 			for (int i = 0; i < text.Length; i++)
 			{
@@ -40,17 +40,17 @@ namespace MapleLib.WzLib.Util
 
 					if (text[i] == specialCharacters[k])
 					{
-						fixedText += replacementStrings[k];
+						fixedText.Append(replacementStrings[k]);
 						charFixed = true;
 						break;
 					}
 				}
 				if (!charFixed)
 				{
-					fixedText += text[i];
+					fixedText.Append(text[i]);
 				}
 			}
-			return fixedText;
+			return fixedText.ToString();
 		}
 
 		public static string OpenNamedTag(string tag, string name, bool finish)
