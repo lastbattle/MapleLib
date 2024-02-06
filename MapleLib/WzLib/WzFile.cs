@@ -570,7 +570,7 @@ namespace MapleLib.WzLib
             // MapleStory UserKey
             bool bIsWzUserKeyDefault = MapleCryptoConstants.IsDefaultMapleStoryUserKey(); // check if its saving to the same UserKey.
             // Save WZ as 64-bit wz format
-            bool bSaveAs64BitWz = this.wz_withEncryptVersionHeader;
+            bool bSaveAs64BitWz = !this.wz_withEncryptVersionHeader; // 64 bit does not have this header
             if (override_saveAs64BitWZ != null)
             {
                 bSaveAs64BitWz = (bool)override_saveAs64BitWZ;
