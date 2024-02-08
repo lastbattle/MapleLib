@@ -97,6 +97,23 @@ namespace MapleLib.WzLib
             return parent;
         }
 
+        /// <summary>
+        /// Gets the top most WzImage from the current directory (usually just 1 directory away from .wz file)
+        /// </summary>
+        /// <returns></returns>
+        public WzObject GetTopMostWzImage() {
+            WzObject parent = this.Parent;
+            if (parent == null)
+                return this; // this
+
+            while (parent.Parent != null) {
+                parent = parent.Parent;
+                if (parent.GetType() == typeof(WzImage))
+                    return parent;
+            }
+            return parent;
+        }
+
         public string FullPath
         {
             get

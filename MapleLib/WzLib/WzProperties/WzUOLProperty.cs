@@ -134,52 +134,51 @@ namespace MapleLib.WzLib.WzProperties
 		public string Value { get { return val; } set { val = value; } }
 
 #if UOLRES
-        public WzObject LinkValue
-		{
-			get
-			{
-				if (linkVal == null)
-				{
-					string[] paths = val.Split('/');
-                    linkVal = (WzObject)this.parent;
-                    string fullPath = parent.FullPath;
+        public WzObject LinkValue {
+            get {
+                if (linkVal == null) {
+                    string[] paths = val.Split('/');
 
-					foreach (string path in paths)
-					{
-						if (path == "..")
-						{
-                            linkVal = (WzObject)linkVal.Parent;
-						}
-						else
-						{
-                            if (linkVal is WzImageProperty)
-                                linkVal = ((WzImageProperty)linkVal)[path];
-                            else if (linkVal is WzImage image) 
-                                linkVal = image[path];
-							else if (linkVal is WzDirectory directory)
-							{
-								if (path.EndsWith(".img"))
-									linkVal = directory[path];
-								else
-									linkVal = directory[path + ".img"];
-							}
-							else
-							{
-								MapleLib.Helpers.ErrorLogger.Log(Helpers.ErrorLevel.Critical, "UOL got nexon'd at property: " + this.FullPath);
-								return null;
-							}
-						}
-					}
-				}
-				return linkVal;
-			}
-		}
+                    if (paths.Length >= 1) {
+                        if (paths[0] != "..") {
+                            // if it doesnt start with "..", means the first directory is the top directory.
+                            linkVal = this.GetTopMostWzImage();
+                        } else {
+                            linkVal = (WzObject)this.parent;
+                        }
+                        string fullPath = parent.FullPath;
+                        foreach (string path in paths) {
+                            if (path == "..") {
+                                linkVal = (WzObject)linkVal.Parent;
+                            }
+                            else {
+                                if (linkVal is WzImageProperty)
+                                    linkVal = ((WzImageProperty)linkVal)[path];
+                                else if (linkVal is WzImage image)
+                                    linkVal = image[path];
+                                else if (linkVal is WzDirectory directory) {
+                                    if (path.EndsWith(".img"))
+                                        linkVal = directory[path];
+                                    else
+                                        linkVal = directory[path + ".img"];
+                                }
+                                else {
+                                    MapleLib.Helpers.ErrorLogger.Log(Helpers.ErrorLevel.Critical, "UOL got nexon'd at property: " + this.FullPath);
+                                    return null;
+                                }
+                            }
+                        }
+                    }
+                }
+                return linkVal;
+            }
+        }
 #endif
 
-		/// <summary>
-		/// Creates a blank WzUOLProperty
-		/// </summary>
-		public WzUOLProperty() { }
+        /// <summary>
+        /// Creates a blank WzUOLProperty
+        /// </summary>
+        public WzUOLProperty() { }
 
 		/// <summary>
 		/// Creates a WzUOLProperty with the specified name
