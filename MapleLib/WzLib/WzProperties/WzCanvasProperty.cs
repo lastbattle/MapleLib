@@ -255,7 +255,7 @@ namespace MapleLib.WzLib.WzProperties
         /// Gets whether this WzCanvasProperty contains an '_inlink' for modern maplestory version. v150++
         /// </summary>
         /// <returns></returns>
-        public bool HaveInlinkProperty()
+        public bool ContainsInlinkProperty()
         {
             return this[InlinkPropertyName] != null;
         }
@@ -263,7 +263,7 @@ namespace MapleLib.WzLib.WzProperties
         /// Gets whether this WzCanvasProperty contains an '_outlink' for modern maplestory version. v150++
         /// </summary>
         /// <returns></returns>
-        public bool HaveOutlinkProperty()
+        public bool ContainsOutlinkProperty()
         {
             return this[OutlinkPropertyName] != null;
         }

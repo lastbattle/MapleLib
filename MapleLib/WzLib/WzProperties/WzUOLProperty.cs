@@ -142,7 +142,7 @@ namespace MapleLib.WzLib.WzProperties
                     if (paths.Length >= 1) {
                         if (paths[0] != "..") {
                             // if it doesnt start with "..", means the first directory is the top directory.
-                            linkVal = this.GetTopMostWzImage();
+                            linkVal = this.GetTopMostWzImage(); // Npc.wz/9310019.img
                         } else {
                             linkVal = (WzObject)this.parent;
                         }
