@@ -99,12 +99,16 @@ namespace MapleLib.Converters
             }
         }
 
-        public static BitmapSource ToWpfBitmap(this System.Drawing.Bitmap bitmap)
+        public static BitmapSource ToWpfBitmap(this System.Drawing.Bitmap bitmap) 
         {
+            if (bitmap == null)
+                throw new ArgumentNullException(nameof(bitmap));
+
             using (MemoryStream stream = new MemoryStream())
             {
-                bitmap.Save(stream, System.Drawing.Imaging.ImageFormat.Png);
+                bitmap.Save(stream, GetImageFormat(bitmap));
                 stream.Position = 0;
+
                 BitmapImage result = new BitmapImage();
                 result.BeginInit();
                 // According to MSDN, "The default OnDemand cache option retains access to the stream until the image is needed."
@@ -113,7 +117,43 @@ namespace MapleLib.Converters
                 result.StreamSource = stream;
                 result.EndInit();
                 result.Freeze();
+
                 return result;
+            }
+        }
+
+        /// <summary>
+        /// Gets the image format from a Bitmap object.
+        /// </summary>
+        /// <param name="bitmap"></param>
+        /// <returns></returns>
+        /// <exception cref="ArgumentNullException"></exception>
+        public static ImageFormat GetImageFormat(Bitmap bitmap) {
+            if (bitmap == null)
+                throw new ArgumentNullException(nameof(bitmap));
+
+            PixelFormat pixelFormat = bitmap.PixelFormat;
+
+            switch (pixelFormat) {
+                case PixelFormat.Format1bppIndexed:
+                case PixelFormat.Format4bppIndexed:
+                case PixelFormat.Format8bppIndexed:
+                    return ImageFormat.Bmp;
+
+                case PixelFormat.Format16bppGrayScale:
+                case PixelFormat.Format16bppRgb555:
+                case PixelFormat.Format16bppRgb565:
+                case PixelFormat.Format32bppRgb:
+                case PixelFormat.Format32bppArgb:
+                case PixelFormat.Format32bppPArgb:
+                case PixelFormat.Format48bppRgb:
+                case PixelFormat.Format64bppArgb:
+                case PixelFormat.Format64bppPArgb:
+                case PixelFormat.Format24bppRgb:
+                    return ImageFormat.Png;
+
+                default:
+                    return ImageFormat.Jpeg;
             }
         }
     }
