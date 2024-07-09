@@ -25,6 +25,7 @@ using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 
 using MapleLib.Converters;
+using MapleLib.Helpers;
 using MapleLib.WzLib.Util;
 using Microsoft.Xna.Framework.Graphics;
 using Microsoft.Xna.Framework.Graphics.PackedVector;
@@ -57,14 +58,14 @@ namespace MapleLib.WzLib.WzProperties
         public override void SetValue(object value)
         {
             if (value is Bitmap)
-                SetImage((Bitmap)value);
+                PNG = (Bitmap)value;
             else compressedImageBytes = (byte[])value;
         }
 
         public override WzImageProperty DeepClone()
         {
             WzPngProperty clone = new WzPngProperty();
-            clone.SetImage(GetImage(false));
+            clone.PNG = GetImage(false);
             return clone;
         }
 
@@ -145,14 +146,20 @@ namespace MapleLib.WzLib.WzProperties
         {
             switch (Format)
             {
-                case 1: return SurfaceFormat.Bgra4444;
+                case 1: 
+                    return SurfaceFormat.Bgra4444;
                 case 2:
-                case 3: return SurfaceFormat.Bgra32;
+                case 3: 
+                    return SurfaceFormat.Bgra32;
                 case 513:
-                case 517: return SurfaceFormat.Bgr565;
-                case 1026: return SurfaceFormat.Dxt3;
-                case 2050: return SurfaceFormat.Dxt5;
-                default: return SurfaceFormat.Bgra32;
+                case 517: 
+                    return SurfaceFormat.Bgr565;
+                case 1026: 
+                    return SurfaceFormat.Dxt3;
+                case 2050: 
+                    return SurfaceFormat.Dxt5;
+                default: 
+                    return SurfaceFormat.Bgra32;
             }
         }
 
@@ -259,12 +266,6 @@ namespace MapleLib.WzLib.WzProperties
                 }
             }
             return compressedImageBytes;
-        }
-
-        public void SetImage(Bitmap png)
-        {
-            this.png = png;
-            CompressPng(png);
         }
 
         public Bitmap GetImage(bool saveInMemory)

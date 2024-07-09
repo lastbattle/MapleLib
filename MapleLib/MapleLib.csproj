@@ -207,6 +207,7 @@
     <Compile Include="Converters\ImageConverter.cs" />
     <Compile Include="Helpers\ByteUtils.cs" />
     <Compile Include="Helpers\ErrorLogger.cs" />
+    <Compile Include="Helpers\ImageFormatDetector.cs" />
     <Compile Include="Helpers\StringUtility.cs" />
     <Compile Include="PacketLib\HexTool.cs" />
     <Compile Include="SquishPNGWrapper.cs" />
