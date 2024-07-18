@@ -110,13 +110,11 @@ namespace MapleLib
         /// Constructor to init WzFileManager for HaCreator
         /// </summary>
         /// <param name="directory"></param>
-        /// <param name="bInitAs64Bit"></param>
-        /// <param name="bIsPreBBDataWzFormat"></param>
-        public WzFileManager(string directory, bool bInitAs64Bit, bool bIsPreBBDataWzFormat)
-        {
+        public WzFileManager(string directory) {
             this.baseDir = directory;
-            this._bInitAs64Bit = bInitAs64Bit;
-            this._bIsPreBBDataWzFormat = bIsPreBBDataWzFormat;
+
+            this._bInitAs64Bit = WzFileManager.Detect64BitDirectoryWzFileFormat(this.baseDir); // set
+            this._bIsPreBBDataWzFormat = WzFileManager.DetectIsPreBBDataWZFileFormat(this.baseDir); // set
 
             fileManager = this;
         }
