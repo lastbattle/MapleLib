@@ -223,6 +223,19 @@ namespace MapleLib.WzLib.WzProperties
             return new PointF(0, 0);
         }
 
+        public void SetCanvasOriginPosition(PointF pointF)
+        {
+            PointF pointXY = GetCanvasOriginPosition();
+            if (pointXY != null && pointXY.X != 0 && pointXY.Y != 0)
+            {
+                WzVectorProperty originPos = (WzVectorProperty)this[OriginPropertyName];
+                originPos.X = pointF.X;
+                originPos.Y = pointF.Y;
+            }
+            else
+                throw new Exception(string.format("'{0}' property is not available", OriginPropertyName));
+        }
+
         /// <summary>
         /// Gets the 'head' position of the Canvas
         /// If not available, it defaults to xy of 0, 0
