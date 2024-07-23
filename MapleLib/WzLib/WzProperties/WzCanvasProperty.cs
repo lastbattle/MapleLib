@@ -223,17 +223,15 @@ namespace MapleLib.WzLib.WzProperties
             return new PointF(0, 0);
         }
 
-        public void SetCanvasOriginPosition(PointF pointF)
-        {
+        public void SetCanvasOriginPosition(PointF pointF) {
             PointF pointXY = GetCanvasOriginPosition();
-            if (pointXY != null && pointXY.X != 0 && pointXY.Y != 0)
-            {
+            if (pointXY != null && pointXY.X != 0 && pointXY.Y != 0) {
                 WzVectorProperty originPos = (WzVectorProperty)this[OriginPropertyName];
-                originPos.X = pointF.X;
-                originPos.Y = pointF.Y;
+                originPos.X.SetValue(pointF.X);
+                originPos.Y.SetValue(pointF.Y);
             }
             else
-                throw new Exception(string.format("'{0}' property is not available", OriginPropertyName));
+                throw new Exception(string.Format("'{0}' property is not available", OriginPropertyName));
         }
 
         /// <summary>
