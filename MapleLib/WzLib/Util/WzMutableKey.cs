@@ -18,10 +18,11 @@ using System;
 using System.IO;
 using System.Security.Cryptography;
 using MapleLib.MapleCryptoLib;
+using System.Linq;
 
 namespace MapleLib.WzLib.Util
 {
-    public class WzMutableKey
+    public sealed class WzMutableKey : IEquatable<WzMutableKey>
     {
         /// <summary>
         /// 
@@ -104,6 +105,38 @@ namespace MapleLib.WzLib.Util
             s.Flush();
             ms.Close();
             this.keys = newKeys;
+        }
+
+        public bool Equals(WzMutableKey other)
+        {
+            if (ReferenceEquals(null, other)) return false;
+            if (ReferenceEquals(this, other)) return true;
+            return IV.SequenceEqual(other.IV) && AESUserKey.SequenceEqual(other.AESUserKey);
+        }
+
+        public override bool Equals(object obj)
+        {
+            return ReferenceEquals(this, obj) || obj is WzMutableKey other && Equals(other);
+        }
+
+        public override int GetHashCode()
+        {
+            unchecked
+            {
+                return (IV.GetHashCode() * 397) ^ AESUserKey.GetHashCode();
+            }
+        }
+
+        public static bool operator ==(WzMutableKey left, WzMutableKey right)
+        {
+            if (ReferenceEquals(left, right)) return true;
+            if (left is null || right is null) return false;
+            return left.Equals(right);
+        }
+
+        public static bool operator !=(WzMutableKey left, WzMutableKey right)
+        {
+            return !(left == right);
         }
     }
 }

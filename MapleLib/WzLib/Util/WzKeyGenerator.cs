@@ -16,6 +16,7 @@
 
 using System.IO;
 using MapleLib.MapleCryptoLib;
+using System;
 
 namespace MapleLib.WzLib.Util
 {
@@ -60,6 +61,13 @@ namespace MapleLib.WzLib.Util
         {
             return new WzMutableKey(WzIv, MapleCryptoConstants.GetTrimmedUserKey(ref MapleCryptoConstants.UserKey_WzLib));
         }
+
+		public static WzMutableKey GenerateWzKey(byte[] WzIv, byte[] AesUserKey)
+		{
+			if (AesUserKey.Length != 128)
+				throw new Exception("AesUserkey expects 128 bytes, not " + AesUserKey.Length);
+			return new WzMutableKey(WzIv, MapleCryptoConstants.GetTrimmedUserKey(ref AesUserKey));
+		}
         #endregion
     }
 }
