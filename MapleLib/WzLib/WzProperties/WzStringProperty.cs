@@ -16,6 +16,7 @@
 
 using System;
 using System.IO;
+using System.Text;
 using MapleLib.Helpers;
 using MapleLib.WzLib.Util;
 
@@ -85,6 +86,7 @@ namespace MapleLib.WzLib.WzProperties
 		/// The value of the property
 		/// </summary>
 		public string Value { get { return val; } set { val = value; } }
+
 		/// <summary>
 		/// Creates a blank WzStringProperty
 		/// </summary>
@@ -120,11 +122,48 @@ namespace MapleLib.WzLib.WzProperties
 		public bool IsSpineAtlasResources
 		{
 			get { return (name.EndsWith(".atlas")); }
-		}
-		#endregion
+        }
 
-		#region Cast Values
-		public override int GetInt()
+        /// <summary>
+        /// Parses date time string representation to DateTime object
+        /// <string name="start" value="2006072000"/>
+        /// <string name="end" value="2006100100" />
+        /// </summary>
+        /// <returns></returns>
+        public DateTime? GetDateTime()
+        {
+            string dateExpire = GetString();
+            if (string.IsNullOrEmpty(dateExpire))
+                return null;
+
+            string parseStr = dateExpire.Length == 10 ? "yyyyMMddHH" : (dateExpire.Length == 12 ? "yyyyMMddHHmm" : null);
+            if (parseStr == null)
+                return null;
+            if (DateTime.TryParseExact(dateExpire, parseStr, System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.None, out DateTime result))
+                return result;
+            return null;
+        }
+
+        /// <summary>
+        /// Sets the DateTime as a string representation
+        /// </summary>
+        /// <param name="value"></param>
+        public void SetDateValue(DateTime value)
+        {
+            StringBuilder sb = new StringBuilder();
+            sb.Append(value.Year.ToString().PadLeft(4, '0'));
+            sb.Append(value.Month.ToString().PadLeft(2, '0'));
+            sb.Append(value.Day.ToString().PadLeft(2, '0'));
+            sb.Append(value.Hour.ToString().PadLeft(2, '0'));
+            if (value.Minute != 0)
+                sb.Append(value.Minute.ToString().PadLeft(2, '0'));
+
+            Value = sb.ToString(); // 2010100700
+        }
+        #endregion
+
+        #region Cast Values
+        public override int GetInt()
 		{
 			int outvalue = 0;
 			int.TryParse(val, out outvalue);
@@ -147,26 +186,6 @@ namespace MapleLib.WzLib.WzProperties
 
 			return outvalue; // stupid nexon . fu, some shit that should be WzIntProperty
 		}
-
-        /// <summary>
-        /// Parses date time string format from the WZ file
-        /// <string name="start" value="2006072000"/>
-        /// <string name="end" value="2006100100" />
-        /// </summary>
-        /// <returns></returns>
-        public DateTime? GetDateTime()
-        {
-            string dateExpire = GetString();
-            if (string.IsNullOrEmpty(dateExpire))
-                return null;
-
-            string parseStr = dateExpire.Length == 10 ? "yyyyMMddHH" : (dateExpire.Length == 12 ? "yyyyMMddHHmm" : null);
-            if (parseStr == null)
-                return null;
-            if (DateTime.TryParseExact(dateExpire, parseStr, System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.None, out DateTime result))
-                return result;
-            return null;
-        }
 
         public override string GetString()
         {
