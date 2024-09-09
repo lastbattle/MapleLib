@@ -14,7 +14,9 @@
  * You should have received a copy of the GNU General Public License
     along with this program.  If not, see <http://www.gnu.org/licenses/>.*/
 
+using System;
 using System.IO;
+using MapleLib.Helpers;
 using MapleLib.WzLib.Util;
 
 namespace MapleLib.WzLib.WzProperties
@@ -146,7 +148,27 @@ namespace MapleLib.WzLib.WzProperties
 			return outvalue; // stupid nexon . fu, some shit that should be WzIntProperty
 		}
 
-		public override string GetString()
+        /// <summary>
+        /// Parses date time string format from the WZ file
+        /// <string name="start" value="2006072000"/>
+        /// <string name="end" value="2006100100" />
+        /// </summary>
+        /// <returns></returns>
+        public DateTime? GetDateTime()
+        {
+            string dateExpire = GetString();
+            if (string.IsNullOrEmpty(dateExpire))
+                return null;
+
+            string parseStr = dateExpire.Length == 10 ? "yyyyMMddHH" : (dateExpire.Length == 12 ? "yyyyMMddHHmm" : null);
+            if (parseStr == null)
+                return null;
+            if (DateTime.TryParseExact(dateExpire, parseStr, System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.None, out DateTime result))
+                return result;
+            return null;
+        }
+
+        public override string GetString()
         {
             return val;
         }
