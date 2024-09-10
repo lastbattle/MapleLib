@@ -18,6 +18,7 @@ using MapleLib.MapleCryptoLib;
 using MapleLib.PacketLib;
 using Newtonsoft.Json;
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Text;
 
@@ -27,9 +28,10 @@ namespace MapleLib.Configuration
     {
         private const string SETTINGS_FILE_USER = "Settings.txt";
         private const string SETTINGS_FILE_APPLICATION = "ApplicationSettings.txt";
+        private const string SETTINGS_FILE_CUSTOM_KEYS = "CustomKeys.txt";
         public const string configPipeName = "HaRepacker";
 
-
+        private bool loaded = false;
         private string folderPath;
 
         private UserSettings _userSettings = new UserSettings(); // default configuration for UI designer :( 
@@ -43,6 +45,13 @@ namespace MapleLib.Configuration
         public ApplicationSettings ApplicationSettings
         {
             get { return _appSettings; }
+            private set { }
+        }
+        
+        private List<EncryptionKey> _customKeys = new List<EncryptionKey>();
+        public List<EncryptionKey> CustomKeys
+        {
+            get { return _customKeys; }
             private set { }
         }
 
@@ -75,17 +84,20 @@ namespace MapleLib.Configuration
         {
             string userFilePath = Path.Combine(folderPath, SETTINGS_FILE_USER);
             string applicationFilePath = Path.Combine(folderPath, SETTINGS_FILE_APPLICATION);
+            string customKeysFilePath = Path.Combine(folderPath, SETTINGS_FILE_CUSTOM_KEYS);
 
-            if (File.Exists(userFilePath) && File.Exists(applicationFilePath))
+            if (File.Exists(userFilePath) && File.Exists(applicationFilePath) && File.Exists(customKeysFilePath))
             {
                 string userFileContent = File.ReadAllText(userFilePath);
                 string applicationFileContent = File.ReadAllText(applicationFilePath);
+                string customKeysFileContent = File.ReadAllText(customKeysFilePath);
 
                 try
                 {
                     _userSettings = JsonConvert.DeserializeObject<UserSettings>(userFileContent); // deserialize to static content... 
                     _appSettings = JsonConvert.DeserializeObject<ApplicationSettings>(applicationFileContent);
-
+                    _customKeys = JsonConvert.DeserializeObject<List<EncryptionKey>>(customKeysFileContent);
+                    
                     return true;
                 } catch (Exception)
                 {
@@ -94,12 +106,15 @@ namespace MapleLib.Configuration
                     {
                         File.Delete(userFilePath);
                         File.Delete(applicationFilePath);
+                        File.Delete(customKeysFilePath);
                     }
                     catch { } // throws if it cant access without admin
                 }
             }
             _userSettings = new UserSettings(); // defaults
             _appSettings = new ApplicationSettings();
+            _customKeys = new List<EncryptionKey>();
+            
             return false;
         }
 
@@ -111,9 +126,11 @@ namespace MapleLib.Configuration
         {
             string userSettingsSerialised = JsonConvert.SerializeObject(_userSettings, Formatting.Indented); // format for user
             string appSettingsSerialised = JsonConvert.SerializeObject(_appSettings, Formatting.Indented);
+            string customKeysSerialised = JsonConvert.SerializeObject(_customKeys, Formatting.Indented);
 
             string userFilePath = Path.Combine(folderPath, SETTINGS_FILE_USER);
             string applicationFilePath = Path.Combine(folderPath, SETTINGS_FILE_APPLICATION);
+            string customKeysFilePath = Path.Combine(folderPath, SETTINGS_FILE_CUSTOM_KEYS);
 
             try
             {
@@ -126,6 +143,11 @@ namespace MapleLib.Configuration
                 using (System.IO.StreamWriter file = new System.IO.StreamWriter(applicationFilePath))
                 {
                     file.Write(appSettingsSerialised);
+                }
+                // custom keys
+                using (System.IO.StreamWriter file = new System.IO.StreamWriter(customKeysFilePath))
+                {
+                    file.Write(customKeysSerialised);
                 }
                 return true;
             } catch
@@ -142,7 +164,7 @@ namespace MapleLib.Configuration
         /// <returns></returns>
         public byte[] GetCusomWzIVEncryption()
         {
-            bool loaded = Load();
+            if (!loaded) loaded = Load();
             if (loaded)
             {
                 string storedCustomEnc = ApplicationSettings.MapleVersion_CustomEncryptionBytes;

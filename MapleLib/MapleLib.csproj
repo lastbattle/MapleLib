@@ -203,6 +203,7 @@
     <Compile Include="ClientLib\MapleStoryLocalisation.cs" />
     <Compile Include="Configuration\ApplicationSettings.cs" />
     <Compile Include="Configuration\ConfigurationManager.cs" />
+    <Compile Include="Configuration\EncryptionKey.cs" />
     <Compile Include="Configuration\UserSettings.cs" />
     <Compile Include="Converters\ImageConverter.cs" />
     <Compile Include="Helpers\ByteUtils.cs" />
