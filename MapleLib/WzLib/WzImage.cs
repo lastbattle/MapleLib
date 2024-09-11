@@ -20,6 +20,7 @@ using System;
 using MapleLib.WzLib.Util;
 using MapleLib.WzLib.WzProperties;
 using System.Linq;
+using System.Threading.Tasks;
 
 namespace MapleLib.WzLib
 {
@@ -44,8 +45,8 @@ namespace MapleLib.WzLib
         internal string name;
         internal int size;
         private int checksum;
-        internal uint offset = 0;
-        internal WzBinaryReader reader;
+        internal long offset = 0;
+        internal WzBinaryReader reader; // could be a WzBinaryReader or a WzBinaryConcurrentReader
         internal List<WzImageProperty> properties = new List<WzImageProperty>();
         internal WzObject parent;
         internal int blockStart = 0;
@@ -165,7 +166,7 @@ namespace MapleLib.WzLib
         /// <summary>
         /// The offset of the start of this image
         /// </summary>
-        public uint Offset { get { return offset; } set { offset = value; } }
+        public long Offset { get { return offset; } set { offset = value; } }
         public int BlockStart { get { return blockStart; } }
         /// <summary>
         /// The WzObjectType of the image
@@ -331,13 +332,14 @@ namespace MapleLib.WzLib
         }
 
         /// <summary>
-		/// Parses the image from the wz filetod
-		/// </summary>
-		/// <param name="wzReader">The BinaryReader that is currently reading the wz file</param>
+        /// Parses the image from the wz filetod
+        /// </summary>
+        /// <param name="wzReader">The BinaryReader that is currently reading the wz file</param>
         /// <returns>bool Parse status</returns>
         public bool ParseImage(bool forceReadFromData = false)
         {
-            if (!forceReadFromData) { // only check if parsed or changed if its not false read
+            if (!forceReadFromData)
+            { // only check if parsed or changed if its not false read
                 if (Parsed)
                 {
                     return true;
@@ -348,18 +350,19 @@ namespace MapleLib.WzLib
                     return true;
                 }
             }
-
+            
             lock (reader) // for multi threaded XMLWZ export. 
             {
                 long originalPos = reader.BaseStream.Position;
                 reader.BaseStream.Position = offset;
+
 
                 byte b = reader.ReadByte();
                 switch (b)
                 {
                     case 0x1: // .lua   
                         {
-                            if (IsLuaWzImage) 
+                            if (IsLuaWzImage)
                             {
                                 WzLuaProperty lua = WzImageProperty.ParseLuaProperty(offset, reader, this, this);
                                 List<WzImageProperty> luaImage = new List<WzImageProperty>
@@ -433,11 +436,9 @@ namespace MapleLib.WzLib
         /// <param name="writer"></param>
         /// <param name="bIsWzUserKeyDefault">Uses the default MapleStory UserKey or a custom key.</param>
         /// <param name="forceReadFromData">Read from data regardless of base data that's changed or not.</param>
-		public void SaveImage(WzBinaryWriter writer, bool bIsWzUserKeyDefault = true, bool forceReadFromData = false)
+        public void SaveImage(WzBinaryWriter writer, bool bIsWzUserKeyDefault = true, bool forceReadFromData = false)
         {
-            if (bIsImageChanged ||
-                !bIsWzUserKeyDefault || //  everything needs to be re-written when a custom UserKey is used
-                forceReadFromData) // if its not being force-read and written, it saves with the previous WZ encryption IV.
+            if (bIsImageChanged || !bIsWzUserKeyDefault || forceReadFromData)
             {
                 if (reader != null && !parsed)
                 {
@@ -459,7 +460,7 @@ namespace MapleLib.WzLib
             {
                 long pos = reader.BaseStream.Position;
                 reader.BaseStream.Position = offset;
-                writer.Write(reader.ReadBytes((int) pos));
+                writer.Write(reader.ReadBytes((int)pos));
 
                 reader.BaseStream.Position = pos; // reset
             }

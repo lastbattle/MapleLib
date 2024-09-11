@@ -29,13 +29,16 @@ namespace MapleLib.WzLib.Util
         public WzMutableKey WzKey { get; set; }
         public uint Hash { get; set; }
         public WzHeader Header { get; set; }
+
+        private readonly long startOffset; // the offset to 
         #endregion
 
         #region Constructors
-        public WzBinaryReader(Stream input, byte[] WzIv)
+        public WzBinaryReader(Stream input, byte[] WzIv, long startOffset = 0)
             : base(input)
         {
             WzKey = WzKeyGenerator.GenerateWzKey(WzIv);
+            this.startOffset = startOffset;
         }
         #endregion
 
@@ -46,12 +49,12 @@ namespace MapleLib.WzLib.Util
         /// <param name="offset"></param>
         public void SetOffsetFromFStartToPosition(int offset)
         {
-            BaseStream.Position = Header.FStart + offset;
+            BaseStream.Position = (Header.FStart + offset) - startOffset;
         }
 
         public void RollbackStreamPosition(int byOffset)
         {
-            if (BaseStream.Position < byOffset)
+            if ((BaseStream.Position - startOffset) < byOffset)
                 throw new Exception("Cant rollback stream position below 0");
 
             BaseStream.Position -= byOffset;
@@ -65,7 +68,7 @@ namespace MapleLib.WzLib.Util
         public string ReadStringAtOffset(long Offset, bool readByte)
         {
             long CurrentOffset = BaseStream.Position;
-            BaseStream.Position = Offset;
+            BaseStream.Position = Offset - startOffset;
             if (readByte)
             {
                 ReadByte();
@@ -189,7 +192,7 @@ namespace MapleLib.WzLib.Util
             return BaseStream.Length - BaseStream.Position;
         }
 
-        public uint ReadOffset()
+        public long ReadOffset()
         {
             uint offset = (uint)BaseStream.Position;
             offset = (offset - Header.FStart) ^ uint.MaxValue;
@@ -199,7 +202,8 @@ namespace MapleLib.WzLib.Util
             uint encryptedOffset = ReadUInt32();
             offset ^= encryptedOffset;
             offset += Header.FStart * 2;
-            return offset;
+
+            return (offset + startOffset);
         }
 
         public string DecryptString(char[] stringToDecrypt)
@@ -231,7 +235,7 @@ namespace MapleLib.WzLib.Util
             return outputString.ToString();
         }
 
-        public string ReadStringBlock(uint offset)
+        public string ReadStringBlock(long offset)
         {
             switch (ReadByte())
             {
@@ -246,6 +250,46 @@ namespace MapleLib.WzLib.Util
             }
         }
 
+        #endregion
+
+        #region Tools
+        /// <summary>
+        /// Cuts out a section of the stream, and creates a new WzBinaryReader object to allow 
+        /// for concurrent file i/o reading.
+        /// </summary>
+        /// <param name="start"></param>
+        /// <param name="length"></param>
+        /// <returns></returns>
+        /// <exception cref="ArgumentOutOfRangeException"></exception>
+        public WzBinaryReader CreateReaderForSection(long start, int length)
+        {
+            if (start < 0 || start >= BaseStream.Length)
+                throw new ArgumentOutOfRangeException(nameof(start));
+
+            if (length <= 0 || start + length > BaseStream.Length)
+                throw new ArgumentOutOfRangeException(nameof(length));
+
+            byte[] buffer = new byte[length];
+
+            lock (this)
+            {
+                long startPositionBeforeRead = this.BaseStream.Position; // get pos before
+
+                // read the entire region
+                BaseStream.Seek(start, SeekOrigin.Begin);
+                BaseStream.Read(buffer, 0, length);
+
+                this.BaseStream.Position = startPositionBeforeRead; // reset stream pos
+            }
+
+            MemoryStream memoryStream = new MemoryStream(buffer);
+            return new WzBinaryReader(memoryStream, WzKey.GetKeys(), start)
+            {
+                WzKey = this.WzKey,
+                Hash = this.Hash,
+                Header = this.Header
+            };
+        }
         #endregion
 
         #region Debugging Methods
@@ -263,13 +307,13 @@ namespace MapleLib.WzLib.Util
 #endif
         }
 #endregion
-
-#region Overrides
+        
+        #region Overrides
         public override void Close()
         {
             // debug here
             base.Close();
         }
-#endregion
+        #endregion
     }
 }

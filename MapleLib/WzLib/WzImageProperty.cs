@@ -24,6 +24,7 @@ using System.Diagnostics;
 using MapleLib.PacketLib;
 using System.Text;
 using MapleLib.MapleCryptoLib;
+using System.Threading.Tasks;
 
 namespace MapleLib.WzLib
 {
@@ -124,7 +125,7 @@ namespace MapleLib.WzLib
         /// <param name="parent"></param>
         /// <param name="parentImg"></param>
         /// <returns></returns>
-        internal static WzLuaProperty ParseLuaProperty(uint offset, WzBinaryReader reader, WzObject parent, WzImage parentImg)
+        internal static WzLuaProperty ParseLuaProperty(long offset, WzBinaryReader reader, WzObject parent, WzImage parentImg)
         {
             // 28 71 4F EF 1B 65 F9 1F A7 48 8D 11 73 E7 F0 27 55 09 DD 3C 07 32 D7 38 21 57 84 70 C1 79 9A 3F 49 F7 79 03 41 F4 9D B9 1B 5F CF 26 80 3D EC 25 5F 9C 
             // [compressed int] [bytes]
@@ -135,7 +136,7 @@ namespace MapleLib.WzLib
             return lua;
         }
 
-        internal static List<WzImageProperty> ParsePropertyList(uint offset, WzBinaryReader reader, WzObject parent, WzImage parentImg)
+        internal static List<WzImageProperty> ParsePropertyList(long offset, WzBinaryReader reader, WzObject parent, WzImage parentImg)
         {
             int entryCount = reader.ReadCompressedInt();
             List<WzImageProperty> properties = new List<WzImageProperty>(entryCount);
@@ -173,7 +174,7 @@ namespace MapleLib.WzLib
                         properties.Add(new WzStringProperty(name, reader.ReadStringBlock(offset)) { Parent = parent });
                         break;
                     case 9:
-                        long eob = reader.ReadUInt32() + reader.BaseStream.Position;
+                        int eob = (int)(reader.ReadUInt32() + reader.BaseStream.Position);
                         WzImageProperty exProp = ParseExtendedProp(reader, offset, eob, name, parent, parentImg);
                         properties.Add(exProp);
                         if (reader.BaseStream.Position != eob)
@@ -188,7 +189,7 @@ namespace MapleLib.WzLib
             return properties;
         }
 
-        internal static WzExtended ParseExtendedProp(WzBinaryReader reader, uint offset, long endOfBlock, string name, WzObject parent, WzImage imgParent)
+        internal static WzExtended ParseExtendedProp(WzBinaryReader reader, long offset, int endOfBlock, string name, WzObject parent, WzImage imgParent)
         {
             switch (reader.ReadByte())
             {
@@ -203,7 +204,7 @@ namespace MapleLib.WzLib
             }
         }
 
-        internal static WzExtended ExtractMore(WzBinaryReader reader, uint offset, long eob, string name, string iname, WzObject parent, WzImage imgParent)
+        internal static WzExtended ExtractMore(WzBinaryReader reader, long offset, int eob, string name, string iname, WzObject parent, WzImage imgParent)
         {
             if (iname == "")
             {

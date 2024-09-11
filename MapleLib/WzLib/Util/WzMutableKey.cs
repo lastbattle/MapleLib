@@ -18,6 +18,7 @@ using System;
 using System.IO;
 using System.Security.Cryptography;
 using MapleLib.MapleCryptoLib;
+using Newtonsoft.Json.Linq;
 using System.Linq;
 
 namespace MapleLib.WzLib.Util
@@ -40,6 +41,13 @@ namespace MapleLib.WzLib.Util
         private readonly byte[] AESUserKey;
 
         private byte[] keys;
+        public byte[] GetKeys()
+        {
+            byte[] keysCopy = new byte[keys.Length];
+            Array.Copy(keys, keysCopy, keys.Length);
+
+            return keysCopy;
+        }
 
         public byte this[int index]
         {

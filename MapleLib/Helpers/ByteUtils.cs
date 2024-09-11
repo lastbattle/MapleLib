@@ -1,16 +1,19 @@
 ﻿using System;
 using System.Linq;
+using System.Runtime.CompilerServices;
 using System.Text;
 
 namespace MapleLib.Helpers
 {
     public static class ByteUtils
     {
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static bool CompareBytearrays(byte[] a, byte[] b)
         {
             return a.Length == b.Length && a.SequenceEqual(b);
         }
 
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static byte[] IntegerToLittleEndian(int data)
         {
             byte[] b = BitConverter.GetBytes(data);
@@ -21,6 +24,7 @@ namespace MapleLib.Helpers
             return b;
         }
 
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static byte[] HexToBytes(string pValue)
         {
             // FIRST. Use StringBuilder.
@@ -64,6 +68,7 @@ namespace MapleLib.Helpers
         /// </summary>
         /// <param name="bytes">Input bytes.</param>
         /// <returns>String that represents the byte-array.</returns>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static string BytesToHex(byte[] bytes, string header = "")
         {
             StringBuilder builder = new StringBuilder(header);
@@ -79,6 +84,7 @@ namespace MapleLib.Helpers
         /// </summary>
         /// <param name="c">The character to check</param>
         /// <returns>true if <paramref name="c"/>is a hexadecimal digit; otherwise, false.</returns>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static bool IsHexDigit(char c)
         {
             return (c >= '0' && c <= '9') || (c >= 'A' && c <= 'F') || (c >= 'a' && c <= 'f') || (c == '*');
@@ -89,6 +95,7 @@ namespace MapleLib.Helpers
         /// </summary>
         /// <param name="hex">The hexadecimal string.</param>
         /// <returns>The byte representation of the string.</returns>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private static byte HexToByte(string hex)
         {
             if (hex == null) throw new ArgumentNullException("hex");
@@ -99,5 +106,18 @@ namespace MapleLib.Helpers
             byte newByte = byte.Parse(hex, System.Globalization.NumberStyles.HexNumber);
             return newByte;
         }
+
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static uint RotateLeft(uint x, byte n)
+        {
+            return (uint)(((x) << (n)) | ((x) >> (32 - (n))));
+        }
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static uint RotateRight(uint x, byte n)
+        {
+            return (uint)(((x) >> (n)) | ((x) << (32 - (n))));
+        }
+
     }
 }

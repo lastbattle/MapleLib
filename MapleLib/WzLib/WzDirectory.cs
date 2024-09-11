@@ -35,7 +35,7 @@ namespace MapleLib.WzLib
         private List<WzImage> images = new List<WzImage>();
         internal List<WzDirectory> subDirs = new List<WzDirectory>();
         internal WzBinaryReader reader;
-        internal uint offset = 0;
+        internal long offset = 0;
         internal string name;
         internal uint hash;
         internal int size, checksum, offsetSize;
@@ -101,7 +101,7 @@ namespace MapleLib.WzLib
         /// <summary>
         /// Offset of the folder
         /// </summary>
-        public uint Offset { get { return offset; } set { offset = value; } }
+        public long Offset { get { return offset; } set { offset = value; } }
         /// <summary>
         /// Returns a WzImage or a WzDirectory with the given name
         /// </summary>
@@ -198,7 +198,7 @@ namespace MapleLib.WzLib
                 string fname = null;
                 int fsize;
                 int checksum;
-                uint offset;
+                long offset;
 
                 long rememberPos = 0;
                 switch (type)
@@ -207,7 +207,7 @@ namespace MapleLib.WzLib
                         {
                             int unknown = reader.ReadInt32();
                             reader.ReadInt16();
-                            uint offs = reader.ReadOffset();
+                            long offs = reader.ReadOffset();
                             continue;
                         }
                     case (byte) WzDirectoryType.RetrieveStringFromOffset_2:
@@ -263,6 +263,7 @@ namespace MapleLib.WzLib
                         Parent = this
                     };
                     images.Add(img);
+                    //Debug.WriteLine("Adding image: " + fname);
 
                     if (lazyParse)
                         break;

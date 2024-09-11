@@ -18,6 +18,8 @@ using System;
 using System.Collections;
 using System.IO;
 using System.Linq;
+using System.Runtime.CompilerServices;
+using MapleLib.Helpers;
 using MapleLib.MapleCryptoLib;
 using MapleLib.WzLib.WzStructure.Enums;
 
@@ -249,25 +251,17 @@ namespace MapleLib.WzLib.Util
             }
         }
 
-		public void WriteOffset(uint value)
+		public void WriteOffset(long value)
 		{
 			uint encOffset = (uint)BaseStream.Position;
 			encOffset = (encOffset - Header.FStart) ^ 0xFFFFFFFF;
 			encOffset *= Hash; // could this be removed? 
 			encOffset -= MapleCryptoConstants.WZ_OffsetConstant;
-			encOffset = RotateLeft(encOffset, (byte)(encOffset & 0x1F));
-			uint writeOffset = encOffset ^ (value - (Header.FStart * 2));
+			encOffset = ByteUtils.RotateLeft(encOffset, (byte)(encOffset & 0x1F));
+			uint writeOffset = encOffset ^ ((uint) value - (Header.FStart * 2));
 			Write(writeOffset);
 		}
 
-		private uint RotateLeft(uint x, byte n)
-		{
-			return (uint)(((x) << (n)) | ((x) >> (32 - (n))));
-		}
-		private uint RotateRight(uint x, byte n)
-		{
-			return (uint)(((x) >> (n)) | ((x) << (32 - (n))));
-		}
 		public override void Close()
 		{
 			if (!LeaveOpen)
