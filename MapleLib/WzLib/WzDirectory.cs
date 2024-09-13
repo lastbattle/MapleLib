@@ -344,9 +344,10 @@ namespace MapleLib.WzLib
 
             foreach (WzImage img in images)
             {
-                if (useCustomIv ||// everything needs to be re-written when a custom IV is used.
-                    !bIsWzUserKeyDefault || //  everything needs to be re-written when a custom UserKey is used too
-                    img.bIsImageChanged) // or when an image is changed
+                // If useCustomIv or !bIsWzUserKeyDefault is true, then the image must be considered changed
+                // Why do I have to change img.bIsImageChanged? Because if it's not changed, it won't be re-written with custom IV and UserKey.
+                img.bIsImageChanged = useCustomIv || !bIsWzUserKeyDefault;
+                if (img.bIsImageChanged)
                 {
                     using (MemoryStream memStream = new MemoryStream())
                     {
