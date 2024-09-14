@@ -19,6 +19,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
 
+using System;
 using System.Linq;
 using System.Text.RegularExpressions;
 
@@ -26,7 +27,13 @@ namespace MapleLib.WzLib.WzStructure.Data.CharacterStructure
 {
     public static class CharacterJobExtensions
     {
-        public static string GetFormattedJobName(this CharacterJob job)
+        /// <summary>
+        /// Gets the formatted job name from enum
+        /// </summary>
+        /// <param name="job"></param>
+        /// <param name="bRemoveJobProgressionNumber">i.e Evan5 -> Evan</param>
+        /// <returns></returns>
+        public static string GetFormattedJobName(this CharacterJob job, bool bRemoveJobProgressionNumber = true)
         {
             string jobName = job.ToString();
 
@@ -41,7 +48,8 @@ namespace MapleLib.WzLib.WzStructure.Data.CharacterStructure
                 return $"Pirate ({jobName})";
 
             // Remove number at the end (for job progressions)
-            jobName = Regex.Replace(jobName, @"\d+$", "");
+            if (bRemoveJobProgressionNumber)
+                jobName = Regex.Replace(jobName, @"\d+$", "");
 
             // Add spaces between words
             jobName = string.Concat(jobName.Select(x => char.IsUpper(x) ? " " + x : x.ToString())).Trim();
@@ -59,6 +67,8 @@ namespace MapleLib.WzLib.WzStructure.Data.CharacterStructure
     /// </summary>
     public enum CharacterJob
     {
+        None = -1,
+
         // Explorer Classes
         Beginner = 0,
 
