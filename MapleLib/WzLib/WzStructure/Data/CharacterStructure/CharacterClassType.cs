@@ -28,7 +28,7 @@ namespace MapleLib.WzLib.WzStructure.Data.CharacterStructure
     /// <summary>
     /// The job type 
     /// </summary>
-    public enum CharacterJobType
+    public enum CharacterClassType
     {
         UltimateAdventurer = -1,
         Resistance = 0,
@@ -48,8 +48,8 @@ namespace MapleLib.WzLib.WzStructure.Data.CharacterStructure
         Xenon = 14,
         Zero = 15,
         Shade = 16,
-        Zen = 17,
-        Jett = 17,
+        ZenOrJett = 17,
+        JettOrZen = 17,
         Hayato = 18,
         Kanna = 19,
         BeastTamer = 20,
@@ -64,11 +64,11 @@ namespace MapleLib.WzLib.WzStructure.Data.CharacterStructure
         /// Gets all CharacterJobType enum values except NULL.
         /// </summary>
         /// <returns>An IEnumerable of CharacterJobType containing all enum values except NULL.</returns>
-        public static IEnumerable<CharacterJobType> GetAllJobTypes()
+        public static IEnumerable<CharacterClassType> GetAllJobTypes()
         {
-            return Enum.GetValues(typeof(CharacterJobType))
-                .Cast<CharacterJobType>()
-                .Where(j => j != CharacterJobType.NULL);
+            return Enum.GetValues(typeof(CharacterClassType))
+                .Cast<CharacterClassType>()
+                .Where(j => j != CharacterClassType.NULL);
         }
 
         /// <summary>
@@ -76,12 +76,12 @@ namespace MapleLib.WzLib.WzStructure.Data.CharacterStructure
         /// </summary>
         /// <param name="jobBitfield">The job bitfield to check against.  <int name="job" value="32800"/> </param>
         /// <returns>True if the jobBitfield matches the specified job type, false otherwise.</returns>
-        public static List<CharacterJobType> GetMatchingJobs(int jobBitfield)
+        public static List<CharacterClassType> GetMatchingJobs(int jobBitfield)
         {
-            List<CharacterJobType> ret = new List<CharacterJobType>();
+            List<CharacterClassType> ret = new List<CharacterClassType>();
 
-            IEnumerable<CharacterJobType> jobInfo = GetAllJobTypes();
-            foreach (CharacterJobType job in jobInfo)
+            IEnumerable<CharacterClassType> jobInfo = GetAllJobTypes();
+            foreach (CharacterClassType job in jobInfo)
             {
                 bool bMatch = IsJobMatching(job, jobBitfield);
                 if (bMatch)
@@ -98,7 +98,7 @@ namespace MapleLib.WzLib.WzStructure.Data.CharacterStructure
         /// <param name="job">The job selected</param>
         /// <param name="jobBitfield">The job bitfield to check against.  <int name="job" value="32800"/> </param>
         /// <returns>True if the jobBitfield matches the specified job type, false otherwise.</returns>
-        public static bool IsJobMatching(CharacterJobType job, int jobBitfield)
+        public static bool IsJobMatching(CharacterClassType job, int jobBitfield)
         {
             bool bMatch = (jobBitfield & (1 << (int)job)) != 0;
             return bMatch;
