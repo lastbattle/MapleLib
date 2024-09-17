@@ -79,7 +79,7 @@ namespace MapleLib.WzLib.WzStructure.Data.CharacterStructure
             new CharacterClassTypeInfo(CharacterClassType.Zero, false, 10112, 321000000, 0, false, true, false, false, false, true, false, false),
             new CharacterClassTypeInfo(CharacterClassType.Shade, false, 2005, 927030050, 0, false, true, false, false, true, true, false, false),
             new CharacterClassTypeInfo(CharacterClassType.ZenOrJett, false, 0, 552000050, 0, false, false, false, false, false, true, false, false),
-            new CharacterClassTypeInfo(CharacterClassType.JettOrZen, false, 0, 552000050, 0, false, false, false, false, false, true, false, false),
+            new CharacterClassTypeInfo(CharacterClassType.ZenOrJett, false, 0, 552000050, 0, false, false, false, false, false, true, false, false), // jett
             new CharacterClassTypeInfo(CharacterClassType.Hayato, false, 4001, 807000000, 0, true, true, false, true, false, false, false, false),
             new CharacterClassTypeInfo(CharacterClassType.Kanna, false, 4002, 807040000, 0, true, true, false, true, false, false, false, false),
             new CharacterClassTypeInfo(CharacterClassType.BeastTamer, false, 11212, 866000000, 0, false, true, true, false, false, false, true, true),
@@ -104,7 +104,7 @@ namespace MapleLib.WzLib.WzStructure.Data.CharacterStructure
             {
                 if (msLocalisation == MapleStoryLocalisation.MapleStoryGlobal)
                 {
-                    return JobTypes[(int)CharacterClassType.JettOrZen];
+                    return JobTypes[(int)CharacterClassType.ZenOrJett];
                 }
                 else if (msLocalisation == MapleStoryLocalisation.MapleStorySEA)
                 {

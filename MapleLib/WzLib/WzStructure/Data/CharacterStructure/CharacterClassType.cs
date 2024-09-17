@@ -49,7 +49,6 @@ namespace MapleLib.WzLib.WzStructure.Data.CharacterStructure
         Zero = 15,
         Shade = 16,
         ZenOrJett = 17,
-        JettOrZen = 17,
         Hayato = 18,
         Kanna = 19,
         BeastTamer = 20,

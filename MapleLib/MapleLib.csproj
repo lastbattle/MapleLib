@@ -273,8 +273,8 @@
     <Compile Include="WzLib\WzSerializer.cs" />
     <Compile Include="WzLib\WzStructure\Data\BackgroundType.cs" />
     <Compile Include="WzLib\WzStructure\Data\CharacterStructure\CharacterJob.cs" />
-    <Compile Include="WzLib\WzStructure\Data\CharacterStructure\CharacterJobType.cs" />
-    <Compile Include="WzLib\WzStructure\Data\CharacterStructure\CharacterJobTypeInfo.cs" />
+    <Compile Include="WzLib\WzStructure\Data\CharacterStructure\CharacterClassType.cs" />
+    <Compile Include="WzLib\WzStructure\Data\CharacterStructure\CharacterClassTypeInfo.cs" />
     <Compile Include="WzLib\WzStructure\Data\CharacterStructure\CharacterStats.cs" />
     <Compile Include="WzLib\WzStructure\Data\CharacterStructure\PetSkillFlag.cs" />
     <Compile Include="WzLib\WzStructure\Data\Data.cs" />
