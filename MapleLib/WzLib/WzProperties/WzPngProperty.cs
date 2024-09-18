@@ -529,7 +529,15 @@ namespace MapleLib.WzLib.WzProperties
                     {
                         using (zlib)
                         {
-                            zlib.Read(decBuf, 0, uncompressedSize);
+                            // https://learn.microsoft.com/en-us/dotnet/api/System.IO.Compression.DeflateStream.Read?view=net-8.0#system-io-compression-deflatestream-read(system-byte()-system-int32-system-int32)
+                            // https://learn.microsoft.com/en-us/dotnet/core/compatibility/core-libraries/6.0/partial-byte-reads-in-streams
+                            int totalRead = 0;
+                            while (totalRead < decBuf.Length)
+                            {
+                                int bytesRead = zlib.Read(decBuf, totalRead, decBuf.Length - totalRead);
+                                if (bytesRead == 0) break;
+                                totalRead += bytesRead;
+                            }
                             return decBuf;
                         }
                     }
