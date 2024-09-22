@@ -8,6 +8,10 @@ based on WzLib by JonyLeeson;
 based on information from Fiel\Koolk.
 
 
+.NET 4.8.1. 
+This branch is no longer supported, it is only for archival purposes.
+
+
 ### Dependencies
  - [spine-runtime 2.1.25 (ported to .net 7.0)](https://github.com/EsotericSoftware/spine-runtimes)
  - [lz4net 1.0.15.93+](https://github.com/MiloszKrajewski/lz4net)
