@@ -10,7 +10,7 @@
     <XnaProfile>HiDef</XnaProfile>
     <XnaCrossPlatformGroupID>99dfd52d-8beb-4e5c-a68b-365be39e8064</XnaCrossPlatformGroupID>
     <XnaOutputType>Library</XnaOutputType>
-    <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
+    <GenerateAssemblyInfo>true</GenerateAssemblyInfo>
     <AssemblyTitle>spine-csharp</AssemblyTitle>
     <Product>spine-csharp</Product>
     <Company>Microsoft</Company>
