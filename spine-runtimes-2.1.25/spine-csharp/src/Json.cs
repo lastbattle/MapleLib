@@ -37,8 +37,7 @@ using System.Text;
 namespace Spine {
 	public static class Json {
 		public static object Deserialize (TextReader text) {
-			SharpJson.JsonDecoder parser = new SharpJson.JsonDecoder();
-			parser.parseNumbersAsFloat = true;
+			SharpJson.JsonDecoder parser = new SharpJson.JsonDecoder(true);
 			return parser.Decode(text.ReadToEnd());
 		}
 	}
@@ -71,7 +70,7 @@ namespace Spine {
  * OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
 namespace SharpJson {
-	class Lexer {
+	internal sealed class Lexer {
 		public enum Token {
 			None,
 			Null,
@@ -87,38 +86,28 @@ namespace SharpJson {
 			SquaredClose,
 		};
 
-		public bool hasError {
-			get {
-				return !success;
-			}
-		}
+		public bool HasError => !_success;
 
-		public int lineNumber {
-			get;
-			private set;
-		}
+		public int LineNumber { get; private set; }
 
-		public bool parseNumbersAsFloat {
-			get;
-			set;
-		}
+		private bool _parseNumbersAsFloat;
 
-		char[] json;
-		int index = 0;
-		bool success = true;
-		char[] stringBuffer = new char[4096];
+		private readonly char[] _json;
+		private int _index = 0;
+		private bool _success = true;
+		private readonly char[] _stringBuffer = new char[4096];
 
-		public Lexer (string text) {
+		public Lexer (string text, bool parseNumbersAsFloat = false) {
 			Reset();
 
-			json = text.ToCharArray();
-			parseNumbersAsFloat = false;
+			_json = text.ToCharArray();
+			_parseNumbersAsFloat = parseNumbersAsFloat;
 		}
 
-		public void Reset () {
-			index = 0;
-			lineNumber = 1;
-			success = true;
+		private void Reset () {
+			_index = 0;
+			LineNumber = 1;
+			_success = true;
 		}
 
 		public string ParseString () {
@@ -128,127 +117,124 @@ namespace SharpJson {
 			SkipWhiteSpaces();
 
 			// "
-			char c = json[index++];
+			char c = _json[_index++];
 
 			bool failed = false;
 			bool complete = false;
 
 			while (!complete && !failed) {
-				if (index == json.Length)
+				if (_index == _json.Length)
 					break;
 
-				c = json[index++];
+				c = _json[_index++];
 				if (c == '"') {
 					complete = true;
 					break;
 				} else if (c == '\\') {
-					if (index == json.Length)
+					if (_index == _json.Length)
 						break;
 
-					c = json[index++];
+					c = _json[_index++];
 
 					switch (c) {
 					case '"':
-						stringBuffer[idx++] = '"';
+						_stringBuffer[idx++] = '"';
 						break;
 					case '\\':
-						stringBuffer[idx++] = '\\';
+						_stringBuffer[idx++] = '\\';
 						break;
 					case '/':
-						stringBuffer[idx++] = '/';
+						_stringBuffer[idx++] = '/';
 						break;
 					case 'b':
-						stringBuffer[idx++] = '\b';
+						_stringBuffer[idx++] = '\b';
 						break;
 					case 'f':
-						stringBuffer[idx++] = '\f';
+						_stringBuffer[idx++] = '\f';
 						break;
 					case 'n':
-						stringBuffer[idx++] = '\n';
+						_stringBuffer[idx++] = '\n';
 						break;
 					case 'r':
-						stringBuffer[idx++] = '\r';
+						_stringBuffer[idx++] = '\r';
 						break;
 					case 't':
-						stringBuffer[idx++] = '\t';
+						_stringBuffer[idx++] = '\t';
 						break;
 					case 'u':
-						int remainingLength = json.Length - index;
+						int remainingLength = _json.Length - _index;
 						if (remainingLength >= 4) {
-							string hex = new string(json, index, 4);
+							string hex = new string(_json, _index, 4);
 
 							// XXX: handle UTF
-							stringBuffer[idx++] = (char)Convert.ToInt32(hex, 16);
+							_stringBuffer[idx++] = (char)Convert.ToInt32(hex, 16);
 
 							// skip 4 chars
-							index += 4;
+							_index += 4;
 						} else {
 							failed = true;
 						}
 						break;
 					}
 				} else {
-					stringBuffer[idx++] = c;
+					_stringBuffer[idx++] = c;
 				}
 
-				if (idx >= stringBuffer.Length) {
-					if (builder == null)
-						builder = new StringBuilder();
+				if (idx >= _stringBuffer.Length) {
+					builder ??= new StringBuilder();
 
-					builder.Append(stringBuffer, 0, idx);
+					builder.Append(_stringBuffer, 0, idx);
 					idx = 0;
 				}
 			}
 
 			if (!complete) {
-				success = false;
+				_success = false;
 				return null;
 			}
 
 			if (builder != null)
 				return builder.ToString();
 			else
-				return new string(stringBuffer, 0, idx);
+				return new string(_stringBuffer, 0, idx);
 		}
 
-		string GetNumberString () {
+		private string GetNumberString () {
 			SkipWhiteSpaces();
 
-			int lastIndex = GetLastIndexOfNumber(index);
-			int charLength = (lastIndex - index) + 1;
+			int lastIndex = GetLastIndexOfNumber(_index);
+			int charLength = (lastIndex - _index) + 1;
 
-			string result = new string(json, index, charLength);
+			string result = new string(_json, _index, charLength);
 
-			index = lastIndex + 1;
+			_index = lastIndex + 1;
 
 			return result;
 		}
 
 		public float ParseFloatNumber () {
-			float number;
 			string str = GetNumberString();
 
-			if (!float.TryParse(str, NumberStyles.Float, CultureInfo.InvariantCulture, out number))
+			if (!float.TryParse(str, NumberStyles.Float, CultureInfo.InvariantCulture, out var number))
 				return 0;
 
 			return number;
 		}
 
 		public double ParseDoubleNumber () {
-			double number;
 			string str = GetNumberString();
 
-			if (!double.TryParse(str, NumberStyles.Any, CultureInfo.InvariantCulture, out number))
+			if (!double.TryParse(str, NumberStyles.Any, CultureInfo.InvariantCulture, out var number))
 				return 0;
 
 			return number;
 		}
 
-		int GetLastIndexOfNumber (int index) {
+		private int GetLastIndexOfNumber (int index) {
 			int lastIndex;
 
-			for (lastIndex = index; lastIndex < json.Length; lastIndex++) {
-				char ch = json[lastIndex];
+			for (lastIndex = index; lastIndex < _json.Length; lastIndex++) {
+				char ch = _json[lastIndex];
 
 				if ((ch < '0' || ch > '9') && ch != '+' && ch != '-'
 					&& ch != '.' && ch != 'e' && ch != 'E')
@@ -258,14 +244,14 @@ namespace SharpJson {
 			return lastIndex - 1;
 		}
 
-		void SkipWhiteSpaces () {
-			for (; index < json.Length; index++) {
-				char ch = json[index];
+		private void SkipWhiteSpaces () {
+			for (; _index < _json.Length; _index++) {
+				char ch = _json[_index];
 
 				if (ch == '\n')
-					lineNumber++;
+					LineNumber++;
 
-				if (!char.IsWhiteSpace(json[index]))
+				if (!char.IsWhiteSpace(_json[_index]))
 					break;
 			}
 		}
@@ -273,16 +259,16 @@ namespace SharpJson {
 		public Token LookAhead () {
 			SkipWhiteSpaces();
 
-			int savedIndex = index;
-			return NextToken(json, ref savedIndex);
+			int savedIndex = _index;
+			return NextToken(_json, ref savedIndex);
 		}
 
 		public Token NextToken () {
 			SkipWhiteSpaces();
-			return NextToken(json, ref index);
+			return NextToken(_json, ref _index);
 		}
 
-		static Token NextToken (char[] json, ref int index) {
+		private static Token NextToken (char[] json, ref int index) {
 			if (index == json.Length)
 				return Token.None;
 
@@ -359,29 +345,16 @@ namespace SharpJson {
 		}
 	}
 
-	public class JsonDecoder {
-		public string errorMessage {
-			get;
-			private set;
-		}
+	public sealed class JsonDecoder(bool parseNumbersAsFloat = false)
+	{
+		private string _errorMessage;
 
-		public bool parseNumbersAsFloat {
-			get;
-			set;
-		}
-
-		Lexer lexer;
-
-		public JsonDecoder () {
-			errorMessage = null;
-			parseNumbersAsFloat = false;
-		}
+		private Lexer _lexer;
 
 		public object Decode (string text) {
-			errorMessage = null;
+			_errorMessage = null;
 
-			lexer = new Lexer(text);
-			lexer.parseNumbersAsFloat = parseNumbersAsFloat;
+			_lexer = new Lexer(text, parseNumbersAsFloat);
 
 			return ParseValue();
 		}
@@ -395,30 +368,30 @@ namespace SharpJson {
 			Dictionary<string, object> table = new Dictionary<string, object>();
 
 			// {
-			lexer.NextToken();
+			_lexer.NextToken();
 
 			while (true) {
-				Lexer.Token token = lexer.LookAhead();
+				Lexer.Token token = _lexer.LookAhead();
 
 				switch (token) {
 				case Lexer.Token.None:
 					TriggerError("Invalid token");
 					return null;
 				case Lexer.Token.Comma:
-					lexer.NextToken();
+					_lexer.NextToken();
 					break;
 				case Lexer.Token.CurlyClose:
-					lexer.NextToken();
+					_lexer.NextToken();
 					return table;
 				default:
 					// name
-					string name = EvalLexer(lexer.ParseString());
+					string name = EvalLexer(_lexer.ParseString());
 
-					if (errorMessage != null)
+					if (_errorMessage != null)
 						return null;
 
 					// :
-					token = lexer.NextToken();
+					token = _lexer.NextToken();
 
 					if (token != Lexer.Token.Colon) {
 						TriggerError("Invalid token; expected ':'");
@@ -428,40 +401,38 @@ namespace SharpJson {
 					// value
 					object value = ParseValue();
 
-					if (errorMessage != null)
+					if (_errorMessage != null)
 						return null;
 
 					table[name] = value;
 					break;
 				}
 			}
-
-			//return null; // Unreachable code
 		}
 
 		IList<object> ParseArray () {
 			List<object> array = new List<object>();
 
 			// [
-			lexer.NextToken();
+			_lexer.NextToken();
 
 			while (true) {
-				Lexer.Token token = lexer.LookAhead();
+				Lexer.Token token = _lexer.LookAhead();
 
 				switch (token) {
 				case Lexer.Token.None:
 					TriggerError("Invalid token");
 					return null;
 				case Lexer.Token.Comma:
-					lexer.NextToken();
+					_lexer.NextToken();
 					break;
 				case Lexer.Token.SquaredClose:
-					lexer.NextToken();
+					_lexer.NextToken();
 					return array;
 				default:
 					object value = ParseValue();
 
-					if (errorMessage != null)
+					if (_errorMessage != null)
 						return null;
 
 					array.Add(value);
@@ -473,26 +444,26 @@ namespace SharpJson {
 		}
 
 		object ParseValue () {
-			switch (lexer.LookAhead()) {
+			switch (_lexer.LookAhead()) {
 			case Lexer.Token.String:
-				return EvalLexer(lexer.ParseString());
+				return EvalLexer(_lexer.ParseString());
 			case Lexer.Token.Number:
 				if (parseNumbersAsFloat)
-					return EvalLexer(lexer.ParseFloatNumber());
+					return EvalLexer(_lexer.ParseFloatNumber());
 				else
-					return EvalLexer(lexer.ParseDoubleNumber());
+					return EvalLexer(_lexer.ParseDoubleNumber());
 			case Lexer.Token.CurlyOpen:
 				return ParseObject();
 			case Lexer.Token.SquaredOpen:
 				return ParseArray();
 			case Lexer.Token.True:
-				lexer.NextToken();
+				_lexer.NextToken();
 				return true;
 			case Lexer.Token.False:
-				lexer.NextToken();
+				_lexer.NextToken();
 				return false;
 			case Lexer.Token.Null:
-				lexer.NextToken();
+				_lexer.NextToken();
 				return null;
 			case Lexer.Token.None:
 				break;
@@ -502,14 +473,14 @@ namespace SharpJson {
 			return null;
 		}
 
-		void TriggerError (string message) {
-			errorMessage = string.Format("Error: '{0}' at line {1}",
-										 message, lexer.lineNumber);
+		private void TriggerError (string message) {
+			_errorMessage = string.Format("Error: '{0}' at line {1}",
+										 message, _lexer.LineNumber);
 		}
 
-		T EvalLexer<T> (T value) {
-			if (lexer.hasError)
-				TriggerError("Lexical error ocurred");
+		private T EvalLexer<T> (T value) {
+			if (_lexer.HasError)
+				TriggerError("Lexical error occurred");
 
 			return value;
 		}
