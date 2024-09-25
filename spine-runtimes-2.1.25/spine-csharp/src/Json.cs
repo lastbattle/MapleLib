@@ -164,10 +164,10 @@ namespace SharpJson {
 					case 'u':
 						int remainingLength = _json.Length - _index;
 						if (remainingLength >= 4) {
-							string hex = new string(_json, _index, 4);
+							ReadOnlySpan<char> hex = _json.AsSpan(_index, 4);
 
 							// XXX: handle UTF
-							_stringBuffer[idx++] = (char)Convert.ToInt32(hex, 16);
+							_stringBuffer[idx++] = (char)int.Parse(hex, NumberStyles.AllowHexSpecifier);
 
 							// skip 4 chars
 							_index += 4;
@@ -199,13 +199,13 @@ namespace SharpJson {
 				return new string(_stringBuffer, 0, idx);
 		}
 
-		private string GetNumberString () {
+		private ReadOnlySpan<char> GetNumberSpan () {
 			SkipWhiteSpaces();
 
 			int lastIndex = GetLastIndexOfNumber(_index);
 			int charLength = (lastIndex - _index) + 1;
 
-			string result = new string(_json, _index, charLength);
+			ReadOnlySpan<char> result = _json.AsSpan(_index, charLength);
 
 			_index = lastIndex + 1;
 
@@ -213,7 +213,7 @@ namespace SharpJson {
 		}
 
 		public float ParseFloatNumber () {
-			string str = GetNumberString();
+			ReadOnlySpan<char> str = GetNumberSpan();
 
 			if (!float.TryParse(str, NumberStyles.Float, CultureInfo.InvariantCulture, out var number))
 				return 0;
@@ -222,7 +222,7 @@ namespace SharpJson {
 		}
 
 		public double ParseDoubleNumber () {
-			string str = GetNumberString();
+			ReadOnlySpan<char> str = GetNumberSpan();
 
 			if (!double.TryParse(str, NumberStyles.Any, CultureInfo.InvariantCulture, out var number))
 				return 0;
