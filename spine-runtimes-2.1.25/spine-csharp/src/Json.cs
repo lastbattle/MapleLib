@@ -28,7 +28,7 @@
  *****************************************************************************/
 
 using System;
-using System.Collections;
+using System.Buffers;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
@@ -71,7 +71,10 @@ namespace Spine {
  */
 namespace SharpJson {
 	internal sealed class Lexer {
-		public enum Token {
+        private static readonly SearchValues<char> NumberChars = SearchValues.Create("+-0123456789.eE");
+        private static readonly SearchValues<char> WhiteSpaceChars = SearchValues.Create(" \t\r\n");
+
+        public enum Token {
 			None,
 			Null,
 			True,
@@ -231,28 +234,13 @@ namespace SharpJson {
 		}
 
 		private int GetLastIndexOfNumber (int index) {
-			int lastIndex;
-
-			for (lastIndex = index; lastIndex < _json.Length; lastIndex++) {
-				char ch = _json[lastIndex];
-
-				if ((ch < '0' || ch > '9') && ch != '+' && ch != '-'
-					&& ch != '.' && ch != 'e' && ch != 'E')
-					break;
-			}
-
-			return lastIndex - 1;
+			int lastIndex = _json.AsSpan(index).IndexOfAnyExcept(NumberChars);
+			return index + lastIndex - 1;
 		}
 
 		private void SkipWhiteSpaces () {
-			for (; _index < _json.Length; _index++) {
-				char ch = _json[_index];
-
-				if (ch == '\n')
-					LineNumber++;
-
-				if (!char.IsWhiteSpace(_json[_index]))
-					break;
+			if (char.IsWhiteSpace(_json[_index])) {
+				_index += _json.AsSpan(_index).IndexOfAnyExcept(WhiteSpaceChars);
 			}
 		}
 
