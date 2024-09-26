@@ -28,7 +28,7 @@ namespace MapleLib.WzLib.WzProperties
     public class WzConvexProperty : WzExtended, IPropertyContainer
 	{
 		#region Fields
-        internal List<WzImageProperty> properties = new List<WzImageProperty>();
+		internal WzPropertyCollection properties;
 		internal string name;
 		internal WzObject parent;
 		//internal WzImage imgParent;
@@ -63,7 +63,7 @@ namespace MapleLib.WzLib.WzProperties
 		/// <summary>
 		/// The properties contained in the property
 		/// </summary>
-		public override List<WzImageProperty> WzProperties
+		public override WzPropertyCollection WzProperties
 		{
 			get
 			{
@@ -158,7 +158,9 @@ namespace MapleLib.WzLib.WzProperties
 		/// <summary>
 		/// Creates a blank WzConvexProperty
 		/// </summary>
-		public WzConvexProperty() { }
+		public WzConvexProperty() {
+            this.properties = new WzPropertyCollection(this);
+        }
 		/// <summary>
 		/// Creates a WzConvexProperty with the specified name
 		/// </summary>
@@ -166,7 +168,9 @@ namespace MapleLib.WzLib.WzProperties
 		public WzConvexProperty(string name)
 		{
 			this.name = name;
-		}
+
+            this.properties = new WzPropertyCollection(this);
+        }
 		/// <summary>
 		/// Adds a WzExtendedProperty to the list of properties
 		/// </summary>
@@ -179,10 +183,12 @@ namespace MapleLib.WzLib.WzProperties
             properties.Add((WzExtended)prop);
 		}
 
-        public void AddProperties(List<WzImageProperty> properties)
+        public void AddProperties(WzPropertyCollection properties)
         {
-            foreach (WzImageProperty property in properties)
-                AddProperty(property);
+			foreach (WzImageProperty property in properties)
+			{
+				AddProperty(property);
+			}
         }
 
         public void RemoveProperty(WzImageProperty prop)

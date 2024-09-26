@@ -47,7 +47,7 @@ namespace MapleLib.WzLib
         private int checksum;
         internal long offset = 0;
         internal WzBinaryReader reader; // could be a WzBinaryReader or a WzBinaryConcurrentReader
-        internal List<WzImageProperty> properties = new List<WzImageProperty>();
+        internal WzPropertyCollection properties;
         internal WzObject parent;
         internal int blockStart = 0;
         internal long tempFileStart = 0;
@@ -68,7 +68,10 @@ namespace MapleLib.WzLib
         /// <summary>
         /// Creates a blank WzImage
         /// </summary>
-        public WzImage() { }
+        public WzImage() {
+
+            this.properties = new WzPropertyCollection(this);
+        }
         /// <summary>
         /// Creates a WzImage with the given name
         /// </summary>
@@ -76,11 +79,15 @@ namespace MapleLib.WzLib
         public WzImage(string name)
         {
             this.name = name;
+
+            this.properties = new WzPropertyCollection(this);
         }
         public WzImage(string name, Stream dataStream, WzMapleVersion mapleVersion)
         {
             this.name = name;
             this.reader = new WzBinaryReader(dataStream, WzTool.GetIvByMapleVersion(mapleVersion));
+
+            this.properties = new WzPropertyCollection(this);
         }
         internal WzImage(string name, WzBinaryReader reader)
         {
@@ -88,6 +95,8 @@ namespace MapleLib.WzLib
             this.reader = reader;
             this.blockStart = (int)reader.BaseStream.Position;
             this.checksum = 0;
+
+            this.properties = new WzPropertyCollection(this);
         }
 
         /// <summary>
@@ -103,6 +112,8 @@ namespace MapleLib.WzLib
             this.reader = reader;
             this.blockStart = (int)reader.BaseStream.Position;
             this.checksum = checksum;
+
+            this.properties = new WzPropertyCollection(this);
         }
 
         public override void Dispose()
@@ -185,7 +196,7 @@ namespace MapleLib.WzLib
         /// <summary>
         /// The properties contained in the image
         /// </summary>
-        public List<WzImageProperty> WzProperties
+        public WzPropertyCollection WzProperties
         {
             get
             {
@@ -283,7 +294,7 @@ namespace MapleLib.WzLib
         /// Add a list of properties to the WzImage
         /// </summary>
         /// <param name="props"></param>
-        public void AddProperties(List<WzImageProperty> props)
+        public void AddProperties(WzPropertyCollection props)
         {
             foreach (WzImageProperty prop in props)
             {
@@ -427,7 +438,7 @@ namespace MapleLib.WzLib
         {
             parsed = false;
             this.properties.Clear();
-            this.properties = new List<WzImageProperty>();
+            this.properties = new WzPropertyCollection(this);
         }
 
         /// <summary>

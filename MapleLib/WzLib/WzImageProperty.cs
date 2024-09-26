@@ -34,7 +34,7 @@ namespace MapleLib.WzLib
     public abstract class WzImageProperty : WzObject
     {
         #region Virtual\Abstrcat Members
-        public virtual List<WzImageProperty> WzProperties { get { return null; } }
+        public virtual WzPropertyCollection WzProperties { get { return null; } }
 
         public virtual new WzImageProperty this[string name] { get { return null; } set { throw new NotImplementedException(); } }
 
@@ -136,10 +136,10 @@ namespace MapleLib.WzLib
             return lua;
         }
 
-        internal static List<WzImageProperty> ParsePropertyList(long offset, WzBinaryReader reader, WzObject parent, WzImage parentImg)
+        internal static WzPropertyCollection ParsePropertyList(long offset, WzBinaryReader reader, WzObject parent, WzImage parentImg)
         {
             int entryCount = reader.ReadCompressedInt();
-            List<WzImageProperty> properties = new List<WzImageProperty>(entryCount);
+            WzPropertyCollection properties = new WzPropertyCollection(parent);
             for (int i = 0; i < entryCount; i++)
             {
                 string name = reader.ReadStringBlock(offset);

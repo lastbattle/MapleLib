@@ -719,7 +719,10 @@ namespace MapleLib.WzLib.WzStructure
             }
 
             // Add back all unsupported properties
-            info.AddProperties(unsupportedInfoProperties);
+            foreach (WzImageProperty imgProp in unsupportedInfoProperties)
+            {
+                info.AddProperty(imgProp);
+            }
 
             //
             dest["info"] = info;

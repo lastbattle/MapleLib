@@ -28,7 +28,7 @@ namespace MapleLib.WzLib.WzProperties
     public class WzSubProperty : WzExtended, IPropertyContainer
     {
         #region Fields
-        internal List<WzImageProperty> properties = new List<WzImageProperty>();
+        internal WzPropertyCollection properties;
         internal string name;
         internal WzObject parent;
         //internal WzImage imgParent;
@@ -63,7 +63,7 @@ namespace MapleLib.WzLib.WzProperties
         /// <summary>
         /// The wz properties contained in the property
         /// </summary>
-        public override List<WzImageProperty> WzProperties
+        public override WzPropertyCollection WzProperties
         {
             get
             {
@@ -166,7 +166,9 @@ namespace MapleLib.WzLib.WzProperties
         /// <summary>
         /// Creates a blank WzSubProperty
         /// </summary>
-        public WzSubProperty() { }
+        public WzSubProperty() {
+            this.properties = new(this);
+        }
         /// <summary>
         /// Creates a WzSubProperty with the specified name
         /// </summary>
@@ -174,6 +176,7 @@ namespace MapleLib.WzLib.WzProperties
         public WzSubProperty(string name)
         {
             this.name = name;
+            this.properties = new(this);
         }
         /// <summary>
         /// Adds a property to the list
@@ -184,7 +187,7 @@ namespace MapleLib.WzLib.WzProperties
             prop.Parent = this; // dont set new parent if we're dumping.. x_X
             properties.Add(prop);
         }
-        public void AddProperties(List<WzImageProperty> props)
+        public void AddProperties(WzPropertyCollection props)
         {
             foreach (WzImageProperty prop in props)
             {

@@ -76,7 +76,7 @@ namespace MapleLib.WzLib.WzProperties
 		public override string Name { get { return name; } set { name = value; } }
 
 #if UOLRES
-		public override List<WzImageProperty> WzProperties
+		public override WzPropertyCollection WzProperties
 		{
 			get
 			{
