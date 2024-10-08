@@ -17,6 +17,7 @@
 using System;
 using System.Diagnostics;
 using System.IO;
+using System.Runtime.CompilerServices;
 using System.Text;
 using MapleLib.MapleCryptoLib;
 using MapleLib.PacketLib;
@@ -78,68 +79,73 @@ namespace MapleLib.WzLib.Util
             return ReturnString;
         }
 
+        /// <summary>
+        /// Reads a string from the buffer
+        /// </summary>
+        /// <returns></returns>
         public override string ReadString()
         {
             sbyte smallLength = base.ReadSByte();
-
             if (smallLength == 0)
-            {
                 return string.Empty;
-            }
 
             int length;
-            StringBuilder retString = new StringBuilder();
             if (smallLength > 0) // Unicode
-            {
-                ushort mask = 0xAAAA;
-                if (smallLength == sbyte.MaxValue)
-                {
-                    length = ReadInt32();
-                }
-                else
-                {
-                    length = (int)smallLength;
-                }
-                if (length <= 0)
-                {
-                    return string.Empty;
-                }
-                
-                for (int i = 0; i < length; i++)
-                {
-                    ushort encryptedChar = ReadUInt16();
-                    encryptedChar ^= mask;
-                    encryptedChar ^= (ushort)((WzKey[(i * 2 + 1)] << 8) + WzKey[(i * 2)]);
-                    retString.Append((char)encryptedChar);
-                    mask++;
-                }
-            }
-            else
-            { // ASCII
-                byte mask = 0xAA;
-                if (smallLength == sbyte.MinValue)
-                {
-                    length = ReadInt32();
-                }
-                else
-                {
-                    length = (int)(-smallLength);
-                }
-                if (length <= 0)
-                {
-                    return string.Empty;
-                }
+                length = smallLength == sbyte.MaxValue ? ReadInt32() : smallLength;
+            else // ASCII
+                length = smallLength == sbyte.MinValue ? ReadInt32() : -smallLength;
 
-                for (int i = 0; i < length; i++)
-                {
-                    byte encryptedChar = ReadByte();
-                    encryptedChar ^= mask;
-                    encryptedChar ^= (byte)WzKey[i];
-                    retString.Append((char)encryptedChar);
-                    mask++;
-                }
+            if (length <= 0)
+                return string.Empty;
+
+            if (smallLength > 0) // Unicode
+                return DecodeUnicode(length);
+            else
+                return DecodeAscii(length);
+        }
+
+        /// <summary>
+        /// Decodes unicode string
+        /// </summary>
+        /// <param name="length"></param>
+        /// <returns></returns>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private string DecodeUnicode(int length)
+        {
+            Span<char> chars = length <= 1024 ? stackalloc char[length] : new char[length];
+            ushort mask = 0xAAAA;
+            
+            for (int i = 0; i < length; i++)
+            {
+                ushort encryptedChar = ReadUInt16();
+                encryptedChar ^= mask;
+                encryptedChar ^= (ushort)((WzKey[(i * 2 + 1)] << 8) + WzKey[(i * 2)]);
+                chars[i] = (char)encryptedChar;
+                mask++;
             }
-            return retString.ToString();
+            return new string(chars);
+        }
+
+        /// <summary>
+        /// Decodes Ascii string
+        /// </summary>
+        /// <param name="length"></param>
+        /// <returns></returns>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private string DecodeAscii(int length)
+        {
+            Span<byte> bytes = length <= 1024 ? stackalloc byte[length] : new byte[length];
+            byte mask = 0xAA;
+            
+            for (int i = 0; i < length; i++)
+            {
+                byte encryptedChar = ReadByte();
+                encryptedChar ^= mask;
+                encryptedChar ^= (byte)WzKey[i];
+                bytes[i] = encryptedChar;
+                mask++;
+            }
+            return Encoding.ASCII.GetString(bytes);
         }
 
         /// <summary>
@@ -153,14 +159,15 @@ namespace MapleLib.WzLib.Util
 
         public string ReadNullTerminatedString()
         {
-            StringBuilder retString = new StringBuilder();
-            byte b = ReadByte();
-            while (b != 0)
+            using (var memoryStream = new MemoryStream())
             {
-                retString.Append((char)b);
-                b = ReadByte();
+                byte b;
+                while ((b = ReadByte()) != 0)
+                {
+                    memoryStream.WriteByte(b);
+                }
+                return Encoding.UTF8.GetString(memoryStream.GetBuffer(), 0, (int)memoryStream.Length);
             }
-            return retString.ToString();
         }
 
         public int ReadCompressedInt()
@@ -206,33 +213,38 @@ namespace MapleLib.WzLib.Util
             return (offset + startOffset);
         }
 
+        /// <summary>
+        /// Decrypts List.wz string without mask
+        /// </summary>
+        /// <param name="stringToDecrypt"></param>
+        /// <returns></returns>
         public string DecryptString(char[] stringToDecrypt)
         {
-            StringBuilder outputString = new StringBuilder();
+            Span<char> outputChars = stringToDecrypt.Length <= 1024
+                    ? stackalloc char[stringToDecrypt.Length]
+                    : new char[stringToDecrypt.Length];
 
-            int i = 0;
-            foreach (char c in stringToDecrypt)
+            for (int i = 0; i < stringToDecrypt.Length; i++)
             {
-                outputString.Append((char)(c ^ ((char)((WzKey[i * 2 + 1] << 8) + WzKey[i * 2]))));
-                i++;
+                outputChars[i] = (char)(stringToDecrypt[i] ^ ((char)((WzKey[i * 2 + 1] << 8) + WzKey[i * 2])));
             }
-            return outputString.ToString();
+
+            return new string(outputChars);
         }
 
 
         public string DecryptNonUnicodeString(char[] stringToDecrypt)
         {
-            // Initialize the output string with the correct capacity
-            StringBuilder outputString = new StringBuilder(stringToDecrypt.Length);
+            Span<char> outputChars = stringToDecrypt.Length <= 1024
+                   ? stackalloc char[stringToDecrypt.Length]
+                   : new char[stringToDecrypt.Length];
 
             for (int i = 0; i < stringToDecrypt.Length; i++)
             {
-                // Append the decrypted character to the StringBuilder object
-                outputString.Append((char)(stringToDecrypt[i] ^ WzKey[i]));
+                outputChars[i] = (char)(stringToDecrypt[i] ^ WzKey[i]);
             }
 
-            // Convert the StringBuilder object to a string and return it
-            return outputString.ToString();
+            return new string(outputChars);
         }
 
         public string ReadStringBlock(long offset)
@@ -306,8 +318,8 @@ namespace MapleLib.WzLib.Util
             this.BaseStream.Position -= numberOfBytes;
 #endif
         }
-#endregion
-        
+        #endregion
+
         #region Overrides
         public override void Close()
         {
