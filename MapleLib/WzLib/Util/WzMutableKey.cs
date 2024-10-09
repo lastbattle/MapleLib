@@ -20,50 +20,42 @@ using System.Security.Cryptography;
 using MapleLib.MapleCryptoLib;
 using Newtonsoft.Json.Linq;
 using System.Linq;
+using System.Runtime.InteropServices;
 
 namespace MapleLib.WzLib.Util
 {
     public sealed class WzMutableKey : IEquatable<WzMutableKey>
     {
+        private static readonly int BatchSize = 4096;
+        private readonly byte[] _iv;
+        private readonly byte[] _aesUserKey;
+        private byte[]? _keys;
+
         /// <summary>
-        /// 
+        /// Constructor
         /// </summary>
         /// <param name="WzIv"></param>
         /// <param name="AesKey">The 32-byte AES UserKey (derived from 32 DWORD)</param>
         public WzMutableKey(byte[] WzIv, byte[] AesKey)
         {
-            this.IV = WzIv;
-            this.AESUserKey = AesKey;
+            this._iv = WzIv;
+            this._aesUserKey = AesKey;
         }
 
-        private static readonly int BatchSize = 4096;
-        private readonly byte[] IV;
-        private readonly byte[] AESUserKey;
-
-        private byte[] keys;
-        public byte[] GetKeys()
-        {
-            byte[] keysCopy = new byte[keys.Length];
-            Array.Copy(keys, keysCopy, keys.Length);
-
-            return keysCopy;
-        }
+        public byte[] GetKeys() => _keys?.ToArray() ?? Array.Empty<byte>();
 
         public byte this[int index]
         {
             get
             {
-                if (keys == null || keys.Length <= index)
-                {
-                    EnsureKeySize(index + 1);
-                }
-                return this.keys[index];
+                EnsureKeySize(index + 1);
+                return _keys![index];
             }
         }
 
         public void EnsureKeySize(int size)
         {
-            if (keys != null && keys.Length >= size)
+            if (_keys != null && _keys.Length >= size)
             {
                 return;
             }
@@ -71,80 +63,60 @@ namespace MapleLib.WzLib.Util
             size = (int)Math.Ceiling(1.0 * size / BatchSize) * BatchSize;
             byte[] newKeys = new byte[size];
 
-            if (BitConverter.ToInt32(this.IV, 0) == 0)
+            if (BitConverter.ToInt32(this._iv, 0) == 0)
             {
-                this.keys = newKeys;
+                this._keys = newKeys;
                 return;
             }
 
             int startIndex = 0;
-
-            if (keys != null)
+            if (_keys != null)
             {
-                Buffer.BlockCopy(keys, 0, newKeys, 0, keys.Length);
-                startIndex = keys.Length;
+                _keys.CopyTo(newKeys, 0);
+                startIndex = _keys.Length;
             }
 
-            Rijndael aes = Rijndael.Create();
+            this._keys = newKeys;
+            using var aes = Aes.Create();
             aes.KeySize = 256;
             aes.BlockSize = 128;
-            aes.Key = AESUserKey;
+            aes.Key = _aesUserKey;
             aes.Mode = CipherMode.ECB;
-            MemoryStream ms = new MemoryStream(newKeys, startIndex, newKeys.Length - startIndex, true);
-            CryptoStream s = new CryptoStream(ms, aes.CreateEncryptor(), CryptoStreamMode.Write);
+            aes.Padding = PaddingMode.None;   // Ensure no padding is added
 
+            using var encryptor = aes.CreateEncryptor();
+            using var ms = new MemoryStream(newKeys, startIndex, newKeys.Length - startIndex, true);
+            using var cs = new CryptoStream(ms, encryptor, CryptoStreamMode.Write);
+
+            Span<byte> block = stackalloc byte[16];
             for (int i = startIndex; i < size; i += 16)
             {
                 if (i == 0)
                 {
-                    byte[] block = new byte[16];
                     for (int j = 0; j < block.Length; j++)
-                    {
-                        block[j] = IV[j % 4];
-                    }
-                    s.Write(block, 0, block.Length);
+                        block[j] = _iv[j % 4];
+                    cs.Write(block);
                 }
                 else
                 {
-                    s.Write(newKeys, i - 16, 16);
+                    cs.Write(newKeys.AsSpan(i - 16, 16));
                 }
             }
 
-            s.Flush();
-            ms.Close();
-            this.keys = newKeys;
+            _keys = newKeys;
         }
 
-        public bool Equals(WzMutableKey other)
-        {
-            if (ReferenceEquals(null, other)) return false;
-            if (ReferenceEquals(this, other)) return true;
-            return IV.SequenceEqual(other.IV) && AESUserKey.SequenceEqual(other.AESUserKey);
-        }
+        public bool Equals(WzMutableKey? other) =>
+            other != null && _iv.AsSpan().SequenceEqual(other._iv) && _aesUserKey.AsSpan().SequenceEqual(other._aesUserKey);
 
-        public override bool Equals(object obj)
-        {
-            return ReferenceEquals(this, obj) || obj is WzMutableKey other && Equals(other);
-        }
+        public override bool Equals(object? obj) =>
+            ReferenceEquals(this, obj) || (obj is WzMutableKey other && Equals(other));
 
-        public override int GetHashCode()
-        {
-            unchecked
-            {
-                return (IV.GetHashCode() * 397) ^ AESUserKey.GetHashCode();
-            }
-        }
+        public override int GetHashCode() => HashCode.Combine(MemoryMarshal.Read<int>(_iv), MemoryMarshal.Read<int>(_aesUserKey));
 
-        public static bool operator ==(WzMutableKey left, WzMutableKey right)
-        {
-            if (ReferenceEquals(left, right)) return true;
-            if (left is null || right is null) return false;
-            return left.Equals(right);
-        }
+        public static bool operator ==(WzMutableKey? left, WzMutableKey? right) =>
+           ReferenceEquals(left, right) || (left is not null && left.Equals(right));
 
-        public static bool operator !=(WzMutableKey left, WzMutableKey right)
-        {
-            return !(left == right);
-        }
+        public static bool operator !=(WzMutableKey? left, WzMutableKey? right) => !(left == right);
     }
 }
