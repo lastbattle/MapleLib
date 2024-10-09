@@ -16,6 +16,7 @@
 
 using System;
 using System.Collections;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Runtime.CompilerServices;
@@ -33,7 +34,7 @@ namespace MapleLib.WzLib.Util
 		#region Properties
 		public WzMutableKey WzKey { get; set; }
 		public uint Hash { get; set; }
-		public Hashtable StringCache { get; set; }
+		public Dictionary<string, int> StringCache { get; set; }
 		public WzHeader Header { get; set; }
 		public bool LeaveOpen { get; internal set; }
 		#endregion
@@ -54,8 +55,8 @@ namespace MapleLib.WzLib.Util
 			: base(output)
 		{
 			WzKey = WzKeyGenerator.GenerateWzKey(WzIv);
-			StringCache = new Hashtable();
-			this.LeaveOpen = leaveOpen;
+            StringCache = new Dictionary<string, int>();
+            this.LeaveOpen = leaveOpen;
 		}
 		#endregion
 
@@ -112,146 +113,142 @@ namespace MapleLib.WzLib.Util
 				int sOffset = (int)(this.BaseStream.Position - Header.FStart);
 				Write((byte)type);
 				Write(stringObjectValue);
-				if (!StringCache.ContainsKey(storeName))
-				{
-					StringCache[storeName] = sOffset;
-				}
-			}
+                StringCache[storeName] = sOffset;
+            }
 			return false;
 		}
 
 		public override void Write(string value)
 		{
-			if (value.Length == 0)
+			if (string.IsNullOrEmpty(value))
 			{
 				Write((byte)0);
+				return;
 			}
-			else
-			{
-                bool unicode = value.Any(c => c > sbyte.MaxValue);
-
-                if (unicode)
-				{
-					ushort mask = 0xAAAA;
-
-					if (value.Length >= sbyte.MaxValue) // Bugfix - >= because if value.Length = MaxValue, MaxValue will be written and then treated as a long-length marker
-					{
-						Write(sbyte.MaxValue);
-						Write(value.Length);
-					}
-					else
-					{
-						Write((sbyte)value.Length);
-					}
-
-					int i = 0;
-                    foreach (var character in value)
-                    {
-                        ushort encryptedChar = (ushort)character;
-                        encryptedChar ^= (ushort)((WzKey[i * 2 + 1] << 8) + WzKey[i * 2]);
-                        encryptedChar ^= mask;
-                        mask++;
-                        Write(encryptedChar);
-
-						i++;
-                    }
-				}
-				else // ASCII
-				{
-					byte mask = 0xAA;
-
-					if (value.Length > sbyte.MaxValue) // Note - no need for >= here because of 2's complement (MinValue == -(MaxValue + 1))
-					{
-						Write(sbyte.MinValue);
-						Write(value.Length);
-					}
-					else
-					{
-						Write((sbyte)(-value.Length));
-					}
-
-					int i = 0;
-                    foreach (char c in value)
-                    {
-                        byte encryptedChar = (byte)c;
-                        encryptedChar ^= WzKey[i];
-                        encryptedChar ^= mask;
-                        mask++;
-                        Write(encryptedChar);
-
-						i++;
-                    }
-				}
-			}
+			bool unicode = value.Any(c => c > sbyte.MaxValue);
+			
+			if (unicode)
+				WriteUnicodeString(value);
+			else // ASCII
+				WriteAsciiString(value);
 		}
 
-		public void Write(string value, int length)
-		{
-			for (int i = 0; i < length; i++)
-			{
-				if (i < value.Length)
-				{
-					Write(value[i]);
-				}
-				else
-				{
-					Write((byte)0);
-				}
-			}
-		}
-
-        public char[] EncryptString(string stringToDecrypt)
+		/// <summary>
+		/// Encodes unicode string
+		/// </summary>
+		/// <param name="value"></param>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private void WriteUnicodeString(string value)
         {
-            char[] outputChars = new char[stringToDecrypt.Length];
-            for (int i = 0; i < stringToDecrypt.Length; i++)
-                outputChars[i] = (char)(stringToDecrypt[i] ^ ((char)((WzKey[i * 2 + 1] << 8) + WzKey[i * 2])));
-            return outputChars;
+            ushort mask = 0xAAAA;
+
+            WriteStringLength(value.Length, false);
+
+            for (int i = 0; i < value.Length; i++)
+            {
+                ushort encryptedChar = (ushort)value[i];
+                encryptedChar ^= (ushort)((WzKey[i * 2 + 1] << 8) + WzKey[i * 2]);
+                encryptedChar ^= mask;
+                mask++;
+                Write(encryptedChar);
+            }
         }
 
-        public char[] EncryptNonUnicodeString(string stringToDecrypt)
+		/// <summary>
+		/// Encodes Ascii string
+		/// </summary>
+		/// <param name="value"></param>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private void WriteAsciiString(string value)
         {
-            char[] outputChars = new char[stringToDecrypt.Length];
-            for (int i = 0; i < stringToDecrypt.Length; i++)
-                outputChars[i] = (char)(stringToDecrypt[i] ^ WzKey[i]);
-            return outputChars;
+            byte mask = 0xAA;
+
+            WriteStringLength(value.Length, true);
+
+            for (int i = 0; i < value.Length; i++)
+            {
+                byte encryptedChar = (byte)value[i];
+                encryptedChar ^= WzKey[i];
+                encryptedChar ^= mask;
+                mask++;
+                Write(encryptedChar);
+            }
         }
 
-		public void WriteNullTerminatedString(string value)
-		{
-			for (int i = 0; i < value.Length; i++)
-			{
-				Write((byte)value[i]);
-			}
-			Write((byte)0);
-		}
-
-		public void WriteCompressedInt(int value)
-		{
-			if (value > sbyte.MaxValue || value <= sbyte.MinValue)
-			{
-				Write(sbyte.MinValue);
-				Write(value);
-			}
-			else
-			{
-				Write((sbyte)value);
-			}
-		}
-
-        public void WriteCompressedLong(long value)
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private void WriteStringLength(int length, bool isAscii)
         {
-            if (value > sbyte.MaxValue || value <= sbyte.MinValue)
+            // Bugfix - >= because if value.Length = MaxValue, MaxValue will be written and then treated as a long-length marker
+            // Note - no need for >= here because of 2's complement (MinValue == -(MaxValue + 1))
+            if (length > sbyte.MaxValue)
             {
                 Write(sbyte.MinValue);
-                Write(value);
+                Write(length);
             }
             else
             {
-                Write((sbyte)value);
+				if (isAscii)
+                    Write((sbyte)(-length));
+                else
+                    Write((sbyte)length);
             }
         }
 
-		public void WriteOffset(long value)
+        public void Write(string value, int length)
+        {
+            int writeLength = Math.Min(value.Length, length);
+            Write(value.AsSpan(0, writeLength));
+            for (int i = writeLength; i < length; i++)
+            {
+                Write((byte)0);
+            }
+        }
+
+        public char[] EncryptString(string stringToEncrypt)
+        {
+            return stringToEncrypt.Select((c, i) => (char)(c ^ ((WzKey[i * 2 + 1] << 8) + WzKey[i * 2]))).ToArray();
+        }
+
+        public char[] EncryptNonUnicodeString(string stringToEncrypt)
+        {
+            return stringToEncrypt.Select((c, i) => (char)(c ^ WzKey[i])).ToArray();
+        }
+
+        public void WriteNullTerminatedString(string value)
+        {
+            Write(value.AsSpan());
+            Write((byte)0);
+        }
+
+        public void WriteCompressedInt(int value) => WriteCompressed(value);
+
+        public void WriteCompressedLong(long value) => WriteCompressed(value);
+
+        private void WriteCompressed<T>(T value) where T : IConvertible
+        {
+            long longValue = value.ToInt64(null);
+            if (longValue > sbyte.MaxValue || longValue <= sbyte.MinValue)
+            {
+                Write(sbyte.MinValue);
+                switch (Type.GetTypeCode(typeof(T)))
+                {
+                    case TypeCode.Int32:
+                        Write(value.ToInt32(null));
+                        break;
+                    case TypeCode.Int64:
+                        Write(value.ToInt64(null));
+                        break;
+                    default:
+                        throw new ArgumentException($"Unsupported type for compressed writing: {typeof(T)}");
+                }
+            }
+            else
+            {
+                Write(value.ToSByte(null));
+            }
+        }
+
+        public void WriteOffset(long value)
 		{
 			uint encOffset = (uint)BaseStream.Position;
 			encOffset = (encOffset - Header.FStart) ^ 0xFFFFFFFF;
