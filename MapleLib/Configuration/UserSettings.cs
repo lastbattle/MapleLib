@@ -1,4 +1,4 @@
-﻿using MapleLib.WzLib.Serialization;
+﻿using MapleLib.WzLib.Serializer;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Converters;
 using System;
