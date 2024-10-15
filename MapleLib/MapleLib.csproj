@@ -8,6 +8,9 @@
     <AllowUnsafeBlocks>True</AllowUnsafeBlocks>
   </PropertyGroup>
   <PropertyGroup>
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
+  </PropertyGroup>
+  <PropertyGroup>
     <AssemblyTitle>MapleLib</AssemblyTitle>
     <Description>A general-purpose MapleStory library</Description>
     <Product>MapleLib</Product>
