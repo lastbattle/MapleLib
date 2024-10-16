@@ -326,14 +326,21 @@ namespace MapleLib.WzLib.WzProperties
             }
         }
 
-        private static T BytesToStructConstructorless<T>(byte[] data)
+        private static T BytesToStructConstructorless<T>(byte[] data) where T : class
         {
+            if (data == null)
+                throw new ArgumentNullException(nameof(data));
+
+            int objectSize = Marshal.SizeOf(typeof(T));
+            if (data.Length < objectSize)
+                throw new ArgumentException($"The byte array must be at least {objectSize} bytes long to contain the entire object.", nameof(data));
+
             GCHandle handle = GCHandle.Alloc(data, GCHandleType.Pinned);
             try
             {
-                T obj = (T)FormatterServices.GetUninitializedObject(typeof(T));
-                Marshal.PtrToStructure<T>(handle.AddrOfPinnedObject(), obj);
-                return obj;
+                IntPtr ptr = handle.AddrOfPinnedObject();
+                object obj = Marshal.PtrToStructure(ptr, typeof(T));
+                return (T)obj;
             }
             finally
             {
