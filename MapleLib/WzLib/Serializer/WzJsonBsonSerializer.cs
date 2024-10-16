@@ -1,4 +1,5 @@
-﻿using System;
+﻿using Newtonsoft.Json.Bson;
+using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -64,7 +65,7 @@ namespace MapleLib.WzLib.Serializer
 
                     using (MemoryStream ms = new MemoryStream())
                     {
-                        using (Newtonsoft.Json.Bson.BsonWriter writer = new Newtonsoft.Json.Bson.BsonWriter(ms))
+                        using (BsonDataWriter writer = new BsonDataWriter(ms))
                         {
                             Newtonsoft.Json.JsonSerializer serializer = new Newtonsoft.Json.JsonSerializer();
                             serializer.Serialize(writer, jsonObject);
