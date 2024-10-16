@@ -22,6 +22,8 @@ using Newtonsoft.Json.Linq;
 using System.Linq;
 using System.Runtime.InteropServices;
 
+#nullable enable
+
 namespace MapleLib.WzLib.Util
 {
     public sealed class WzMutableKey : IEquatable<WzMutableKey>
