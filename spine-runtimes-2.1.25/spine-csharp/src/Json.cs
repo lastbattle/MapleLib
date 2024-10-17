@@ -1,542 +1,476 @@
-/*
- * Copyright (c) 2012 Calvin Rien
+/******************************************************************************
+ * Spine Runtimes License Agreement
+ * Last updated July 28, 2023. Replaces all prior versions.
  *
- * Based on the JSON parser by Patrick van Bergen
- * http://techblog.procurios.nl/k/618/news/view/14605/14863/How-do-I-write-my-own-parser-for-JSON.html
+ * Copyright (c) 2013-2023, Esoteric Software LLC
  *
- * Simplified it so that it doesn't throw exceptions
- * and can be used in Unity iPhone with maximum code stripping.
+ * Integration of the Spine Runtimes into software or otherwise creating
+ * derivative works of the Spine Runtimes is permitted under the terms and
+ * conditions of Section 2 of the Spine Editor License Agreement:
+ * http://esotericsoftware.com/spine-editor-license
  *
- * Permission is hereby granted, free of charge, to any person obtaining
- * a copy of this software and associated documentation files (the
- * "Software"), to deal in the Software without restriction, including
- * without limitation the rights to use, copy, modify, merge, publish,
- * distribute, sublicense, and/or sell copies of the Software, and to
- * permit persons to whom the Software is furnished to do so, subject to
- * the following conditions:
+ * Otherwise, it is permitted to integrate the Spine Runtimes into software or
+ * otherwise create derivative works of the Spine Runtimes (collectively,
+ * "Products"), provided that each user of the Products must obtain their own
+ * Spine Editor license and redistribution of the Products in any form must
+ * include this license and copyright notice.
  *
- * The above copyright notice and this permission notice shall be
- * included in all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
- * EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
- * MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
- * IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
- * CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,
- * TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
- * SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
- */
+ * THE SPINE RUNTIMES ARE PROVIDED BY ESOTERIC SOFTWARE LLC "AS IS" AND ANY
+ * EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+ * WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+ * DISCLAIMED. IN NO EVENT SHALL ESOTERIC SOFTWARE LLC BE LIABLE FOR ANY
+ * DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
+ * (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES,
+ * BUSINESS INTERRUPTION, OR LOSS OF USE, DATA, OR PROFITS) HOWEVER CAUSED AND
+ * ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+ * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THE
+ * SPINE RUNTIMES, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ *****************************************************************************/
+
 using System;
-using System.Collections;
+using System.Buffers;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using System.Text;
-using System.Globalization;
- 
-namespace Spine
-{
-    // Example usage:
-    //
-    //  using UnityEngine;
-    //  using System.Collections;
-    //  using System.Collections.Generic;
-    //  using MiniJSON;
-    //
-    //  public class MiniJSONTest : MonoBehaviour {
-    //      void Start () {
-    //          var jsonString = "{ \"array\": [1.44,2,3], " +
-    //                          "\"object\": {\"key1\":\"value1\", \"key2\":256}, " +
-    //                          "\"string\": \"The quick brown fox \\\"jumps\\\" over the lazy dog \", " +
-    //                          "\"unicode\": \"\\u3041 Men\u00fa sesi\u00f3n\", " +
-    //                          "\"int\": 65536, " +
-    //                          "\"float\": 3.1415926, " +
-    //                          "\"bool\": true, " +
-    //                          "\"null\": null }";
-    //
-    //          var dict = Json.Deserialize(jsonString) as Dictionary<string,object>;
-    //
-    //          Debug.Log("deserialized: " + dict.GetType());
-    //          Debug.Log("dict['array'][0]: " + ((List<object>) dict["array"])[0]);
-    //          Debug.Log("dict['string']: " + (string) dict["string"]);
-	 //          Debug.Log("dict['float']: " + (float) dict["float"]);
-    //          Debug.Log("dict['int']: " + (long) dict["int"]); // ints come out as longs
-    //          Debug.Log("dict['unicode']: " + (string) dict["unicode"]);
-    //
-    //          var str = Json.Serialize(dict);
-    //
-    //          Debug.Log("serialized: " + str);
-    //      }
-    //  }
- 
-    /// <summary>
-    /// This class encodes and decodes JSON strings.
-    /// Spec. details, see http://www.json.org/
-    ///
-    /// JSON uses Arrays and Objects. These correspond here to the datatypes IList and IDictionary.
-    /// All numbers are parsed to floats.
-    /// </summary>
-    public static class Json {
-        /// <summary>
-        /// Parses the string json into a value
-        /// </summary>
-        /// <param name="json">A JSON string.</param>
-		 /// <returns>An List&lt;object&gt;, a Dictionary&lt;string, object&gt;, a float, an integer,a string, null, true, or false</returns>
-		 public static object Deserialize (TextReader json) {
-            if (json == null) {
-                return null;
-            } 
-            return Parser.Parse(json);
-        }
- 
-        sealed class Parser : IDisposable {
-            const string WHITE_SPACE = " \t\n\r";
-            const string WORD_BREAK = " \t\n\r{}[],:\"";
- 
-            enum TOKEN {
-                NONE,
-                CURLY_OPEN,
-                CURLY_CLOSE,
-                SQUARED_OPEN,
-                SQUARED_CLOSE,
-                COLON,
-                COMMA,
-                STRING,
-                NUMBER,
-                TRUE,
-                FALSE,
-                NULL
-            };
- 
-            TextReader json;
- 
-            Parser(TextReader reader) {
-					json = reader;
-            }
 
-				public static object Parse (TextReader reader) {
-                using (var instance = new Parser(reader)) {
-                    return instance.ParseValue();
-                }
-            }
- 
-            public void Dispose() {
-                json.Dispose();
-                json = null;
-            }
- 
-            Dictionary<string, object> ParseObject() {
-                Dictionary<string, object> table = new Dictionary<string, object>();
- 
-                // ditch opening brace
-                json.Read();
- 
-                // {
-                while (true) {
-                    switch (NextToken) {
-                    case TOKEN.NONE:
-                        return null;
-                    case TOKEN.COMMA:
-                        continue;
-                    case TOKEN.CURLY_CLOSE:
-                        return table;
-                    default:
-                        // name
-                        string name = ParseString();
-                        if (name == null) {
-                            return null;
-                        }
- 
-                        // :
-                        if (NextToken != TOKEN.COLON) {
-                            return null;
-                        }
-                        // ditch the colon
-                        json.Read();
- 
-                        // value
-                        table[name] = ParseValue();
-                        break;
-                    }
-                }
-            }
- 
-            List<object> ParseArray() {
-                List<object> array = new List<object>();
- 
-                // ditch opening bracket
-                json.Read();
- 
-                // [
-                var parsing = true;
-                while (parsing) {
-                    TOKEN nextToken = NextToken;
- 
-                    switch (nextToken) {
-                    case TOKEN.NONE:
-                        return null;
-                    case TOKEN.COMMA:
-                        continue;
-                    case TOKEN.SQUARED_CLOSE:
-                        parsing = false;
-                        break;
-                    default:
-                        object value = ParseByToken(nextToken);
- 
-                        array.Add(value);
-                        break;
-                    }
-                }
- 
-                return array;
-            }
- 
-            object ParseValue() {
-                TOKEN nextToken = NextToken;
-                return ParseByToken(nextToken);
-            }
- 
-            object ParseByToken(TOKEN token) {
-                switch (token) {
-                case TOKEN.STRING:
-                    return ParseString();
-                case TOKEN.NUMBER:
-                    return ParseNumber();
-                case TOKEN.CURLY_OPEN:
-                    return ParseObject();
-                case TOKEN.SQUARED_OPEN:
-                    return ParseArray();
-                case TOKEN.TRUE:
-                    return true;
-                case TOKEN.FALSE:
-                    return false;
-                case TOKEN.NULL:
-                    return null;
-                default:
-                    return null;
-                }
-            }
- 
-            string ParseString() {
-                StringBuilder s = new StringBuilder();
-                char c;
- 
-                // ditch opening quote
-                json.Read();
- 
-                bool parsing = true;
-                while (parsing) {
- 
-                    if (json.Peek() == -1) {
-                        parsing = false;
-                        break;
-                    }
- 
-                    c = NextChar;
-                    switch (c) {
-                    case '"':
-                        parsing = false;
-                        break;
-                    case '\\':
-                        if (json.Peek() == -1) {
-                            parsing = false;
-                            break;
-                        }
- 
-                        c = NextChar;
-                        switch (c) {
-                        case '"':
-                        case '\\':
-                        case '/':
-                            s.Append(c);
-                            break;
-                        case 'b':
-                            s.Append('\b');
-                            break;
-                        case 'f':
-                            s.Append('\f');
-                            break;
-                        case 'n':
-                            s.Append('\n');
-                            break;
-                        case 'r':
-                            s.Append('\r');
-                            break;
-                        case 't':
-                            s.Append('\t');
-                            break;
-                        case 'u':
-                            var hex = new StringBuilder();
- 
-                            for (int i=0; i< 4; i++) {
-                                hex.Append(NextChar);
-                            }
- 
-                            s.Append((char) Convert.ToInt32(hex.ToString(), 16));
-                            break;
-                        }
-                        break;
-                    default:
-                        s.Append(c);
-                        break;
-                    }
-                }
- 
-                return s.ToString();
-            }
- 
-            object ParseNumber() {
-                string number = NextWord;
-					 float parsedFloat;
-					 float.TryParse(number, NumberStyles.Float, CultureInfo.InvariantCulture, out parsedFloat); 
-					 return parsedFloat;
-            }
- 
-            void EatWhitespace() {
-                while (WHITE_SPACE.IndexOf(PeekChar) != -1) {
-                    json.Read();
- 
-                    if (json.Peek() == -1) {
-                        break;
-                    }
-                }
-            }
- 
-            char PeekChar {
-                get {
-                    return Convert.ToChar(json.Peek());
-                }
-            }
- 
-            char NextChar {
-                get {
-                    return Convert.ToChar(json.Read());
-                }
-            }
- 
-            string NextWord {
-                get {
-                    StringBuilder word = new StringBuilder();
- 
-                    while (WORD_BREAK.IndexOf(PeekChar) == -1) {
-                        word.Append(NextChar);
- 
-                        if (json.Peek() == -1) {
-                            break;
-                        }
-                    }
- 
-                    return word.ToString();
-                }
-            }
- 
-            TOKEN NextToken {
-                get {
-                    EatWhitespace();
- 
-                    if (json.Peek() == -1) {
-                        return TOKEN.NONE;
-                    }
- 
-                    char c = PeekChar;
-                    switch (c) {
-                    case '{':
-                        return TOKEN.CURLY_OPEN;
-                    case '}':
-                        json.Read();
-                        return TOKEN.CURLY_CLOSE;
-                    case '[':
-                        return TOKEN.SQUARED_OPEN;
-                    case ']':
-                        json.Read();
-                        return TOKEN.SQUARED_CLOSE;
-                    case ',':
-                        json.Read();
-                        return TOKEN.COMMA;
-                    case '"':
-                        return TOKEN.STRING;
-                    case ':':
-                        return TOKEN.COLON;
-                    case '0':
-                    case '1':
-                    case '2':
-                    case '3':
-                    case '4':
-                    case '5':
-                    case '6':
-                    case '7':
-                    case '8':
-                    case '9':
-                    case '-':
-                        return TOKEN.NUMBER;
-                    }
- 
-                    string word = NextWord;
- 
-                    switch (word) {
-                    case "false":
-                        return TOKEN.FALSE;
-                    case "true":
-                        return TOKEN.TRUE;
-                    case "null":
-                        return TOKEN.NULL;
-                    }
- 
-                    return TOKEN.NONE;
-                }
-            }
-        }
- 
-        /// <summary>
-        /// Converts a IDictionary / IList object or a simple type (string, int, etc.) into a JSON string
-        /// </summary>
-        /// <param name="json">A Dictionary&lt;string, object&gt; / List&lt;object&gt;</param>
-        /// <returns>A JSON encoded string, or null if object 'json' is not serializable</returns>
-        public static string Serialize(object obj) {
-            return Serializer.Serialize(obj);
-        }
- 
-        sealed class Serializer {
-            StringBuilder builder;
- 
-            Serializer() {
-                builder = new StringBuilder();
-            }
- 
-            public static string Serialize(object obj) {
-                var instance = new Serializer();
- 
-                instance.SerializeValue(obj);
- 
-                return instance.builder.ToString();
-            }
- 
-            void SerializeValue(object value) {
-                IList asList;
-                IDictionary asDict;
-                string asStr;
- 
-                if (value == null) {
-                    builder.Append("null");
-                }
-                else if ((asStr = value as string) != null) {
-                    SerializeString(asStr);
-                }
-                else if (value is bool) {
-                    builder.Append(value.ToString().ToLower());
-                }
-                else if ((asList = value as IList) != null) {
-                    SerializeArray(asList);
-                }
-                else if ((asDict = value as IDictionary) != null) {
-                    SerializeObject(asDict);
-                }
-                else if (value is char) {
-                    SerializeString(value.ToString());
-                }
-                else {
-                    SerializeOther(value);
-                }
-            }
- 
-            void SerializeObject(IDictionary obj) {
-                bool first = true;
- 
-                builder.Append('{');
- 
-                foreach (object e in obj.Keys) {
-                    if (!first) {
-                        builder.Append(',');
-                    }
- 
-                    SerializeString(e.ToString());
-                    builder.Append(':');
- 
-                    SerializeValue(obj[e]);
- 
-                    first = false;
-                }
- 
-                builder.Append('}');
-            }
- 
-            void SerializeArray(IList anArray) {
-                builder.Append('[');
- 
-                bool first = true;
- 
-                foreach (object obj in anArray) {
-                    if (!first) {
-                        builder.Append(',');
-                    }
- 
-                    SerializeValue(obj);
- 
-                    first = false;
-                }
- 
-                builder.Append(']');
-            }
- 
-            void SerializeString(string str) {
-                builder.Append('\"');
- 
-                char[] charArray = str.ToCharArray();
-                foreach (var c in charArray) {
-                    switch (c) {
-                    case '"':
-                        builder.Append("\\\"");
-                        break;
-                    case '\\':
-                        builder.Append("\\\\");
-                        break;
-                    case '\b':
-                        builder.Append("\\b");
-                        break;
-                    case '\f':
-                        builder.Append("\\f");
-                        break;
-                    case '\n':
-                        builder.Append("\\n");
-                        break;
-                    case '\r':
-                        builder.Append("\\r");
-                        break;
-                    case '\t':
-                        builder.Append("\\t");
-                        break;
-                    default:
-                        int codepoint = Convert.ToInt32(c);
-                        if ((codepoint >= 32) && (codepoint <= 126)) {
-                            builder.Append(c);
-                        }
-                        else {
-                            builder.Append("\\u" + Convert.ToString(codepoint, 16).PadLeft(4, '0'));
-                        }
-                        break;
-                    }
-                }
- 
-                builder.Append('\"');
-            }
- 
-            void SerializeOther(object value) {
-                if (value is float
-                    || value is int
-                    || value is uint
-                    || value is long
-						  || value is float
-                    || value is sbyte
-                    || value is byte
-                    || value is short
-                    || value is ushort
-                    || value is ulong
-                    || value is decimal) {
-                    builder.Append(value.ToString());
-                }
-                else {
-                    SerializeString(value.ToString());
-                }
-            }
-        }
-    }
+namespace Spine {
+	public static class Json {
+		public static object Deserialize (TextReader text) {
+			SharpJson.JsonDecoder parser = new SharpJson.JsonDecoder(true);
+			return parser.Decode(text.ReadToEnd());
+		}
+	}
+}
+
+/**
+ * Copyright (c) 2016 Adriano Tinoco d'Oliveira Rezende
+ *
+ * Based on the JSON parser by Patrick van Bergen
+ * http://techblog.procurios.nl/k/news/view/14605/14863/how-do-i-write-my-own-parser-(for-json).html
+ *
+ * Changes made:
+ *
+ * - Optimized parser speed (deserialize roughly near 3x faster than original)
+ * - Added support to handle lexer/parser error messages with line numbers
+ * - Added more fine grained control over type conversions during the parsing
+ * - Refactory API (Separate Lexer code from Parser code and the Encoder from Decoder)
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy of this software
+ * and associated documentation files (the "Software"), to deal in the Software without restriction,
+ * including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense,
+ * and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so,
+ * subject to the following conditions:
+ * The above copyright notice and this permission notice shall be included in all copies or substantial
+ * portions of the Software.
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT
+ * LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
+ * IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
+ * WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE
+ * OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+ */
+namespace SharpJson {
+	internal sealed class Lexer {
+        private static readonly SearchValues<char> NumberChars = SearchValues.Create("+-0123456789.eE");
+        private static readonly SearchValues<char> WhiteSpaceChars = SearchValues.Create(" \t\r\n");
+
+        public enum Token {
+			None,
+			Null,
+			True,
+			False,
+			Colon,
+			Comma,
+			String,
+			Number,
+			CurlyOpen,
+			CurlyClose,
+			SquaredOpen,
+			SquaredClose,
+		};
+
+		public bool HasError => !_success;
+
+		public int LineNumber { get; private set; }
+
+		private bool _parseNumbersAsFloat;
+
+		private readonly char[] _json;
+		private int _index = 0;
+		private bool _success = true;
+		private readonly char[] _stringBuffer = new char[4096];
+
+		public Lexer (string text, bool parseNumbersAsFloat = false) {
+			Reset();
+
+			_json = text.ToCharArray();
+			_parseNumbersAsFloat = parseNumbersAsFloat;
+		}
+
+		private void Reset () {
+			_index = 0;
+			LineNumber = 1;
+			_success = true;
+		}
+
+		public string ParseString () {
+			int idx = 0;
+			StringBuilder builder = null;
+
+			SkipWhiteSpaces();
+
+			// "
+			char c = _json[_index++];
+
+			bool failed = false;
+			bool complete = false;
+
+			while (!complete && !failed) {
+				if (_index == _json.Length)
+					break;
+
+				c = _json[_index++];
+				if (c == '"') {
+					complete = true;
+					break;
+				} else if (c == '\\') {
+					if (_index == _json.Length)
+						break;
+
+					c = _json[_index++];
+
+					switch (c) {
+					case '"':
+						_stringBuffer[idx++] = '"';
+						break;
+					case '\\':
+						_stringBuffer[idx++] = '\\';
+						break;
+					case '/':
+						_stringBuffer[idx++] = '/';
+						break;
+					case 'b':
+						_stringBuffer[idx++] = '\b';
+						break;
+					case 'f':
+						_stringBuffer[idx++] = '\f';
+						break;
+					case 'n':
+						_stringBuffer[idx++] = '\n';
+						break;
+					case 'r':
+						_stringBuffer[idx++] = '\r';
+						break;
+					case 't':
+						_stringBuffer[idx++] = '\t';
+						break;
+					case 'u':
+						int remainingLength = _json.Length - _index;
+						if (remainingLength >= 4) {
+							ReadOnlySpan<char> hex = _json.AsSpan(_index, 4);
+
+							// XXX: handle UTF
+							_stringBuffer[idx++] = (char)int.Parse(hex, NumberStyles.AllowHexSpecifier);
+
+							// skip 4 chars
+							_index += 4;
+						} else {
+							failed = true;
+						}
+						break;
+					}
+				} else {
+					_stringBuffer[idx++] = c;
+				}
+
+				if (idx >= _stringBuffer.Length) {
+					builder ??= new StringBuilder();
+
+					builder.Append(_stringBuffer, 0, idx);
+					idx = 0;
+				}
+			}
+
+			if (!complete) {
+				_success = false;
+				return null;
+			}
+
+			if (builder != null)
+				return builder.ToString();
+			else
+				return new string(_stringBuffer, 0, idx);
+		}
+
+		private ReadOnlySpan<char> GetNumberSpan () {
+			SkipWhiteSpaces();
+
+			int lastIndex = GetLastIndexOfNumber(_index);
+			int charLength = (lastIndex - _index) + 1;
+
+			ReadOnlySpan<char> result = _json.AsSpan(_index, charLength);
+
+			_index = lastIndex + 1;
+
+			return result;
+		}
+
+		public float ParseFloatNumber () {
+			ReadOnlySpan<char> str = GetNumberSpan();
+
+			if (!float.TryParse(str, NumberStyles.Float, CultureInfo.InvariantCulture, out var number))
+				return 0;
+
+			return number;
+		}
+
+		public double ParseDoubleNumber () {
+			ReadOnlySpan<char> str = GetNumberSpan();
+
+			if (!double.TryParse(str, NumberStyles.Any, CultureInfo.InvariantCulture, out var number))
+				return 0;
+
+			return number;
+		}
+
+		private int GetLastIndexOfNumber (int index) {
+			int lastIndex = _json.AsSpan(index).IndexOfAnyExcept(NumberChars);
+			return index + lastIndex - 1;
+		}
+
+		private void SkipWhiteSpaces () {
+			if (char.IsWhiteSpace(_json[_index])) {
+				_index += _json.AsSpan(_index).IndexOfAnyExcept(WhiteSpaceChars);
+			}
+		}
+
+		public Token LookAhead () {
+			SkipWhiteSpaces();
+
+			int savedIndex = _index;
+			return NextToken(_json, ref savedIndex);
+		}
+
+		public Token NextToken () {
+			SkipWhiteSpaces();
+			return NextToken(_json, ref _index);
+		}
+
+		private static Token NextToken (char[] json, ref int index) {
+			if (index == json.Length)
+				return Token.None;
+
+			char c = json[index++];
+
+			switch (c) {
+			case '{':
+				return Token.CurlyOpen;
+			case '}':
+				return Token.CurlyClose;
+			case '[':
+				return Token.SquaredOpen;
+			case ']':
+				return Token.SquaredClose;
+			case ',':
+				return Token.Comma;
+			case '"':
+				return Token.String;
+			case '0':
+			case '1':
+			case '2':
+			case '3':
+			case '4':
+			case '5':
+			case '6':
+			case '7':
+			case '8':
+			case '9':
+			case '-':
+				return Token.Number;
+			case ':':
+				return Token.Colon;
+			}
+
+			index--;
+
+			int remainingLength = json.Length - index;
+
+			// false
+			if (remainingLength >= 5) {
+				if (json[index] == 'f' &&
+					json[index + 1] == 'a' &&
+					json[index + 2] == 'l' &&
+					json[index + 3] == 's' &&
+					json[index + 4] == 'e') {
+					index += 5;
+					return Token.False;
+				}
+			}
+
+			// true
+			if (remainingLength >= 4) {
+				if (json[index] == 't' &&
+					json[index + 1] == 'r' &&
+					json[index + 2] == 'u' &&
+					json[index + 3] == 'e') {
+					index += 4;
+					return Token.True;
+				}
+			}
+
+			// null
+			if (remainingLength >= 4) {
+				if (json[index] == 'n' &&
+					json[index + 1] == 'u' &&
+					json[index + 2] == 'l' &&
+					json[index + 3] == 'l') {
+					index += 4;
+					return Token.Null;
+				}
+			}
+
+			return Token.None;
+		}
+	}
+
+	public sealed class JsonDecoder(bool parseNumbersAsFloat = false)
+	{
+		private string _errorMessage;
+
+		private Lexer _lexer;
+
+		public object Decode (string text) {
+			_errorMessage = null;
+
+			_lexer = new Lexer(text, parseNumbersAsFloat);
+
+			return ParseValue();
+		}
+
+		public static object DecodeText (string text) {
+			JsonDecoder builder = new JsonDecoder();
+			return builder.Decode(text);
+		}
+
+		IDictionary<string, object> ParseObject () {
+			Dictionary<string, object> table = new Dictionary<string, object>();
+
+			// {
+			_lexer.NextToken();
+
+			while (true) {
+				Lexer.Token token = _lexer.LookAhead();
+
+				switch (token) {
+				case Lexer.Token.None:
+					TriggerError("Invalid token");
+					return null;
+				case Lexer.Token.Comma:
+					_lexer.NextToken();
+					break;
+				case Lexer.Token.CurlyClose:
+					_lexer.NextToken();
+					return table;
+				default:
+					// name
+					string name = EvalLexer(_lexer.ParseString());
+
+					if (_errorMessage != null)
+						return null;
+
+					// :
+					token = _lexer.NextToken();
+
+					if (token != Lexer.Token.Colon) {
+						TriggerError("Invalid token; expected ':'");
+						return null;
+					}
+
+					// value
+					object value = ParseValue();
+
+					if (_errorMessage != null)
+						return null;
+
+					table[name] = value;
+					break;
+				}
+			}
+		}
+
+		IList<object> ParseArray () {
+			List<object> array = new List<object>();
+
+			// [
+			_lexer.NextToken();
+
+			while (true) {
+				Lexer.Token token = _lexer.LookAhead();
+
+				switch (token) {
+				case Lexer.Token.None:
+					TriggerError("Invalid token");
+					return null;
+				case Lexer.Token.Comma:
+					_lexer.NextToken();
+					break;
+				case Lexer.Token.SquaredClose:
+					_lexer.NextToken();
+					return array;
+				default:
+					object value = ParseValue();
+
+					if (_errorMessage != null)
+						return null;
+
+					array.Add(value);
+					break;
+				}
+			}
+
+			//return null; // Unreachable code
+		}
+
+		object ParseValue () {
+			switch (_lexer.LookAhead()) {
+			case Lexer.Token.String:
+				return EvalLexer(_lexer.ParseString());
+			case Lexer.Token.Number:
+				if (parseNumbersAsFloat)
+					return EvalLexer(_lexer.ParseFloatNumber());
+				else
+					return EvalLexer(_lexer.ParseDoubleNumber());
+			case Lexer.Token.CurlyOpen:
+				return ParseObject();
+			case Lexer.Token.SquaredOpen:
+				return ParseArray();
+			case Lexer.Token.True:
+				_lexer.NextToken();
+				return true;
+			case Lexer.Token.False:
+				_lexer.NextToken();
+				return false;
+			case Lexer.Token.Null:
+				_lexer.NextToken();
+				return null;
+			case Lexer.Token.None:
+				break;
+			}
+
+			TriggerError("Unable to parse value");
+			return null;
+		}
+
+		private void TriggerError (string message) {
+			_errorMessage = string.Format("Error: '{0}' at line {1}",
+										 message, _lexer.LineNumber);
+		}
+
+		private T EvalLexer<T> (T value) {
+			if (_lexer.HasError)
+				TriggerError("Lexical error occurred");
+
+			return value;
+		}
+	}
 }

@@ -37,7 +37,7 @@ namespace Spine {
 	// #region License
 	// /*
 	// Microsoft Public License (Ms-PL)
-	// MonoGame - Copyright © 2009 The MonoGame Team
+	// MonoGame - Copyright Â© 2009 The MonoGame Team
 	//
 	// All rights reserved.
 	//
