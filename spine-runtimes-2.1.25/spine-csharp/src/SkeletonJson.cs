@@ -31,6 +31,7 @@
 using System;
 using System.IO;
 using System.Collections.Generic;
+using System.Globalization;
 
 #if WINDOWS_STOREAPP
 using System.Threading.Tasks;
@@ -94,8 +95,8 @@ namespace Spine {
 				var skeletonMap = (Dictionary<String, Object>)root["skeleton"];
 				skeletonData.hash = (String)skeletonMap["hash"];
 				skeletonData.version = (String)skeletonMap["spine"];
-				skeletonData.width = GetFloat(skeletonMap, "width", 0);
-				skeletonData.height = GetFloat(skeletonMap, "height", 0);
+				skeletonData.width = GetFloat(skeletonMap, "width", 0f);
+				skeletonData.height = GetFloat(skeletonMap, "height", 0f);
 			}
 
 			// Bones.
@@ -325,20 +326,15 @@ namespace Spine {
 			return null;
 		}
 
-		private float[] GetFloatArray (Dictionary<String, Object> map, String name, float scale) {
+		private static float[] GetFloatArray(Dictionary<String, Object> map, String name, float scale) {
 			var list = (List<Object>)map[name];
 			var values = new float[list.Count];
-			if (scale == 1) {
-				for (int i = 0, n = list.Count; i < n; i++)
-					values[i] = (float)list[i];
-			} else {
-				for (int i = 0, n = list.Count; i < n; i++)
-					values[i] = (float)list[i] * scale;
-			}
+			for (int i = 0, n = list.Count; i < n; i++)
+				values[i] = (float)list[i] * scale;
 			return values;
 		}
 
-		private int[] GetIntArray (Dictionary<String, Object> map, String name) {
+		private static int[] GetIntArray(Dictionary<String, Object> map, String name) {
 			var list = (List<Object>)map[name];
 			var values = new int[list.Count];
 			for (int i = 0, n = list.Count; i < n; i++)
@@ -346,34 +342,34 @@ namespace Spine {
 			return values;
 		}
 
-		private float GetFloat (Dictionary<String, Object> map, String name, float defaultValue) {
-			if (!map.ContainsKey(name))
+		private static float GetFloat(Dictionary<String, Object> map, String name, float defaultValue) {
+			if (!map.TryGetValue(name, out var value))
 				return defaultValue;
-			return (float)map[name];
+			return (float)value;
 		}
 
-		private int GetInt (Dictionary<String, Object> map, String name, int defaultValue) {
-			if (!map.ContainsKey(name))
+		private static int GetInt(Dictionary<String, Object> map, String name, int defaultValue) {
+			if (!map.TryGetValue(name, out var value))
 				return defaultValue;
-			return (int)(float)map[name];
+			return (int)(float)value;
 		}
 
-		private bool GetBoolean (Dictionary<String, Object> map, String name, bool defaultValue) {
-			if (!map.ContainsKey(name))
+		private static bool GetBoolean(Dictionary<String, Object> map, String name, bool defaultValue) {
+			if (!map.TryGetValue(name, out var value))
 				return defaultValue;
-			return (bool)map[name];
+			return (bool)value;
 		}
 
-		private String GetString (Dictionary<String, Object> map, String name, String defaultValue) {
-			if (!map.ContainsKey(name))
+		private static String GetString(Dictionary<String, Object> map, String name, String defaultValue) {
+			if (!map.TryGetValue(name, out var value))
 				return defaultValue;
-			return (String)map[name];
+			return (String)value;
 		}
 
-		private float ToColor (String hexString, int colorIndex) {
+		private static float ToColor(ReadOnlySpan<char> hexString, int colorIndex) {
 			if (hexString.Length != 8)
-				throw new ArgumentException("Color hexidecimal length must be 8, recieved: " + hexString);
-			return Convert.ToInt32(hexString.Substring(colorIndex * 2, 2), 16) / (float)255;
+				throw new ArgumentException("Color hexidecimal length must be 8, recieved: " + hexString.ToString());
+			return int.Parse(hexString.Slice(colorIndex * 2, 2), NumberStyles.AllowHexSpecifier) / 255f;
 		}
 
 		private void ReadAnimation (String name, Dictionary<String, Object> map, SkeletonData skeletonData) {
@@ -543,13 +539,8 @@ namespace Spine {
 									var verticesValue = (List<Object>)valueMap["vertices"];
 									vertices = new float[vertexCount];
 									int start = GetInt(valueMap, "offset", 0);
-									if (scale == 1) {
-										for (int i = 0, n = verticesValue.Count; i < n; i++)
-											vertices[i + start] = (float)verticesValue[i];
-									} else {
-										for (int i = 0, n = verticesValue.Count; i < n; i++)
-											vertices[i + start] = (float)verticesValue[i] * scale;
-									}
+									for (int i = 0, n = verticesValue.Count; i < n; i++)
+										vertices[i + start] = (float)verticesValue[i] * scale;
 									if (attachment is MeshAttachment) {
 										float[] meshVertices = ((MeshAttachment)attachment).vertices;
 										for (int i = 0; i < vertexCount; i++)
@@ -627,13 +618,11 @@ namespace Spine {
 		}
 
 		private void ReadCurve (CurveTimeline timeline, int frameIndex, Dictionary<String, Object> valueMap) {
-			if (!valueMap.ContainsKey("curve"))
+			if (!valueMap.TryGetValue("curve", out var curveObject))
 				return;
-			Object curveObject = valueMap["curve"];
 			if (curveObject.Equals("stepped"))
 				timeline.SetStepped(frameIndex);
-			else if (curveObject is List<Object>) {
-				var curve = (List<Object>)curveObject;
+			else if (curveObject is List<Object> curve) {
 				timeline.SetCurve(frameIndex, (float)curve[0], (float)curve[1], (float)curve[2], (float)curve[3]);
 			}
 		}
