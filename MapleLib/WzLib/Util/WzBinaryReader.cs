@@ -18,6 +18,8 @@ using System;
 using System.Diagnostics;
 using System.IO;
 using System.Runtime.CompilerServices;
+using System.Runtime.Intrinsics.X86;
+using System.Runtime.Intrinsics;
 using System.Text;
 using MapleLib.MapleCryptoLib;
 using MapleLib.PacketLib;
@@ -27,6 +29,20 @@ namespace MapleLib.WzLib.Util
     public class WzBinaryReader : BinaryReader
     {
         #region Properties
+        /// <summary>
+        /// The stackalloc size for decoding strings, and arrays.
+        /// - Avoiding L2 Cache Spillover: Keeping allocations well below the L1 cache size (divided by number of cores) prevents unnecessary cache misses.
+        /// - Stack Size: While modern systems typically have large stack sizes, it's still prudent to use stack allocations conservatively to avoid stack overflow risks.
+        ///            Allocations in the 32 KB to 64 KB range are large enough to be meaningful for many operations while small enough to minimize the risk of stack overflow or significant performance penalties.
+        /// - However, we also need to consider that the stack is used for other purposes too, not just our stackalloc.
+        /// a conservative yet effective approach would be to use a stackalloc size that's about 1/4 to 1/2 of the L1 data cache size per core. This leaves room for other stack usage while still benefiting from L1 cache performance.
+        ///
+        /// AMD Ryzen 9700x, L1 Cache: 80 KB / core
+        /// AMD Ryzen 5800x, L1 Cache: 64 KB / core
+        /// Intel 13/14th Raptor Lake: 80 KB per P-core (32 KB instructions + 48 KB data), 96 KB per E-core(64 KB instructions + 32 KB data)
+        /// </summary>
+        private const int STACKALLOC_SIZE_LIMIT_L1 = 10 * 1024;  // optimal size is half of CPU's L1 cache.
+
         public WzMutableKey WzKey { get; set; }
         public uint Hash { get; set; }
         public WzHeader Header { get; set; }
@@ -35,6 +51,12 @@ namespace MapleLib.WzLib.Util
         #endregion
 
         #region Constructors
+        /// <summary>
+        /// Constructor
+        /// </summary>
+        /// <param name="input"></param>
+        /// <param name="WzIv"></param>
+        /// <param name="startOffset"></param>
         public WzBinaryReader(Stream input, byte[] WzIv, long startOffset = 0)
             : base(input)
         {
@@ -112,9 +134,9 @@ namespace MapleLib.WzLib.Util
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private string DecodeUnicode(int length)
         {
-            Span<char> chars = length <= 1024 ? stackalloc char[length] : new char[length];
+            Span<char> chars = length <= STACKALLOC_SIZE_LIMIT_L1 ? stackalloc char[length] : new char[length];
             ushort mask = 0xAAAA;
-            
+
             for (int i = 0; i < length; i++)
             {
                 ushort encryptedChar = ReadUInt16();
@@ -132,11 +154,11 @@ namespace MapleLib.WzLib.Util
         /// <param name="length"></param>
         /// <returns></returns>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private string DecodeAscii(int length)
+        private unsafe string DecodeAscii(int length)
         {
-            Span<byte> bytes = length <= 1024 ? stackalloc byte[length] : new byte[length];
+            Span<byte> bytes = length <= STACKALLOC_SIZE_LIMIT_L1 ? stackalloc byte[length] : new byte[length];
             byte mask = 0xAA;
-            
+
             for (int i = 0; i < length; i++)
             {
                 byte encryptedChar = ReadByte();
@@ -204,7 +226,7 @@ namespace MapleLib.WzLib.Util
             uint offset = (uint)BaseStream.Position;
             offset = (offset - Header.FStart) ^ uint.MaxValue;
             offset *= Hash;
-            offset -= MapleCryptoConstants.WZ_OffsetConstant;
+            offset -= WzAESConstant.WZ_OffsetConstant;
             offset = WzTool.RotateLeft(offset, (byte)(offset & 0x1F));
             uint encryptedOffset = ReadUInt32();
             offset ^= encryptedOffset;
@@ -220,9 +242,9 @@ namespace MapleLib.WzLib.Util
         /// <returns></returns>
         public string DecryptString(char[] stringToDecrypt)
         {
-            Span<char> outputChars = stringToDecrypt.Length <= 1024
-                    ? stackalloc char[stringToDecrypt.Length]
-                    : new char[stringToDecrypt.Length];
+            Span<char> outputChars = stringToDecrypt.Length <= STACKALLOC_SIZE_LIMIT_L1
+                ? stackalloc char[stringToDecrypt.Length]
+                : new char[stringToDecrypt.Length];
 
             for (int i = 0; i < stringToDecrypt.Length; i++)
             {
@@ -235,7 +257,7 @@ namespace MapleLib.WzLib.Util
 
         public string DecryptNonUnicodeString(char[] stringToDecrypt)
         {
-            Span<char> outputChars = stringToDecrypt.Length <= 1024
+            Span<char> outputChars = stringToDecrypt.Length <= STACKALLOC_SIZE_LIMIT_L1
                    ? stackalloc char[stringToDecrypt.Length]
                    : new char[stringToDecrypt.Length];
 

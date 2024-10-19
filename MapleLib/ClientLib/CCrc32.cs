@@ -205,7 +205,7 @@ namespace MapleLib.ClientLib {
                 //   *(uint*)(v48 + 132) = _ZtlSecureTear<long>(v6, CCrc32.dword_E0DB10 + 124);
             }
 
-            if (a5 != null)
+            //if (a5 != null)
                 a5 = 7;
 
             return initialCrc_;

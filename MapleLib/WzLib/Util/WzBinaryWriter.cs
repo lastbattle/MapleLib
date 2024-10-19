@@ -31,8 +31,8 @@ namespace MapleLib.WzLib.Util
 	*/
 	public class WzBinaryWriter : BinaryWriter
 	{
-		#region Properties
-		public WzMutableKey WzKey { get; set; }
+        #region Properties
+        public WzMutableKey WzKey { get; set; }
 		public uint Hash { get; set; }
 		public Dictionary<string, int> StringCache { get; set; }
 		public WzHeader Header { get; set; }
@@ -253,7 +253,7 @@ namespace MapleLib.WzLib.Util
 			uint encOffset = (uint)BaseStream.Position;
 			encOffset = (encOffset - Header.FStart) ^ 0xFFFFFFFF;
 			encOffset *= Hash; // could this be removed? 
-			encOffset -= MapleCryptoConstants.WZ_OffsetConstant;
+			encOffset -= WzAESConstant.WZ_OffsetConstant;
 			encOffset = ByteUtils.RotateLeft(encOffset, (byte)(encOffset & 0x1F));
 			uint writeOffset = encOffset ^ ((uint) value - (Header.FStart * 2));
 			Write(writeOffset);

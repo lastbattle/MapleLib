@@ -53,7 +53,7 @@ namespace MapleLib.WzLib.Util
 		public static WzMutableKey GenerateLuaWzKey()
 		{
 			return new WzMutableKey(
-				MapleCryptoConstants.WZ_MSEAIV, 
+				WzAESConstant.WZ_MSEAIV, 
 				MapleCryptoConstants.GetTrimmedUserKey(ref MapleCryptoConstants.MAPLESTORY_USERKEY_DEFAULT));
 		}
 

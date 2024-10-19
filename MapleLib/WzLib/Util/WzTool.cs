@@ -15,6 +15,7 @@
     along with this program.  If not, see <http://www.gnu.org/licenses/>.*/
 
 using System;
+using System.Buffers;
 using System.Collections;
 using System.Diagnostics;
 using System.IO;
@@ -28,8 +29,10 @@ namespace MapleLib.WzLib.Util
 {
     public class WzTool
     {
+        public const int WZ_HEADER = 0x31474B50; // "PKG1" as int representation
 
-        public static Hashtable StringCache = new Hashtable();
+
+        public static Hashtable StringCache = new();
 
         public static UInt32 RotateLeft(UInt32 x, byte n)
         {
@@ -82,18 +85,6 @@ namespace MapleLib.WzLib.Util
             }
         }
 
-        public static T StringToEnum<T>(string name)
-        {
-            try
-            {
-                return (T)Enum.Parse(typeof(T), name);
-            }
-            catch
-            {
-                return default(T);
-            }
-        }
-
         /// <summary>
         /// Get WZ encryption IV from maple version 
         /// </summary>
@@ -105,9 +96,9 @@ namespace MapleLib.WzLib.Util
             switch (ver)
             {
                 case WzMapleVersion.EMS:
-                    return MapleCryptoConstants.WZ_MSEAIV;//?
+                    return WzAESConstant.WZ_MSEAIV;//?
                 case WzMapleVersion.GMS:
-                    return MapleCryptoConstants.WZ_GMSIV;
+                    return WzAESConstant.WZ_GMSIV;
                 case WzMapleVersion.CUSTOM: // custom WZ encryption bytes from stored app setting
                     {
                         ConfigurationManager config = new ConfigurationManager();
@@ -119,7 +110,7 @@ namespace MapleLib.WzLib.Util
                 case WzMapleVersion.BMS:
                 case WzMapleVersion.CLASSIC:
                 default:
-                    return new byte[4];
+                    return WzAESConstant.WZ_BMSCLASSIC;
             }
         }
 
@@ -145,12 +136,15 @@ namespace MapleLib.WzLib.Util
                     wzf.Dispose();
                     return false;
                 }
-                if (wzf.WzDirectory.WzImages.Count > 0 && wzf.WzDirectory.WzImages[0].Name.EndsWith(".img"))
+                if (wzf.WzDirectory.WzImages.Count > 0)
                 {
-                    wzf.Dispose();
-                    return true;
+                    string wzDirName = wzf.WzDirectory.WzImages[0].Name;
+                    if (wzDirName.EndsWith(".img"))
+                    {
+                        wzf.Dispose();
+                        return true;
+                    }
                 }
-
                 wzf.Dispose();
             }
             return false;
@@ -211,15 +205,13 @@ namespace MapleLib.WzLib.Util
             else return mostSuitableVersion;
         }
 
-        public const int WzHeader = 0x31474B50; //PKG1
-
         public static bool IsListFile(string path)
         {
             bool result;
             using (BinaryReader reader = new BinaryReader(File.OpenRead(path)))
             {
                 int header = reader.ReadInt32();
-                result = header != WzHeader;
+                result = header != WZ_HEADER;
             }
             return result;
         }

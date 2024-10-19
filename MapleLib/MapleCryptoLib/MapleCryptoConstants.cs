@@ -19,7 +19,7 @@ using System.Linq;
 namespace MapleLib.MapleCryptoLib
 {
 	/// <summary>
-	/// Contains all the constant values used for various functions
+	/// Contains all the constant values used for various functions in the packet encryption
 	/// </summary>
 	public class MapleCryptoConstants
 	{
@@ -85,22 +85,7 @@ namespace MapleLib.MapleCryptoLib
             0xC6, 0x50, 0x53, 0xF2, 0xA8, 0x42, 0x9D, 0x7F, 0x77, 0x09, 0x1D, 0x26, 0x42, 0x53, 0x88, 0x7C,
         };
 
-		/// <summary>
-		/// ?s_BasicKey@CAESCipher@@2PAEA
-		/// IV used to create the WzKey for GMS
-		/// </summary>
-		public static byte[] WZ_GMSIV = new byte[4] { 0x4D, 0x23, 0xC7, 0x2B };
 
-		/// <summary>
-		/// ?s_BasicKey@CAESCipher@@2PAEA
-		/// IV used to create the WzKey for the latest version of GMS, MSEA, or KMS
-		/// </summary>
-		public static byte[] WZ_MSEAIV = new byte[4] { 0xB9, 0x7D, 0x63, 0xE9 };
-
-		/// <summary>
-		/// Constant used in WZ offset encryption
-		/// </summary>
-		public static uint WZ_OffsetConstant = 0x581C3F6D;
 
 		/// <summary>
 		/// Trims the AES UserKey (x128 bytes -> x32 bytes) for use an AES cryptor
