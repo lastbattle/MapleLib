@@ -56,7 +56,7 @@ namespace MapleLib.WzLib.WzStructure.Data.QuestStructure
         }
 
         /// <summary>
-        /// Converts from the string back to enum
+        /// Converts from the string name back to enum
         /// </summary>
         /// <param name="name"></param>
         /// <returns></returns>
@@ -68,6 +68,24 @@ namespace MapleLib.WzLib.WzStructure.Data.QuestStructure
                 return (QuestAreaCodeType)result;
             }
             return QuestAreaCodeType.Unknown;
+        }
+
+        /// <summary>
+        /// Converts from the area code value to enum type
+        /// </summary>
+        /// <param name="value"></param>
+        /// <returns></returns>
+        public static QuestAreaCodeType ToEnum(int value)
+        {
+            if (Enum.IsDefined(typeof(QuestAreaCodeType), value))
+            {
+                return (QuestAreaCodeType)value;
+            }
+            else
+            {
+                //Console.WriteLine($"Warning: Invalid QuestAreaCodeType value {value}. Defaulting to Unknown.");
+                return QuestAreaCodeType.Unknown;
+            }
         }
     }
 }
