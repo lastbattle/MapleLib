@@ -28,9 +28,12 @@ namespace MapleLib.WzLib.WzStructure.Data.QuestStructure
     /// </summary>
     public enum QuestStateType
     {
-        Not_Started = 0,
+        Impossible = -1,
+        Not_Started = 0, // or none
         Started = 1,
         Completed = 2,
+        PartyQuest = 3,
+        No = 4
     }
 
     public static class QuestStateTypeExtensions
@@ -61,3 +64,16 @@ namespace MapleLib.WzLib.WzStructure.Data.QuestStructure
         }
     }
 }
+
+/* KMST1029
+ * 456 
+enum $DA91946C6F02C5F54B6F122F2BB1A13E
+{
+  QUEST_STATE_IMPOSSIBLE = 0xFFFFFFFF,
+  QUEST_STATE_NONE = 0x0,
+  QUEST_STATE_PERFORM = 0x1,
+  QUEST_STATE_COMPLETE = 0x2,
+  QUEST_STATE_PARTYQUEST = 0x3,
+  QUEST_STATE_NO = 0x4,
+};
+*/
