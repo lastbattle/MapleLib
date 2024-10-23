@@ -9,7 +9,9 @@ namespace MapleLib.WzLib.WzStructure.Data.ItemStructure
 {
     public class ItemIdsCategory
     {
-        public static int BUFF_CATEGORY = 202;
+        public static int 
+            BUFF_CATEGORY = 202,
+            PET_CATEGORY = 500;
 
         /// <summary>
         /// Is Buff items
