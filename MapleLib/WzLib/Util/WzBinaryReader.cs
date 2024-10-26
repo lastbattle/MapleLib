@@ -154,7 +154,7 @@ namespace MapleLib.WzLib.Util
         /// <param name="length"></param>
         /// <returns></returns>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private unsafe string DecodeAscii(int length)
+        private string DecodeAscii(int length)
         {
             Span<byte> bytes = length <= STACKALLOC_SIZE_LIMIT_L1 ? stackalloc byte[length] : new byte[length];
             byte mask = 0xAA;
