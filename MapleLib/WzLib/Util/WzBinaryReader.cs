@@ -23,10 +23,12 @@ using System.Runtime.Intrinsics;
 using System.Text;
 using MapleLib.MapleCryptoLib;
 using MapleLib.PacketLib;
+using System.Buffers;
+using System.Runtime.InteropServices;
 
 namespace MapleLib.WzLib.Util
 {
-    public class WzBinaryReader : BinaryReader
+    public sealed class WzBinaryReader : BinaryReader
     {
         #region Properties
         /// <summary>
@@ -43,11 +45,15 @@ namespace MapleLib.WzLib.Util
         /// </summary>
         private const int STACKALLOC_SIZE_LIMIT_L1 = 10 * 1024;  // optimal size is half of CPU's L1 cache.
 
-        public WzMutableKey WzKey { get; set; }
+        public WzMutableKey WzKey { get; init; }
         public uint Hash { get; set; }
         public WzHeader Header { get; set; }
 
         private readonly long startOffset; // the offset to 
+
+        private readonly ArrayPool<byte> s_bytePool = ArrayPool<byte>.Shared;
+        private readonly ArrayPool<char> s_charPool = ArrayPool<char>.Shared;
+
         #endregion
 
         #region Constructors
@@ -134,18 +140,34 @@ namespace MapleLib.WzLib.Util
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private string DecodeUnicode(int length)
         {
-            Span<char> chars = length <= STACKALLOC_SIZE_LIMIT_L1 ? stackalloc char[length] : new char[length];
-            ushort mask = 0xAAAA;
-
-            for (int i = 0; i < length; i++)
+            char[]? pooledArray = null;
+            try
             {
-                ushort encryptedChar = ReadUInt16();
-                encryptedChar ^= mask;
-                encryptedChar ^= (ushort)((WzKey[(i * 2 + 1)] << 8) + WzKey[(i * 2)]);
-                chars[i] = (char)encryptedChar;
-                mask++;
+                Span<char> chars = length <= STACKALLOC_SIZE_LIMIT_L1
+                    ? stackalloc char[length]
+                    : (pooledArray = s_charPool.Rent(length)).AsSpan(0, length);
+
+                ushort mask = 0xAAAA;
+                ref char charsRef = ref MemoryMarshal.GetReference(chars);
+
+                for (int i = 0; i < length; i++)
+                {
+                    ushort encryptedChar = ReadUInt16();
+                    encryptedChar ^= mask;
+                    encryptedChar ^= (ushort)((WzKey[(i * 2 + 1)] << 8) + WzKey[(i * 2)]);
+                    Unsafe.Add(ref charsRef, i) = (char)encryptedChar;
+                    mask++;
+                }
+
+                return new string(chars);
             }
-            return new string(chars);
+            finally
+            {
+                if (pooledArray != null)
+                {
+                    s_charPool.Return(pooledArray);
+                }
+            }
         }
 
         /// <summary>
@@ -156,18 +178,34 @@ namespace MapleLib.WzLib.Util
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private string DecodeAscii(int length)
         {
-            Span<byte> bytes = length <= STACKALLOC_SIZE_LIMIT_L1 ? stackalloc byte[length] : new byte[length];
-            byte mask = 0xAA;
-
-            for (int i = 0; i < length; i++)
+            byte[]? pooledArray = null;
+            try
             {
-                byte encryptedChar = ReadByte();
-                encryptedChar ^= mask;
-                encryptedChar ^= (byte)WzKey[i];
-                bytes[i] = encryptedChar;
-                mask++;
+                Span<byte> bytes = length <= STACKALLOC_SIZE_LIMIT_L1
+                    ? stackalloc byte[length]
+                    : (pooledArray = s_bytePool.Rent(length)).AsSpan(0, length);
+
+                byte mask = 0xAA;
+                ref byte bytesRef = ref MemoryMarshal.GetReference(bytes);
+
+                for (int i = 0; i < length; i++)
+                {
+                    byte encryptedChar = ReadByte();
+                    encryptedChar ^= mask;
+                    encryptedChar ^= (byte)WzKey[i];
+                    Unsafe.Add(ref bytesRef, i) = encryptedChar;
+                    mask++;
+                }
+
+                return Encoding.ASCII.GetString(bytes);
             }
-            return Encoding.ASCII.GetString(bytes);
+            finally
+            {
+                if (pooledArray != null)
+                {
+                    s_bytePool.Return(pooledArray);
+                }
+            }
         }
 
         /// <summary>
@@ -176,19 +214,65 @@ namespace MapleLib.WzLib.Util
         /// <param name="filePath">Length of bytes to read</param>
         public string ReadString(int length)
         {
-            return Encoding.ASCII.GetString(ReadBytes(length));
+            byte[]? pooledArray = null;
+            try
+            {
+                Span<byte> buffer = length <= STACKALLOC_SIZE_LIMIT_L1
+                    ? stackalloc byte[length]
+                    : (pooledArray = s_bytePool.Rent(length)).AsSpan(0, length);
+
+                BaseStream.Read(buffer);
+                return Encoding.ASCII.GetString(buffer);
+            }
+            finally
+            {
+                if (pooledArray != null)
+                {
+                    s_bytePool.Return(pooledArray);
+                }
+            }
         }
 
         public string ReadNullTerminatedString()
         {
-            using (var memoryStream = new MemoryStream())
+            const int initialBufferSize = 256;
+            byte[]? pooledArray = null;
+            try
             {
+                Span<byte> buffer = stackalloc byte[initialBufferSize];
+                int position = 0;
                 byte b;
+
                 while ((b = ReadByte()) != 0)
                 {
-                    memoryStream.WriteByte(b);
+                    if (position == buffer.Length)
+                    {
+                        // Need to expand to array pool
+                        if (pooledArray == null)
+                        {
+                            pooledArray = s_bytePool.Rent(buffer.Length * 2);
+                            buffer.CopyTo(pooledArray);
+                        }
+                        else
+                        {
+                            var newArray = s_bytePool.Rent(pooledArray.Length * 2);
+                            pooledArray.AsSpan(0, position).CopyTo(newArray);
+                            s_bytePool.Return(pooledArray);
+                            pooledArray = newArray;
+                        }
+                        buffer = pooledArray;
+                    }
+                    buffer[position++] = b;
                 }
-                return Encoding.UTF8.GetString(memoryStream.GetBuffer(), 0, (int)memoryStream.Length);
+
+                return Encoding.UTF8.GetString(buffer.Slice(0, position));
+            }
+            finally
+            {
+                if (pooledArray != null)
+                {
+                    s_bytePool.Return(pooledArray);
+                }
             }
         }
 
@@ -240,49 +324,73 @@ namespace MapleLib.WzLib.Util
         /// </summary>
         /// <param name="stringToDecrypt"></param>
         /// <returns></returns>
-        public string DecryptString(char[] stringToDecrypt)
+        public string DecryptString(ReadOnlySpan<char> stringToDecrypt)
         {
-            Span<char> outputChars = stringToDecrypt.Length <= STACKALLOC_SIZE_LIMIT_L1
-                ? stackalloc char[stringToDecrypt.Length]
-                : new char[stringToDecrypt.Length];
-
-            for (int i = 0; i < stringToDecrypt.Length; i++)
+            char[]? pooledArray = null;
+            try
             {
-                outputChars[i] = (char)(stringToDecrypt[i] ^ ((char)((WzKey[i * 2 + 1] << 8) + WzKey[i * 2])));
-            }
+                Span<char> outputChars = stringToDecrypt.Length <= STACKALLOC_SIZE_LIMIT_L1
+                    ? stackalloc char[stringToDecrypt.Length]
+                    : (pooledArray = s_charPool.Rent(stringToDecrypt.Length)).AsSpan(0, stringToDecrypt.Length);
 
-            return new string(outputChars);
+                ref char outputRef = ref MemoryMarshal.GetReference(outputChars);
+                ref char inputRef = ref MemoryMarshal.GetReference(stringToDecrypt);
+
+                for (int i = 0; i < stringToDecrypt.Length; i++)
+                {
+                    Unsafe.Add(ref outputRef, i) = (char)(
+                        Unsafe.Add(ref inputRef, i) ^
+                        ((char)((WzKey[i * 2 + 1] << 8) + WzKey[i * 2]))
+                    );
+                }
+
+                return new string(outputChars);
+            }
+            finally
+            {
+                if (pooledArray != null)
+                {
+                    s_charPool.Return(pooledArray);
+                }
+            }
+        }
+
+        public string DecryptNonUnicodeString(ReadOnlySpan<char> stringToDecrypt)
+        {
+            char[]? pooledArray = null;
+            try
+            {
+                Span<char> outputChars = stringToDecrypt.Length <= STACKALLOC_SIZE_LIMIT_L1
+                    ? stackalloc char[stringToDecrypt.Length]
+                    : (pooledArray = s_charPool.Rent(stringToDecrypt.Length)).AsSpan(0, stringToDecrypt.Length);
+
+                ref char outputRef = ref MemoryMarshal.GetReference(outputChars);
+                ref char inputRef = ref MemoryMarshal.GetReference(stringToDecrypt);
+
+                for (int i = 0; i < stringToDecrypt.Length; i++)
+                {
+                    Unsafe.Add(ref outputRef, i) = (char)(Unsafe.Add(ref inputRef, i) ^ WzKey[i]);
+                }
+
+                return new string(outputChars);
+            }
+            finally
+            {
+                if (pooledArray != null)
+                {
+                    s_charPool.Return(pooledArray);
+                }
+            }
         }
 
 
-        public string DecryptNonUnicodeString(char[] stringToDecrypt)
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public string ReadStringBlock(long offset) => ReadByte() switch
         {
-            Span<char> outputChars = stringToDecrypt.Length <= STACKALLOC_SIZE_LIMIT_L1
-                   ? stackalloc char[stringToDecrypt.Length]
-                   : new char[stringToDecrypt.Length];
-
-            for (int i = 0; i < stringToDecrypt.Length; i++)
-            {
-                outputChars[i] = (char)(stringToDecrypt[i] ^ WzKey[i]);
-            }
-
-            return new string(outputChars);
-        }
-
-        public string ReadStringBlock(long offset)
-        {
-            switch (ReadByte())
-            {
-                case 0:
-                case WzImage.WzImageHeaderByte_WithoutOffset:
-                    return ReadString();
-                case 1:
-                case WzImage.WzImageHeaderByte_WithOffset:
-                    return ReadStringAtOffset(offset + ReadInt32());
-                default:
-                    return "";
-            }
-        }
+            0 or WzImage.WzImageHeaderByte_WithoutOffset => ReadString(),
+            1 or WzImage.WzImageHeaderByte_WithOffset => ReadStringAtOffset(offset + ReadInt32()),
+            _ => string.Empty
+        };
 
         #endregion
 
@@ -334,10 +442,26 @@ namespace MapleLib.WzLib.Util
         public void PrintHexBytes(int numberOfBytes)
         {
 #if DEBUG // only debug
-            string hex = HexTool.ToString(ReadBytes(numberOfBytes));
-            Debug.WriteLine(hex);
+            byte[]? pooledArray = null;
+            try
+            {
+                Span<byte> buffer = numberOfBytes <= STACKALLOC_SIZE_LIMIT_L1
+                    ? stackalloc byte[numberOfBytes]
+                    : (pooledArray = s_bytePool.Rent(numberOfBytes)).AsSpan(0, numberOfBytes);
 
-            this.BaseStream.Position -= numberOfBytes;
+                BaseStream.Read(buffer);
+                string hex = HexTool.ToString(buffer.ToArray());
+                Debug.WriteLine(hex);
+
+                BaseStream.Position -= numberOfBytes;
+            }
+            finally
+            {
+                if (pooledArray != null)
+                {
+                    s_bytePool.Return(pooledArray);
+                }
+            }
 #endif
         }
         #endregion
