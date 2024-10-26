@@ -8,8 +8,9 @@ namespace MapleLib.WzLib.WzStructure.Data.CharacterStructure
     public enum CharacterSubJobFlagType
     {
         Any = 0,
-        Adventurer = 1,
-        Adventurer_DualBlade = 2,
+        Adventurer = 0x1,
+        Adventurer_DualBlade = 0x2,
+        Adventurer_Cannoner = 0x4,
     }
 
     public static class CharacterSubJobFlagTypeExt
