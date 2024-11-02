@@ -10,6 +10,7 @@ namespace MapleLib.WzLib.WzStructure.Data.ItemStructure
     public class ItemIdsCategory
     {
         public static int 
+            MEDAL_CATEGORY = 114,
             BUFF_CATEGORY = 202,
             PET_CATEGORY = 500;
 
