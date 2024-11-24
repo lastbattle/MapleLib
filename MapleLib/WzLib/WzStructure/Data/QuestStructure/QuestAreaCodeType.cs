@@ -41,14 +41,15 @@ namespace MapleLib.WzLib.WzStructure.Data.QuestStructure
         Character_Evan = 0x7,
         Character_Mercedes = 0x8,
         Character_Phantom = 0x9,
+        Job_Quest = 0xA, // 10
         Battle_Mode = 0x0B,           // 11 in log, claude 3.5
         Special_Training = 0x0C,      // 12 in log, claude 3.5
         Job_Training = 0x0D,          // 13 in log, claude 3.5
         Character_Dual_Blade = 0x0E,           // 14 in log, claude 3.5
         Character_Cygnus_Knights = 0x0F,       // 15 in log, claude 3.5
         Character_Resistance = 0x10,           // 16 in log, claude 3.5
-        // Reserved 0x11
-        Showa = 0x12,               // 18 in log, claude 3.5
+        Silent_Crusade = 0x11, // 17
+        Showa_Town = 0x12,               // 18 in log, claude 3.5
         // Reserved 0x13
         Maple_Island = 0x14, // correct
         Kaiser_Nova = 0x16,                // 22 in log, claude 3.5
@@ -73,10 +74,10 @@ namespace MapleLib.WzLib.WzStructure.Data.QuestStructure
         Ellin_Forest = 0x27, // 39
         Korean_Folk_Town = 0x28,    // 40 in log, claude 3.5
         Leafre = 0x29, // 41
-        // 0x2A
+        Maple_High_School = 0x2A, // 42 or Red Leaf High
         Magatia = 0x2B,             // 43 in log, claude 3.5
         Mu_Lung = 0x2C,             // 44 in log, claude 3.5
-        // Reserved 0x2D
+        WorldTour = 0x2D, // 45
         Temple_of_Time = 0x2E,      // 46 in log, claude 3.5
         Knight_Stronghold = 0x2F,   // 47 in log, claude 3.5
 
