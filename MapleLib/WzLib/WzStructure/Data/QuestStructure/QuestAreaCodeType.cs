@@ -30,7 +30,6 @@ namespace MapleLib.WzLib.WzStructure.Data.QuestStructure
 
         // TODO
         UNKNOWN_4 = 4,
-        UNKNOWN_48 = 48,
 
         // Town areas
         CrossHunter = 0x1,
@@ -77,11 +76,12 @@ namespace MapleLib.WzLib.WzStructure.Data.QuestStructure
         Maple_High_School = 0x2A, // 42 or Red Leaf High
         Magatia = 0x2B,             // 43 in log, claude 3.5
         Mu_Lung = 0x2C,             // 44 in log, claude 3.5
-        WorldTour = 0x2D, // 45
+        WorldTour_Singapore = 0x2D, // 45, Ulu city, Singapore, Boat Quay
         Temple_of_Time = 0x2E,      // 46 in log, claude 3.5
         Knight_Stronghold = 0x2F,   // 47 in log, claude 3.5
 
-        ThemeDungeon = 0x31, // claude 3.5
+        WorldTour = 0x30, // 48, NLC, Shanghai, Taiwan, Neo Tokyo, Thailand [Floating market], Japan [Zipangu]
+        ThemeDungeon = 0x31, // claude 3.5, or is it [Party Quest]?
 
         // Special Content (0x30-0x3F)
         Event = 0x32,
@@ -125,7 +125,7 @@ namespace MapleLib.WzLib.WzStructure.Data.QuestStructure
 
         // Modern Systems (0x60-0x6F)
         StarPlanet = 0x62,
-        StarPlanet_Quest = 0x63,
+        StarPlanet_Quest = 0x63, // or boss contents primarily (star planet means boss channels?)
         Completed_Before_BigBang = 0x64,
         StarPlanet_Guide = 0x65,
         Blockbuster_BlackHeaven = 0x66,
