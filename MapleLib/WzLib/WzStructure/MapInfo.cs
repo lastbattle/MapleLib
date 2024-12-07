@@ -148,7 +148,9 @@ namespace MapleLib.WzLib.WzStructure
             WzFile file = (WzFile)image.WzFileParent;
             string loggerSuffix = ", map " + image.Name + ((file != null) ? (" of version " + Enum.GetName(typeof(WzMapleVersion), file.MapleVersion) + ", v" + file.Version.ToString()) : "");
 
-            foreach (WzImageProperty prop in image["info"].WzProperties)
+            WzImageProperty infoImage = image["info"];
+
+            foreach (WzImageProperty prop in infoImage.WzProperties)
             {
                 switch (prop.Name)
                 {

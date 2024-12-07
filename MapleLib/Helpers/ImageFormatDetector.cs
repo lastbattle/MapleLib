@@ -90,7 +90,7 @@ namespace MapleLib.Helpers {
                         }
                         return SurfaceFormat.Dxt5;
                     }
-                    return SurfaceFormat.Bgr32;
+                    return SurfaceFormat.Bgra32;
                 }
                 else if (hasPartialAlpha) {
                     return SurfaceFormat.Bgra4444;

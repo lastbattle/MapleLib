@@ -33,7 +33,7 @@ namespace MapleLib.WzLib.WzStructure.Data.QuestStructure
         Started = 1,
         Completed = 2,
         PartyQuest = 3,
-        No = 4
+        No = 4 // number?
     }
 
     public static class QuestStateTypeExtensions
@@ -45,7 +45,7 @@ namespace MapleLib.WzLib.WzStructure.Data.QuestStructure
         /// <returns></returns>
         public static string ToReadableString(this QuestStateType state)
         {
-            return state.ToString().Replace("_", " ");
+            return state.ToString();
         }
 
         /// <summary>
@@ -56,7 +56,7 @@ namespace MapleLib.WzLib.WzStructure.Data.QuestStructure
         public static QuestStateType ToEnum(this string name)
         {
             // Try to parse the string to enum
-            if (Enum.TryParse<QuestStateType>(name.Replace(" ", "_"), out QuestStateType result))
+            if (Enum.TryParse<QuestStateType>(name, out QuestStateType result))
             {
                 return (QuestStateType)result;
             }

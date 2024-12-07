@@ -338,8 +338,8 @@ namespace MapleLib.WzLib.WzProperties
             GCHandle handle = GCHandle.Alloc(data, GCHandleType.Pinned);
             try
             {
-                IntPtr ptr = handle.AddrOfPinnedObject();
-                object obj = Marshal.PtrToStructure(ptr, typeof(T));
+                T obj = (T)FormatterServices.GetUninitializedObject(typeof(T));
+                Marshal.PtrToStructure<T>(handle.AddrOfPinnedObject(), obj);
                 return (T)obj;
             }
             finally

@@ -29,7 +29,7 @@ namespace MapleLib.WzLib.WzStructure.Data.QuestStructure
         Normal = 2,
         Challenge = 3,
         Event = 4,
-        NO = 5,
+        NO = 5, // number?
     }
 
     public static class QuestMedalTypeExt

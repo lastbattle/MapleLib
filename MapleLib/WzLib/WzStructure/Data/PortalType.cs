@@ -1,9 +1,4 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
-
+﻿
 namespace MapleLib.WzLib.WzStructure.Data
 {
     public class PortalType //Credits to me and BluePoop
