@@ -65,7 +65,11 @@ namespace MapleLib.WzLib
             }
         }
 
-        // Override other methods as needed, such as Insert, to ensure Parent is set
+        /// <summary>
+        /// Override other methods as needed, such as Insert, to ensure Parent is set
+        /// </summary>
+        /// <param name="index"></param>
+        /// <param name="item"></param>
         public new void Insert(int index, WzImageProperty item)
         {
             if (parent != null)

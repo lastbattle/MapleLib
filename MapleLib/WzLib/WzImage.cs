@@ -21,6 +21,7 @@ using MapleLib.WzLib.Util;
 using MapleLib.WzLib.WzProperties;
 using System.Linq;
 using System.Threading.Tasks;
+using System.Diagnostics;
 
 namespace MapleLib.WzLib
 {
@@ -42,6 +43,8 @@ namespace MapleLib.WzLib
 
         #region Fields
         internal bool parsed = false;
+        internal bool bIsImageChanged = false;
+
         internal string name;
         internal int size;
         private int checksum;
@@ -52,7 +55,7 @@ namespace MapleLib.WzLib
         internal int blockStart = 0;
         internal long tempFileStart = 0;
         internal long tempFileEnd = 0;
-        internal bool bIsImageChanged = false;
+
         private bool parseEverything = false;
 
         /// <summary>
@@ -211,7 +214,7 @@ namespace MapleLib.WzLib
         public WzImage DeepClone()
         {
             if (reader != null && !parsed) ParseImage();
-            WzImage clone = new WzImage(name)
+            WzImage clone = new(name)
             {
                 bIsImageChanged = true
             };
@@ -285,10 +288,15 @@ namespace MapleLib.WzLib
         /// <param name="prop">Property to add</param>
         public void AddProperty(WzImageProperty prop)
         {
-            prop.Parent = this;
-            if (reader != null && !parsed) 
+            if (this[prop.Name] != null)
+            {
+                throw new Exception(string.Format("Trying to add a WzImageProperty with a name ['{0}'] that is already being used by another property.", prop.Name));
+            }
+            if (reader != null && !parsed)
+            {
                 ParseImage();
-            properties.Add(prop);
+            }
+            properties.Add(prop); // parent is set to 'prop' here
         }
         /// <summary>
         /// Add a list of properties to the WzImage
@@ -307,6 +315,9 @@ namespace MapleLib.WzLib
         /// <param name="name">The name of the property to remove</param>
         public void RemoveProperty(WzImageProperty prop)
         {
+            if (!properties.Contains(prop))
+                return;
+
             if (reader != null && !parsed) 
                 ParseImage();
             prop.Parent = null;
@@ -460,6 +471,7 @@ namespace MapleLib.WzLib
                 WzSubProperty imgProp = new WzSubProperty();
 
                 long startPos = writer.BaseStream.Position;
+
                 imgProp.AddPropertiesForWzImageDumping(WzProperties);
                 imgProp.WriteValue(writer);
 

@@ -20,25 +20,44 @@ namespace MapleLib.WzLib.Serializer
         private void exportXmlInternal(WzImage img, string path)
         {
             bool parsed = img.Parsed || img.Changed;
-            if (!parsed)
-                img.ParseImage();
-            curr++;
-
-            if (File.Exists(path))
-                File.Delete(path);
-            using (TextWriter tw = new StreamWriter(File.Create(path)))
+            try
             {
-                tw.Write("<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>" + lineBreak);
-                tw.Write("<imgdir name=\"" + XmlUtil.SanitizeText(img.Name) + "\">" + lineBreak);
-                foreach (WzImageProperty property in img.WzProperties)
-                {
-                    WritePropertyToXML(tw, indent, property, path);
-                }
-                tw.Write("</imgdir>" + lineBreak);
-            }
+                if (!parsed)
+                    img.ParseImage();
+                curr++;
 
-            if (!parsed)
-                img.UnparseImage();
+                // Create directory if it doesn't exist
+                Directory.CreateDirectory(Path.GetDirectoryName(path));
+
+                // Create a copy of properties to avoid modification during enumeration
+                var properties = img.WzProperties.ToList();
+
+                using (TextWriter tw = new StreamWriter(File.Create(path)))
+                {
+                    tw.Write("<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>");
+                    tw.Write(lineBreak);
+                    tw.Write("<imgdir name=\"");
+                    tw.Write(XmlUtil.SanitizeText(img.Name));
+                    tw.Write("\">");
+                    tw.Write(lineBreak);
+
+                    foreach (WzImageProperty property in properties)
+                    {
+                        WritePropertyToXML(tw, indent, property, path);
+                    }
+                    tw.Write("</imgdir>");
+                    tw.Write(lineBreak);
+                }
+            }
+            catch (Exception ex)
+            {
+                throw new Exception($"Failed to export XML for image {img.Name}", ex);
+            }
+            finally
+            {
+                if (!parsed)
+                    img.UnparseImage();
+            }
         }
 
         private void exportDirXmlInternal(WzDirectory dir, string path)
@@ -62,7 +81,8 @@ namespace MapleLib.WzLib.Serializer
         public void SerializeImage(WzImage img, string path)
         {
             total = 1; curr = 0;
-            if (Path.GetExtension(path) != ".xml") path += ".xml";
+            if (Path.GetExtension(path) != ".xml") 
+                path += ".xml";
             exportXmlInternal(img, path);
         }
 

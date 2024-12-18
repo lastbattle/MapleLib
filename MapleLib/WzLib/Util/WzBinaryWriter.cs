@@ -26,187 +26,187 @@ using MapleLib.WzLib.WzStructure.Enums;
 
 namespace MapleLib.WzLib.Util
 {
-	/*
-	   TODO : Maybe WzBinaryReader/Writer should read and contain the hash (this is probably what's going to happen)
-	*/
-	public class WzBinaryWriter : BinaryWriter
-	{
+    /// <summary>
+    ///  TODO : Maybe WzBinaryReader/Writer should read and contain the hash (this is probably what's going to happen)
+    /// </summary>
+    public class WzBinaryWriter : BinaryWriter
+    {
         #region Properties
         public WzMutableKey WzKey { get; set; }
-		public uint Hash { get; set; }
-		public Dictionary<string, int> StringCache { get; set; }
-		public WzHeader Header { get; set; }
-		public bool LeaveOpen { get; internal set; }
-		#endregion
+        public uint Hash { get; set; }
+        public Dictionary<string, int> StringCache { get; set; }
+        public WzHeader Header { get; set; }
+        public bool LeaveOpen { get; internal set; }
+        #endregion
 
-		#region Constructors
-		public WzBinaryWriter(Stream output, byte[] WzIv)
-			: this(output, WzIv, false)
-		{
-			this.Hash = 0;
-		}
+        #region Constructors
+        public WzBinaryWriter(Stream output, byte[] WzIv)
+            : this(output, WzIv, false)
+        {
+            this.Hash = 0;
+        }
 
-		public WzBinaryWriter(Stream output, byte[] WzIv, uint Hash)
-			: this(output, WzIv, false) {
-			this.Hash = Hash;
-		}
+        public WzBinaryWriter(Stream output, byte[] WzIv, uint Hash) : this(output, WzIv, false)
+        {
+            this.Hash = Hash;
+        }
 
-		public WzBinaryWriter(Stream output, byte[] WzIv, bool leaveOpen)
-			: base(output)
-		{
-			WzKey = WzKeyGenerator.GenerateWzKey(WzIv);
-            StringCache = new Dictionary<string, int>();
+        public WzBinaryWriter(Stream output, byte[] WzIv, bool leaveOpen)
+            : base(output)
+        {
+            WzKey = WzKeyGenerator.GenerateWzKey(WzIv);
+            StringCache = [];
             this.LeaveOpen = leaveOpen;
-		}
-		#endregion
+        }
+        #endregion
 
-		#region Methods
-		/// <summary>
-		/// ?InternalSerializeString@@YAHPAGPAUIWzArchive@@EE@Z
-		/// </summary>
-		/// <param name="s"></param>
-		/// <param name="withoutOffset">bExistID_0x73   0x73</param>
-		/// <param name="withOffset">bNewID_0x1b  0x1B</param>
-		public void WriteStringValue(string s, int withoutOffset, int withOffset)
-		{
-			// if length is > 4 and the string cache contains the string
-			// writes the offset instead
-			if (s.Length > 4 && StringCache.ContainsKey(s))
-			{
-				Write((byte)withOffset);
-				Write((int)StringCache[s]);
-			}
-			else
-			{
-				Write((byte)withoutOffset);
-				int sOffset = (int)this.BaseStream.Position;
-				Write(s);
-				if (!StringCache.ContainsKey(s))
-				{
-					StringCache[s] = sOffset;
-				}
-			}
-		}
-
-		/// <summary>
-		/// Writes the Wz object value
-		/// </summary>
-		/// <param name="stringObjectValue"></param>
-		/// <param name="type"></param>
-		/// <param name="unk_GMS230"></param>
-		/// <returns>true if the Wz object value is written as an offset in the Wz file, else if not</returns>
-		public bool WriteWzObjectValue(string stringObjectValue, WzDirectoryType type)
-		{
-			string storeName = string.Format("{0}_{1}", (byte) type, stringObjectValue);
-
-			// if length is > 4 and the string cache contains the string
-			// writes the offset instead
-			if (stringObjectValue.Length > 4 && StringCache.ContainsKey(storeName))
-			{
-				Write((byte)WzDirectoryType.RetrieveStringFromOffset_2); // 2
-				Write((int)StringCache[storeName]);
-
-				return true;
-			}
-			else
-			{
-				int sOffset = (int)(this.BaseStream.Position - Header.FStart);
-				Write((byte)type);
-				Write(stringObjectValue);
-                StringCache[storeName] = sOffset;
+        #region Methods
+        /// <summary>
+        /// ?InternalSerializeString@@YAHPAGPAUIWzArchive@@EE@Z
+        /// </summary>
+        /// <param name="s"></param>
+        /// <param name="withoutOffset">bExistID_0x73   0x73</param>
+        /// <param name="withOffset">bNewID_0x1b  0x1B</param>
+        public void WriteStringValue(string str, int withoutOffset, int withOffset)
+        {
+            // if length is > 4 and the string cache contains the string
+            // writes the offset instead
+            if (str.Length > 4 && StringCache.ContainsKey(str))
+            {
+                Write((byte)withOffset);
+                Write((int)StringCache[str]);
             }
-			return false;
-		}
+            else
+            {
+                Write((byte)withoutOffset);
+                int sOffset = (int)this.BaseStream.Position;
+                Write(str);
+                if (!StringCache.ContainsKey(str))
+                {
+                    StringCache[str] = sOffset;
+                }
+            }
+        }
 
-		public override void Write(string value)
-		{
-			if (string.IsNullOrEmpty(value))
-			{
-				Write((byte)0);
-				return;
-			}
-			bool unicode = value.Any(c => c > sbyte.MaxValue);
-			
-			if (unicode)
-				WriteUnicodeString(value);
-			else // ASCII
-				WriteAsciiString(value);
-		}
+        /// <summary>
+        /// Writes the Wz object value
+        /// </summary>
+        /// <param name="stringObjectValue"></param>
+        /// <param name="type"></param>
+        /// <param name="unk_GMS230"></param>
+        /// <returns>true if the Wz object value is written as an offset in the Wz file, else if not</returns>
+        public bool WriteWzObjectValue(string stringObjectValue, WzDirectoryType type)
+        {
+            string storeName = string.Format("{0}_{1}", (byte)type, stringObjectValue);
 
-		/// <summary>
-		/// Encodes unicode string
-		/// </summary>
-		/// <param name="value"></param>
+            // if length is > 4 and the string cache contains the string
+            // writes the offset instead
+            if (stringObjectValue.Length > 4 && StringCache.ContainsKey(storeName))
+            {
+                Write((byte)WzDirectoryType.RetrieveStringFromOffset_2); // 2
+                Write((int)StringCache[storeName]);
+
+                return true;
+            }
+            else
+            {
+                int sOffset = (int)(this.BaseStream.Position - Header.FStart);
+                Write((byte)type);
+                Write(stringObjectValue);
+                if (!StringCache.ContainsKey(storeName))
+                {
+                    StringCache[storeName] = sOffset;
+                }
+            }
+            return false;
+        }
+
+        public override void Write(string value)
+        {
+            if (value.Length == 0)
+            {
+                Write((byte)0);
+                return;
+            }
+            bool unicode = value.Any(c => c > sbyte.MaxValue);
+
+            if (unicode)
+            {
+                WriteUnicodeString(value);
+            }
+            else // ASCII
+            {
+                WriteAsciiString(value);
+            }
+        }
+
+        /// <summary>
+        /// Encodes unicode string
+        /// </summary>
+        /// <param name="value"></param>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private void WriteUnicodeString(string value)
         {
+            if (value.Length >= sbyte.MaxValue) // Bugfix - >= because if value.Length = MaxValue, MaxValue will be written and then treated as a long-length marker
+            {
+                Write(sbyte.MaxValue);
+                Write(value.Length);
+            }
+            else
+            {
+                Write((sbyte)value.Length);
+            }
+
             ushort mask = 0xAAAA;
 
-            WriteStringLength(value.Length, false);
-
-            for (int i = 0; i < value.Length; i++)
+            int i = 0;
+            foreach (var character in value)
             {
-                ushort encryptedChar = (ushort)value[i];
+                ushort encryptedChar = (ushort)character;
                 encryptedChar ^= (ushort)((WzKey[i * 2 + 1] << 8) + WzKey[i * 2]);
                 encryptedChar ^= mask;
                 mask++;
                 Write(encryptedChar);
+
+                i++;
             }
         }
 
-		/// <summary>
-		/// Encodes Ascii string
-		/// </summary>
-		/// <param name="value"></param>
+        /// <summary>
+        /// Encodes ASCII string
+        /// </summary>
+        /// <param name="value"></param>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private void WriteAsciiString(string value)
         {
+            if (value.Length > sbyte.MaxValue) // Note - no need for >= here because of 2's complement (MinValue == -(MaxValue + 1))
+            {
+                Write(sbyte.MinValue);
+                Write(value.Length);
+            }
+            else
+            {
+                Write((sbyte)(-value.Length));
+            }
+
             byte mask = 0xAA;
 
-            WriteStringLength(value.Length, true);
-
-            for (int i = 0; i < value.Length; i++)
+            int i = 0;
+            foreach (char c in value)
             {
-                byte encryptedChar = (byte)value[i];
+                byte encryptedChar = (byte)c;
                 encryptedChar ^= WzKey[i];
                 encryptedChar ^= mask;
                 mask++;
                 Write(encryptedChar);
-            }
-        }
 
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private void WriteStringLength(int length, bool isAscii)
-        {
-            // Bugfix - >= because if value.Length = MaxValue, MaxValue will be written and then treated as a long-length marker
-            // Note - no need for >= here because of 2's complement (MinValue == -(MaxValue + 1))
-            if (length > sbyte.MaxValue)
-            {
-                Write(sbyte.MinValue);
-                Write(length);
-            }
-            else
-            {
-				if (isAscii)
-                    Write((sbyte)(-length));
-                else
-                    Write((sbyte)length);
-            }
-        }
-
-        public void Write(string value, int length)
-        {
-            int writeLength = Math.Min(value.Length, length);
-            Write(value.AsSpan(0, writeLength));
-            for (int i = writeLength; i < length; i++)
-            {
-                Write((byte)0);
+                i++;
             }
         }
 
         public char[] EncryptString(string stringToEncrypt)
         {
-            return stringToEncrypt.Select((c, i) => (char)(c ^ ((WzKey[i * 2 + 1] << 8) + WzKey[i * 2]))).ToArray();
+           return stringToEncrypt.Select((c, i) => (char)(c ^ ((WzKey[i * 2 + 1] << 8) + WzKey[i * 2]))).ToArray();
         }
 
         public char[] EncryptNonUnicodeString(string stringToEncrypt)
@@ -220,53 +220,51 @@ namespace MapleLib.WzLib.Util
             Write((byte)0);
         }
 
-        public void WriteCompressedInt(int value) => WriteCompressed(value);
-
-        public void WriteCompressedLong(long value) => WriteCompressed(value);
-
-        private void WriteCompressed<T>(T value) where T : IConvertible
+        public void WriteCompressedInt(int value)
         {
-            long longValue = value.ToInt64(null);
-            if (longValue > sbyte.MaxValue || longValue <= sbyte.MinValue)
+            if (value > sbyte.MaxValue || value <= sbyte.MinValue)
             {
                 Write(sbyte.MinValue);
-                switch (Type.GetTypeCode(typeof(T)))
-                {
-                    case TypeCode.Int32:
-                        Write(value.ToInt32(null));
-                        break;
-                    case TypeCode.Int64:
-                        Write(value.ToInt64(null));
-                        break;
-                    default:
-                        throw new ArgumentException($"Unsupported type for compressed writing: {typeof(T)}");
-                }
+                Write(value);
             }
             else
             {
-                Write(value.ToSByte(null));
+                Write((sbyte)value);
+            }
+        }
+
+        public void WriteCompressedLong(long value)
+        {
+            if (value > sbyte.MaxValue || value <= sbyte.MinValue)
+            {
+                Write(sbyte.MinValue);
+                Write(value);
+            }
+            else
+            {
+                Write((sbyte)value);
             }
         }
 
         public void WriteOffset(long value)
-		{
-			uint encOffset = (uint)BaseStream.Position;
-			encOffset = (encOffset - Header.FStart) ^ 0xFFFFFFFF;
-			encOffset *= Hash; // could this be removed? 
-			encOffset -= WzAESConstant.WZ_OffsetConstant;
-			encOffset = ByteUtils.RotateLeft(encOffset, (byte)(encOffset & 0x1F));
-			uint writeOffset = encOffset ^ ((uint) value - (Header.FStart * 2));
-			Write(writeOffset);
-		}
+        {
+            uint encOffset = (uint)BaseStream.Position;
+            encOffset = (encOffset - Header.FStart) ^ 0xFFFFFFFF;
+            encOffset *= Hash; // could this be removed? 
+            encOffset -= WzAESConstant.WZ_OffsetConstant;
+            encOffset = ByteUtils.RotateLeft(encOffset, (byte)(encOffset & 0x1F));
+            uint writeOffset = encOffset ^ ((uint)value - (Header.FStart * 2));
+            Write(writeOffset);
+        }
 
-		public override void Close()
-		{
-			if (!LeaveOpen)
-			{
-				base.Close();
-			}
-		}
+        public override void Close()
+        {
+            if (!LeaveOpen)
+            {
+                base.Close();
+            }
+        }
 
-		#endregion
-	}
+        #endregion
+    }
 }
