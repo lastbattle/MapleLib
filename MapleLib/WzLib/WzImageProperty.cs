@@ -213,47 +213,65 @@ namespace MapleLib.WzLib
             switch (iname)
             {
                 case "Property":
-                    WzSubProperty subProp = new WzSubProperty(name) { Parent = parent };
-                    reader.BaseStream.Position += 2; // Reserved?
-                    subProp.AddProperties(WzImageProperty.ParsePropertyList(offset, reader, subProp, imgParent));
-                    return subProp;
+                    {
+                        WzSubProperty subProp = new WzSubProperty(name) { Parent = parent };
+                        reader.BaseStream.Position += 2; // Reserved?
+                        subProp.AddProperties(WzImageProperty.ParsePropertyList(offset, reader, subProp, imgParent));
+                        return subProp;
+                    }
                 case "Canvas":
-                    WzCanvasProperty canvasProp = new WzCanvasProperty(name) { Parent = parent };
-                    reader.BaseStream.Position++;
-                    if (reader.ReadByte() == 1)
                     {
-                        reader.BaseStream.Position += 2;
-                        canvasProp.AddProperties(WzImageProperty.ParsePropertyList(offset, reader, canvasProp, imgParent));
+                        WzCanvasProperty canvasProp = new WzCanvasProperty(name) { Parent = parent };
+                        reader.BaseStream.Position++;
+                        if (reader.ReadByte() == 1)
+                        {
+                            reader.BaseStream.Position += 2;
+                            canvasProp.AddProperties(WzImageProperty.ParsePropertyList(offset, reader, canvasProp, imgParent));
+                        }
+                        canvasProp.PngProperty = new WzPngProperty(reader, imgParent.ParseEverything) { Parent = canvasProp };
+                        return canvasProp;
                     }
-                    canvasProp.PngProperty = new WzPngProperty(reader, imgParent.ParseEverything) { Parent = canvasProp };
-                    return canvasProp;
                 case "Shape2D#Vector2D":
-                    WzVectorProperty vecProp = new WzVectorProperty(name) { Parent = parent };
-                    vecProp.X = new WzIntProperty("X", reader.ReadCompressedInt()) { Parent = vecProp };
-                    vecProp.Y = new WzIntProperty("Y", reader.ReadCompressedInt()) { Parent = vecProp };
-                    return vecProp;
+                    {
+                        WzVectorProperty vecProp = new WzVectorProperty(name) { Parent = parent };
+                        vecProp.X = new WzIntProperty("X", reader.ReadCompressedInt()) { Parent = vecProp };
+                        vecProp.Y = new WzIntProperty("Y", reader.ReadCompressedInt()) { Parent = vecProp };
+                        return vecProp;
+                    }
                 case "Shape2D#Convex2D":
-                    WzConvexProperty convexProp = new WzConvexProperty(name) { Parent = parent };
-                    int convexEntryCount = reader.ReadCompressedInt();
-                    convexProp.WzProperties.Capacity = convexEntryCount;
-                    for (int i = 0; i < convexEntryCount; i++)
                     {
-                        convexProp.AddProperty(ParseExtendedProp(reader, offset, 0, name, convexProp, imgParent));
+                        WzConvexProperty convexProp = new WzConvexProperty(name) { Parent = parent };
+                        int convexEntryCount = reader.ReadCompressedInt();
+                        convexProp.WzProperties.Capacity = convexEntryCount;
+                        for (int i = 0; i < convexEntryCount; i++)
+                        {
+                            convexProp.AddProperty(ParseExtendedProp(reader, offset, 0, name, convexProp, imgParent));
+                        }
+                        return convexProp;
                     }
-                    return convexProp;
                 case "Sound_DX8":
-                    WzBinaryProperty soundProp = new WzBinaryProperty(name, reader, imgParent.ParseEverything) { Parent = parent };
-                    return soundProp;
-                case "UOL":
-                    reader.BaseStream.Position++;
-                    switch (reader.ReadByte())
                     {
-                        case 0:
-                            return new WzUOLProperty(name, reader.ReadString()) { Parent = parent };
-                        case 1:
-                            return new WzUOLProperty(name, reader.ReadStringAtOffset(offset + reader.ReadInt32())) { Parent = parent };
+                        WzBinaryProperty soundProp = new WzBinaryProperty(name, reader, imgParent.ParseEverything) { Parent = parent };
+                        return soundProp;
                     }
-                    throw new Exception("Unsupported UOL type");
+                case "UOL":
+                    {
+                        reader.BaseStream.Position++;
+                        switch (reader.ReadByte())
+                        {
+                            case 0:
+                                return new WzUOLProperty(name, reader.ReadString()) { Parent = parent };
+                            case 1:
+                                return new WzUOLProperty(name, reader.ReadStringAtOffset(offset + reader.ReadInt32())) { Parent = parent };
+                        }
+                        throw new Exception("Unsupported UOL type");
+                    }
+                case WzRawDataProperty.RAW_DATA_HEADER:  // GMS v220++
+                    {
+                        return new WzRawDataProperty(name, reader, imgParent.ParseEverything) { 
+                            Parent = parent 
+                        };
+                    }
                 default:
                     throw new Exception("Unknown iname: " + iname);
             }

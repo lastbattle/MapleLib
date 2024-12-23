@@ -34,6 +34,7 @@ namespace MapleLib.WzLib
 		Vector,
 		Convex,
 		Sound,
+		Raw,
 		UOL,
 		Lua,
 		#endregion
