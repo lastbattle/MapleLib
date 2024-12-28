@@ -15,11 +15,11 @@ using System.Threading;
 using System.Text.RegularExpressions;
 using Microsoft.Xna.Framework;
 using System.Diagnostics;
+using System.IO.Packaging;
 
-namespace MapleLib
-{
-    public class WzFileManager : IDisposable
-    {
+namespace MapleLib {
+
+    public class WzFileManager : IDisposable {
         #region Constants
         private static readonly string[] EXCLUDED_DIRECTORY_FROM_WZ_LIST = { "bak", "backup", "original", "xml", "hshield", "blackcipher", "harepacker", "hacreator" };
 
@@ -45,14 +45,15 @@ namespace MapleLib
         /// Returns the "Data" folder if 64-bit client.
         /// </summary>
         /// <returns></returns>
-        public string WzBaseDirectory
-        {
+        public string WzBaseDirectory {
             get { return this._bInitAs64Bit ? (baseDir + "\\Data\\") : baseDir; }
             private set { }
         }
+
+        private readonly bool _bIsStandAloneWzFile;
+
         private readonly bool _bInitAs64Bit;
-        public bool Is64Bit
-        {
+        public bool Is64Bit {
             get { return _bInitAs64Bit; }
             private set { }
         }
@@ -98,10 +99,10 @@ namespace MapleLib
         /// <summary>
         /// Constructor to init WzFileManager for HaRepacker
         /// </summary>
-        public WzFileManager()
-        {
+        public WzFileManager() {
             this.baseDir = string.Empty;
             this._bInitAs64Bit = false;
+            this._bIsStandAloneWzFile = false;
 
             fileManager = this;
         }
@@ -110,12 +111,22 @@ namespace MapleLib
         /// Constructor to init WzFileManager for HaCreator
         /// </summary>
         /// <param name="directory"></param>
-        public WzFileManager(string directory) {
+        /// <param name="bIsStandAloneWzFile"></param>
+        public WzFileManager(string directory, bool bIsStandAloneWzFile) {
             this.baseDir = directory;
+            this._bIsStandAloneWzFile = bIsStandAloneWzFile;
 
-            this._bInitAs64Bit = WzFileManager.Detect64BitDirectoryWzFileFormat(this.baseDir); // set
-            this._bIsPreBBDataWzFormat = WzFileManager.DetectIsPreBBDataWZFileFormat(this.baseDir); // set
-
+            // interpret it as a stand-alone WZ file instead of MapleStory directory
+            if (bIsStandAloneWzFile)
+            {
+                this._bInitAs64Bit = false;
+                this._bIsPreBBDataWzFormat = false;
+            }
+            else
+            {
+                this._bInitAs64Bit = WzFileManager.Detect64BitDirectoryWzFileFormat(this.baseDir); // set
+                this._bIsPreBBDataWzFormat = WzFileManager.DetectIsPreBBDataWZFileFormat(this.baseDir); // set
+            }
             fileManager = this;
         }
         #endregion
@@ -126,16 +137,14 @@ namespace MapleLib
         /// is a 64-bit wz directory
         /// </summary>
         /// <returns></returns>
-        public static bool Detect64BitDirectoryWzFileFormat(string baseDirectoryPath)
-        {
+        public static bool Detect64BitDirectoryWzFileFormat(string baseDirectoryPath) {
             if (!Directory.Exists(baseDirectoryPath))
                 throw new Exception("Non-existent directory provided.");
 
             string dataDirectoryPath = Path.Combine(baseDirectoryPath, "Data");
             bool bDirectoryContainsDataDir = Directory.Exists(dataDirectoryPath);
 
-            if (bDirectoryContainsDataDir)
-            {
+            if (bDirectoryContainsDataDir) {
                 // Use a regular expression to search for .wz files in the Data directory
                 string searchPattern = @"*.wz";
                 int nNumWzFilesInDataDir = Directory.EnumerateFileSystemEntries(dataDirectoryPath, searchPattern, SearchOption.AllDirectories).Count();
@@ -192,11 +201,12 @@ namespace MapleLib
         /// </summary>
         /// <returns></returns>
         /// <exception cref="Exception"></exception>
-        public void BuildWzFileList()
-        {
+        public void BuildWzFileList() {
+            if (_wzFilesDirectoryList.Count != 0)  // dont load again
+                return;
+
             bool b64BitClient = this._bInitAs64Bit;
-            if (b64BitClient)
-            {
+            if (b64BitClient) {
                 // parse through "Data" directory and iterate through every folder
                 string baseDir = WzBaseDirectory;
 
@@ -205,8 +215,7 @@ namespace MapleLib
                                            .Where(dir => !EXCLUDED_DIRECTORY_FROM_WZ_LIST.Any(x => dir.ToLower().Contains(x)));
 
                 // Iterate over the filtered and transformed directories
-                foreach (string dir in directories)
-                {
+                foreach (string dir in directories) {
                     //string folderName = new DirectoryInfo(Path.GetDirectoryName(dir)).Name.ToLower();
                     //Debug.WriteLine("----");
                     //Debug.WriteLine(dir);
@@ -218,8 +227,7 @@ namespace MapleLib
                     string iniFile = iniFiles[0];
                     if (!File.Exists(iniFile))
                         throw new Exception(".ini file at the directory '" + dir + "' is missing.");
-                    else
-                    {
+                    else {
                         string[] iniFileLines = File.ReadAllLines(iniFile);
                         if (iniFileLines.Length <= 0)
                             throw new Exception(".ini file does not contain LastWzIndex information.");
@@ -230,8 +238,7 @@ namespace MapleLib
 
                         int index = int.Parse(iniFileSplit[1]);
 
-                        for (int i = 0; i <= index; i++)
-                        {
+                        for (int i = 0; i <= index; i++) {
                             string partialWzFilePath = string.Format(iniFile.Replace(".ini", "_{0}.wz"), i.ToString("D3")); // 3 padding '0's
                             string fileName = Path.GetFileName(partialWzFilePath);
                             string fileName2 = fileName.Replace(".wz", "");
@@ -255,13 +262,11 @@ namespace MapleLib
                     }
                 }
             }
-            else
-            {
+            else {
                 var wzFilePathNames = Directory.EnumerateFileSystemEntries(baseDir, "*.wz", SearchOption.AllDirectories)
                     .Where(f => !File.GetAttributes(f).HasFlag(FileAttributes.Directory) // exclude directories
                                 && !EXCLUDED_DIRECTORY_FROM_WZ_LIST.Any(x => x.ToLower() == new DirectoryInfo(Path.GetDirectoryName(f)).Name)); // exclude folders
-                foreach (string wzFilePathName in wzFilePathNames)
-                {
+                foreach (string wzFilePathName in wzFilePathNames) {
                     //string folderName = new DirectoryInfo(Path.GetDirectoryName(wzFileName)).Name;
                     string directory = Path.GetDirectoryName(wzFilePathName);
 
@@ -316,14 +321,12 @@ namespace MapleLib
         /// <param name="encVersion"></param>
         /// <returns></returns>
         /// <exception cref="Exception"></exception>
-        public WzFile LoadWzFile(string baseName, WzMapleVersion encVersion)
-        {
+        public WzFile LoadWzFile(string baseName, WzMapleVersion encVersion) {
             string filePath = GetWzFilePath(baseName);
             WzFile wzf = new WzFile(filePath, encVersion);
 
             WzFileParseStatus parseStatus = wzf.ParseWzFile();
-            if (parseStatus != WzFileParseStatus.Success)
-            {
+            if (parseStatus != WzFileParseStatus.Success) {
                 throw new Exception("Error parsing " + baseName + ".wz (" + parseStatus.GetErrorDescription() + ")");
             }
 
@@ -334,14 +337,12 @@ namespace MapleLib
 
             // write lock to begin adding to the dictionary
             _readWriteLock.EnterWriteLock();
-            try
-            {
+            try {
                 _wzFiles[fileName_] = wzf;
                 _wzFilesUpdated[wzf] = false;
                 _wzDirs[fileName_] = new WzMainDirectory(wzf);
             }
-            finally
-            {
+            finally {
                 _readWriteLock.ExitWriteLock();
             }
             return wzf;
@@ -352,14 +353,12 @@ namespace MapleLib
         /// </summary>
         /// <param name="baseName"></param>
         /// <returns></returns>
-        public bool LoadLegacyDataWzFile(string baseName, WzMapleVersion encVersion)
-        {
+        public bool LoadLegacyDataWzFile(string baseName, WzMapleVersion encVersion) {
             string filePath = GetWzFilePath(baseName);
             WzFile wzf = new WzFile(filePath, encVersion);
 
             WzFileParseStatus parseStatus = wzf.ParseWzFile();
-            if (parseStatus != WzFileParseStatus.Success)
-            {
+            if (parseStatus != WzFileParseStatus.Success) {
                 MessageBox.Show("Error parsing " + baseName + ".wz (" + parseStatus.GetErrorDescription() + ")");
                 return false;
             }
@@ -371,19 +370,16 @@ namespace MapleLib
 
             // write lock to begin adding to the dictionary
             _readWriteLock.EnterWriteLock();
-            try
-            {
+            try {
                 _wzFiles[baseName] = wzf;
                 _wzFilesUpdated[wzf] = false;
                 _wzDirs[baseName] = new WzMainDirectory(wzf);
             }
-            finally
-            {
+            finally {
                 _readWriteLock.ExitWriteLock();
             }
 
-            foreach (WzDirectory mainDir in wzf.WzDirectory.WzDirectories)
-            {
+            foreach (WzDirectory mainDir in wzf.WzDirectory.WzDirectories) {
                 _wzDirs[mainDir.Name.ToLower()] = new WzMainDirectory(wzf, mainDir);
             }
             return true;
@@ -396,8 +392,7 @@ namespace MapleLib
         /// <param name="encVersion"></param>
         /// <param name="panel"></param>
         /// <returns></returns>
-        public WzImage LoadDataWzHotfixFile(string baseName, WzMapleVersion encVersion)
-        {
+        public WzImage LoadDataWzHotfixFile(string baseName, WzMapleVersion encVersion) {
             string filePath = GetWzFilePath(baseName);
             FileStream fs = File.Open(filePath, FileMode.Open); // dont close this file stream until it is unloaded from memory
 
@@ -414,8 +409,7 @@ namespace MapleLib
         /// </summary>
         /// <param name="name"></param>
         /// <param name="img"></param>
-        public void SetWzFileUpdated(string name, WzImage img)
-        {
+        public void SetWzFileUpdated(string name, WzImage img) {
             img.Changed = true;
             _updatedWzImages.Add(img);
 
@@ -428,18 +422,14 @@ namespace MapleLib
         /// </summary>
         /// <param name="wzFile"></param>
         /// <exception cref="Exception"></exception>
-        public void SetWzFileUpdated(WzFile wzFile)
-        {
-            if (_wzFilesUpdated.ContainsKey(wzFile))
-            {
+        public void SetWzFileUpdated(WzFile wzFile) {
+            if (_wzFilesUpdated.ContainsKey(wzFile)) {
                 // write lock to begin adding to the dictionary
                 _readWriteLock.EnterWriteLock();
-                try
-                {
+                try {
                     _wzFilesUpdated[wzFile] = true;
                 }
-                finally
-                {
+                finally {
                     _readWriteLock.ExitWriteLock();
                 }
             }
@@ -469,21 +459,17 @@ namespace MapleLib
         /// Unload the wz file from memory
         /// </summary>
         /// <param name="wzFile"></param>
-        public void UnloadWzFile(WzFile wzFile, string wzFilePath)
-        {
+        public void UnloadWzFile(WzFile wzFile, string wzFilePath) {
             string baseName = wzFilePath.ToLower().Replace(".wz", "");
-            if (_wzFiles.ContainsKey(baseName))
-            {
+            if (_wzFiles.ContainsKey(baseName)) {
                 // write lock to begin adding to the dictionary
                 _readWriteLock.EnterWriteLock();
-                try
-                {
+                try {
                     _wzFiles.Remove(baseName);
                     _wzFilesUpdated.Remove(wzFile);
                     _wzDirs.Remove(baseName);
                 }
-                finally
-                {
+                finally {
                     _readWriteLock.ExitWriteLock();
                 }
                 wzFile.Dispose();
@@ -495,13 +481,10 @@ namespace MapleLib
         /// <summary>
         /// Dispose when shutting down the application
         /// </summary>
-        public void Dispose()
-        {
+        public void Dispose() {
             _readWriteLock.EnterWriteLock();
-            try
-            {
-                foreach (WzFile wzf in _wzFiles.Values)
-                {
+            try {
+                foreach (WzFile wzf in _wzFiles.Values) {
                     wzf.Dispose();
                 }
                 _wzFiles.Clear();
@@ -509,18 +492,15 @@ namespace MapleLib
                 _updatedWzImages.Clear();
                 _wzDirs.Clear();
             }
-            finally
-            {
+            finally {
                 _readWriteLock.ExitWriteLock();
             }
         }
         #endregion
 
         #region Custom Members
-        public WzDirectory this[string name]
-        {
-            get
-            {
+        public WzDirectory this[string name] {
+            get {
                 return _wzDirs.ContainsKey(name.ToLower()) ? _wzDirs[name.ToLower()].MainDir : null;
             }    //really not very useful to return null in this case
         }
@@ -529,8 +509,7 @@ namespace MapleLib
         /// Gets a read-only list of loaded WZ files in the WzFileManager
         /// </summary>
         /// <returns></returns>
-        public ReadOnlyCollection<WzFile> WzFileList
-        {
+        public ReadOnlyCollection<WzFile> WzFileList {
             get { return new List<WzFile>(this._wzFiles.Values).AsReadOnly(); }
             private set { }
         }
@@ -539,8 +518,7 @@ namespace MapleLib
         /// Gets a read-only list of loaded WZ files in the WzFileManager
         /// </summary>
         /// <returns></returns>
-        public ReadOnlyCollection<WzImage> WzUpdatedImageList
-        {
+        public ReadOnlyCollection<WzImage> WzUpdatedImageList {
             get { return new List<WzImage>(this._updatedWzImages).AsReadOnly(); }
             private set { }
         }
@@ -552,8 +530,7 @@ namespace MapleLib
         /// </summary>
         /// <param name="name"></param>
         /// <returns></returns>
-        public WzMainDirectory GetMainDirectoryByName(string name)
-        {
+        public WzMainDirectory GetMainDirectoryByName(string name) {
             name = name.ToLower();
 
             if (name.EndsWith(".wz"))
@@ -569,8 +546,7 @@ namespace MapleLib
         /// </summary>
         /// <param name="baseName"></param>
         /// <returns></returns>
-        public List<string> GetWzFileNameListFromBase(string baseName)
-        {
+        public List<string> GetWzFileNameListFromBase(string baseName) {
             if (_bIsPreBBDataWzFormat) {
                 if (!_wzFilesList.ContainsKey("data"))
                     return new List<string>(); // return as an empty list if none
@@ -588,11 +564,10 @@ namespace MapleLib
         /// </summary>
         /// <param name="baseName"></param>
         /// <returns></returns>
-        public List<WzDirectory> GetWzDirectoriesFromBase(string baseName)
-        {
+        public List<WzDirectory> GetWzDirectoriesFromBase(string baseName) {
             List<string> wzDirs = GetWzFileNameListFromBase(baseName);
             // Use Select() and Where() to transform and filter the WzDirectory list
-            if (_bIsPreBBDataWzFormat) { 
+            if (_bIsPreBBDataWzFormat) {
                 return wzDirs
                     .Select(name => this["data"][baseName] as WzDirectory)
                     .Where(dir => dir != null)
