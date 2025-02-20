@@ -85,7 +85,7 @@ namespace MapleLib.WzLib.Spine
                 WzCanvasProperty linkImgProperty = (WzCanvasProperty)canvasProperty.GetLinkedWzImageProperty();
                 WzPngProperty pngProperty = linkImgProperty.PngProperty;
 
-                Texture2D tex = new Texture2D(graphicsDevice, pngProperty.Width, pngProperty.Height, false, linkImgProperty.PngProperty.GetXNASurfaceFormat());
+                Texture2D tex = new Texture2D(graphicsDevice, pngProperty.Width, pngProperty.Height, false, WzPngFormatExtensions.GetXNASurfaceFormat(linkImgProperty.PngProperty.Format));
 
                 pngProperty.ParsePng(true, tex);
 

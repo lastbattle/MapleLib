@@ -120,6 +120,7 @@ namespace MapleLib.WzLib.WzProperties
         public override void WriteValue(WzBinaryWriter writer)
         {
             byte[] data = GetBytes(false);
+
             writer.WriteStringValue("Sound_DX8", WzImage.WzImageHeaderByte_WithoutOffset, WzImage.WzImageHeaderByte_WithOffset);
             writer.Write((byte)0);
             writer.WriteCompressedInt(data.Length);

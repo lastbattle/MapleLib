@@ -151,8 +151,13 @@ namespace MapleLib.WzLib.WzProperties {
             // Image info
             writer.WriteCompressedInt(PngProperty.Width);
             writer.WriteCompressedInt(PngProperty.Height);
-            writer.WriteCompressedInt(PngProperty.Format);
-            writer.WriteCompressedInt(PngProperty.Format2);
+
+            int formatValue = (int)PngProperty.Format;
+            int format1 = formatValue & 0xFF; // Lower 8 bits
+            int format2 = formatValue >> 8;   // Upper bits
+            writer.WriteCompressedInt(format1);
+            writer.WriteCompressedInt(format2);
+
             writer.Write((Int32)0);
 
             // Write image
@@ -202,7 +207,7 @@ namespace MapleLib.WzLib.WzProperties {
 
         public void SetCanvasOriginPosition(PointF pointF) {
             PointF pointXY = GetCanvasOriginPosition();
-            if (pointXY != null && pointXY.X != 0 && pointXY.Y != 0) {
+            if (pointXY.X != 0 && pointXY.Y != 0) {
                 WzVectorProperty originPos = (WzVectorProperty)this[OriginPropertyName];
                 originPos.X.SetValue(pointF.X);
                 originPos.Y.SetValue(pointF.Y);

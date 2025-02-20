@@ -45,7 +45,8 @@ namespace MapleLib.WzLib.WzProperties
     public class WzPngProperty : WzImageProperty
     {
         #region Fields
-        private int width, height, format, format2;
+        private int width, height;
+        private WzPngFormat format;
         internal byte[] compressedImageBytes;
         internal Bitmap png;
         internal WzObject parent;
@@ -120,51 +121,11 @@ namespace MapleLib.WzLib.WzProperties
         /// <summary>
         /// The format of the bitmap
         /// </summary>
-        public int Format
+        public WzPngFormat Format
         {
-            get { return format + format2; }
-            set
-            {
-                format = value;
-                format2 = 0;
-            }
+            get => format;
+            set => format = value;
         }
-        public int Format2
-        {
-            get { return format2; }
-            set
-            {
-                format2 = value;
-            }
-        }
-
-        /// <summary>
-        /// Wz PNG format to Microsoft.Xna.Framework.Graphics.SurfaceFormat
-        /// https://github.com/Kagamia/WzComparerR2/search?q=wzlibextension
-        /// </summary>
-        /// <param name="pngform"></param>
-        /// <returns></returns>
-        public SurfaceFormat GetXNASurfaceFormat()
-        {
-            switch (Format)
-            {
-                case 1: 
-                    return SurfaceFormat.Bgra4444;
-                case 2:
-                case 3: 
-                    return SurfaceFormat.Bgra32;
-                case 513:
-                case 517: 
-                    return SurfaceFormat.Bgr565;
-                case 1026: 
-                    return SurfaceFormat.Dxt3;
-                case 2050: 
-                    return SurfaceFormat.Dxt5;
-                default: 
-                    return SurfaceFormat.Bgra32;
-            }
-        }
-
 
         public bool ListWzUsed
         {
@@ -208,8 +169,12 @@ namespace MapleLib.WzLib.WzProperties
             // Read compressed bytes
             width = reader.ReadCompressedInt();
             height = reader.ReadCompressedInt();
-            format = reader.ReadCompressedInt();
-            format2 = reader.ReadCompressedInt();
+
+            int format1 = reader.ReadCompressedInt();
+            int format2 = reader.ReadCompressedInt();
+            // Reconstruct the original format using bit shifting
+            format = (WzPngFormat)(format1 + (format2 << 8));
+
             reader.BaseStream.Position += 4;
             offs = reader.BaseStream.Position;
             int len = reader.ReadInt32() - 1;
@@ -323,44 +288,40 @@ namespace MapleLib.WzLib.WzProperties
             }
             try
             {
-                Bitmap bmp = null;
+                Bitmap bmp = new Bitmap(width, height, Format.GetPixelFormat());
                 Rectangle rect_ = new Rectangle(0, 0, width, height);
 
                 switch (Format)
                 {
-                    case 1:
+                    case WzPngFormat.Format1:
                         {
-                            bmp = new Bitmap(width, height, PixelFormat.Format32bppArgb);
                             BitmapData bmpData = bmp.LockBits(rect_, ImageLockMode.WriteOnly, PixelFormat.Format32bppArgb);
 
                             DecompressImage_PixelDataBgra4444(rawBytes.AsSpan(), width, height, bmp, bmpData);
                             bmp.UnlockBits(bmpData);
                             break;
                         }
-                    case 2:
+                    case WzPngFormat.Format2:
                         {
-                            bmp = new Bitmap(width, height, PixelFormat.Format32bppArgb);
                             BitmapData bmpData = bmp.LockBits(rect_, ImageLockMode.WriteOnly, PixelFormat.Format32bppArgb);
 
                             Marshal.Copy(rawBytes, 0, bmpData.Scan0, rawBytes.Length);
                             bmp.UnlockBits(bmpData);
                             break;
                         }
-                    case 3:
+                    case WzPngFormat.Format3:
                         {
                             // New format 黑白缩略图
                             // thank you Elem8100, http://forum.ragezone.com/f702/wz-png-format-decode-code-1114978/ 
                             // you'll be remembered forever <3 
-                            bmp = new Bitmap(width, height, PixelFormat.Format32bppArgb);
                             BitmapData bmpData3 = bmp.LockBits(rect_, ImageLockMode.WriteOnly, PixelFormat.Format32bppArgb);
 
                             DecompressImageDXT3(rawBytes, width, height, bmpData3); // FullPath = "Map.wz\\Back\\blackHeaven.img\\back\\98"
                             bmp.UnlockBits(bmpData3);
                             break;
                         }
-                    case 257: // http://forum.ragezone.com/f702/wz-png-format-decode-code-1114978/index2.html#post9053713
+                    case WzPngFormat.Format257: // http://forum.ragezone.com/f702/wz-png-format-decode-code-1114978/index2.html#post9053713
                         {
-                            bmp = new Bitmap(width, height, PixelFormat.Format16bppArgb1555);
                             BitmapData bmpData = bmp.LockBits(rect_, ImageLockMode.WriteOnly, PixelFormat.Format16bppArgb1555);
                             // "Npc.wz\\2570101.img\\info\\illustration2\\face\\0"
 
@@ -369,36 +330,32 @@ namespace MapleLib.WzLib.WzProperties
                             bmp.UnlockBits(bmpData);
                             break;
                         }
-                    case 513: // nexon wizet logo
+                    case WzPngFormat.Format513: // nexon wizet logo
                         {
-                            bmp = new Bitmap(width, height, PixelFormat.Format16bppRgb565);
                             BitmapData bmpData = bmp.LockBits(rect_, ImageLockMode.WriteOnly, PixelFormat.Format16bppRgb565);
 
                             Marshal.Copy(rawBytes, 0, bmpData.Scan0, rawBytes.Length);
                             bmp.UnlockBits(bmpData);
                             break;
                         }
-                    case 517:
+                    case WzPngFormat.Format517:
                         {
-                            bmp = new Bitmap(width, height, PixelFormat.Format16bppRgb565);
                             BitmapData bmpData = bmp.LockBits(rect_, ImageLockMode.WriteOnly, PixelFormat.Format16bppRgb565);
 
                             DecompressImage_PixelDataForm517(rawBytes, width, height, bmp, bmpData); // FullPath = "Map.wz\\Back\\midForest.img\\back\\0"
                             bmp.UnlockBits(bmpData);
                             break;
                         }
-                    case 1026:
+                    case WzPngFormat.Format1026:
                         {
-                            bmp = new Bitmap(width, height, PixelFormat.Format32bppArgb);
                             BitmapData bmpData1026 = bmp.LockBits(rect_, ImageLockMode.WriteOnly, PixelFormat.Format32bppArgb);
 
                             DecompressImageDXT3(rawBytes, width, height, bmpData1026);
                             bmp.UnlockBits(bmpData1026);
                             break;
                         }
-                    case 2050: // new
+                    case WzPngFormat.Format2050: // new
                         {
-                            bmp = new Bitmap(width, height, PixelFormat.Format32bppArgb);
                             BitmapData bmpData2050 = bmp.LockBits(rect_, ImageLockMode.WriteOnly, PixelFormat.Format32bppArgb);
                             DecompressImageDXT5(rawBytes, width, height, bmpData2050);
 
@@ -406,7 +363,7 @@ namespace MapleLib.WzLib.WzProperties
                             break;
                         }
                     default:
-                        Helpers.ErrorLogger.Log(Helpers.ErrorLevel.MissingFeature, string.Format("Unknown PNG format {0} {1}", format, format2));
+                        Helpers.ErrorLogger.Log(Helpers.ErrorLevel.MissingFeature, $"Unknown PNG format {Format}");
                         break;
                 }
                 if (bmp != null)
@@ -470,21 +427,21 @@ namespace MapleLib.WzLib.WzProperties
                     int uncompressedSize = 0;
                     byte[] decBuf = null;
 
-                    switch (format + format2)
+                    switch (Format)
                     {
-                        case 1: // 0x1
+                        case WzPngFormat.Format1: // 0x1
                             {
                                 uncompressedSize = width * height * 2;
                                 decBuf = new byte[uncompressedSize];
                                 break;
                             }
-                        case 2: // 0x2
+                        case WzPngFormat.Format2: // 0x2
                             {
                                 uncompressedSize = width * height * 4;
                                 decBuf = new byte[uncompressedSize];
                                 break;
                             }
-                        case 3: // 0x2 + 1?
+                        case WzPngFormat.Format3: // 0x2 + 1?
                             {
                                 // New format 黑白缩略图
                                 // thank you Elem8100, http://forum.ragezone.com/f702/wz-png-format-decode-code-1114978/ 
@@ -494,7 +451,7 @@ namespace MapleLib.WzLib.WzProperties
                                 decBuf = new byte[uncompressedSize];
                                 break;
                             }
-                        case 257: // 0x100 + 1?
+                        case WzPngFormat.Format257: // 0x100 + 1?
                             {
                                 // http://forum.ragezone.com/f702/wz-png-format-decode-code-1114978/index2.html#post9053713
                                 // "Npc.wz\\2570101.img\\info\\illustration2\\face\\0"
@@ -503,32 +460,32 @@ namespace MapleLib.WzLib.WzProperties
                                 decBuf = new byte[uncompressedSize];
                                 break;
                             }
-                        case 513: // 0x200 nexon wizet logo
+                        case WzPngFormat.Format513: // 0x200 nexon wizet logo
                             {
                                 uncompressedSize = width * height * 2;
                                 decBuf = new byte[uncompressedSize];
                                 break;
                             }
-                        case 517: // 0x200 + 5
+                        case WzPngFormat.Format517: // 0x200 + 5
                             {
                                 uncompressedSize = width * height / 128;
                                 decBuf = new byte[uncompressedSize];
                                 break;
                             }
-                        case 1026: // 0x400 + 2?
+                        case WzPngFormat.Format1026: // 0x400 + 2?
                             {
                                 uncompressedSize = width * height * 4;
                                 decBuf = new byte[uncompressedSize];
                                 break;
                             }
-                        case 2050: // 0x800 + 2? new
+                        case WzPngFormat.Format2050: // 0x800 + 2? new
                             {
                                 uncompressedSize = width * height;
                                 decBuf = new byte[uncompressedSize];
                                 break;
                             }
                         default:
-                            Helpers.ErrorLogger.Log(Helpers.ErrorLevel.MissingFeature, string.Format("Unknown PNG format {0} {1}", format, format2));
+                            Helpers.ErrorLogger.Log(Helpers.ErrorLevel.MissingFeature, string.Format("Unknown PNG format {0}", Format));
                             break;
                     }
 
@@ -1073,8 +1030,7 @@ namespace MapleLib.WzLib.WzProperties
 
         internal void CompressPng(Bitmap bmp)
         {
-            format = 2;
-            format2 = 0;
+            Format = WzPngFormat.Format2; // Default to BGRA8888 for now. TODO: compression for every format
             width = bmp.Width;
             height = bmp.Height;
 
