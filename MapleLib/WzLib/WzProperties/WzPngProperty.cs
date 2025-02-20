@@ -23,7 +23,10 @@ using System.IO.Compression;
 using System.Numerics;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
-
+using System.Runtime.Intrinsics;
+using System.Runtime.Intrinsics.X86;
+using System.Text;
+using System.Windows;
 using MapleLib.Converters;
 using MapleLib.Helpers;
 using MapleLib.WzLib.Util;
@@ -35,8 +38,6 @@ namespace MapleLib.WzLib.WzProperties
     /// <summary>
     /// A property that contains the information for a bitmap
     /// https://docs.microsoft.com/en-us/windows/win32/direct3d9/compressed-texture-resources
-    /// https://code.google.com/archive/p/libsquish/
-    /// https://github.com/svn2github/libsquish
     /// http://www.sjbrown.co.uk/2006/01/19/dxt-compression-techniques/
     /// https://en.wikipedia.org/wiki/S3_Texture_Compression
     /// </summary>
@@ -332,6 +333,7 @@ namespace MapleLib.WzLib.WzProperties
                             BitmapData bmpData = bmp.LockBits(rect_, ImageLockMode.WriteOnly, PixelFormat.Format32bppArgb);
 
                             DecompressImage_PixelDataBgra4444(rawBytes, width, height, bmp, bmpData);
+                            bmp.UnlockBits(bmpData);
                             break;
                         }
                     case 2:
@@ -349,9 +351,10 @@ namespace MapleLib.WzLib.WzProperties
                             // thank you Elem8100, http://forum.ragezone.com/f702/wz-png-format-decode-code-1114978/ 
                             // you'll be remembered forever <3 
                             bmp = new Bitmap(width, height, PixelFormat.Format32bppArgb);
-                            BitmapData bmpData = bmp.LockBits(rect_, ImageLockMode.WriteOnly, PixelFormat.Format32bppArgb);
+                            BitmapData bmpData3 = bmp.LockBits(rect_, ImageLockMode.WriteOnly, PixelFormat.Format32bppArgb);
 
-                            DecompressImageDXT3(rawBytes, width, height, bmp, bmpData);
+                            DecompressImageDXT3(rawBytes, width, height, bmpData3);
+                            bmp.UnlockBits(bmpData3);
                             break;
                         }
                     case 257: // http://forum.ragezone.com/f702/wz-png-format-decode-code-1114978/index2.html#post9053713
@@ -380,22 +383,25 @@ namespace MapleLib.WzLib.WzProperties
                             BitmapData bmpData = bmp.LockBits(rect_, ImageLockMode.WriteOnly, PixelFormat.Format16bppRgb565);
 
                             DecompressImage_PixelDataForm517(rawBytes, width, height, bmp, bmpData);
+                            bmp.UnlockBits(bmpData);
                             break;
                         }
                     case 1026:
                         {
-                            bmp = new Bitmap(this.width, this.height, PixelFormat.Format32bppArgb);
-                            BitmapData bmpData = bmp.LockBits(rect_, ImageLockMode.WriteOnly, PixelFormat.Format32bppArgb);
+                            bmp = new Bitmap(width, height, PixelFormat.Format32bppArgb);
+                            BitmapData bmpData1026 = bmp.LockBits(rect_, ImageLockMode.WriteOnly, PixelFormat.Format32bppArgb);
 
-                            DecompressImageDXT3(rawBytes, this.width, this.height, bmp, bmpData);
+                            DecompressImageDXT3(rawBytes, width, height, bmpData1026);
+                            bmp.UnlockBits(bmpData1026);
                             break;
                         }
                     case 2050: // new
                         {
                             bmp = new Bitmap(width, height, PixelFormat.Format32bppArgb);
-                            BitmapData bmpData = bmp.LockBits(rect_, ImageLockMode.WriteOnly, PixelFormat.Format32bppArgb);
+                            BitmapData bmpData2050 = bmp.LockBits(rect_, ImageLockMode.WriteOnly, PixelFormat.Format32bppArgb);
+                            DecompressImageDXT5(rawBytes, width, height, bmpData2050);
 
-                            DecompressImageDXT5(rawBytes, Width, Height, bmp, bmpData);
+                            bmp.UnlockBits(bmpData2050);
                             break;
                         }
                     default:
@@ -575,39 +581,56 @@ namespace MapleLib.WzLib.WzProperties
         /// <param name="height"></param>
         /// <param name="bmp"></param>
         /// <param name="bmpData"></param>
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+
         public unsafe static void DecompressImage_PixelDataBgra4444(byte[] rawData, int width, int height, Bitmap bmp, BitmapData bmpData)
         {
             int uncompressedSize = width * height * 2;
             byte[] decoded = new byte[uncompressedSize * 2];
-
-            // Declare a pointer to the first element of the rawData array
-            // This allows us to directly access the memory of the rawData array
-            // without having to access it through the array indexer, which is slower
             fixed (byte* pRawData = rawData)
             {
-                // Declare a pointer to the first element of the decoded array
                 fixed (byte* pDecoded = decoded)
                 {
-                    // Iterate over the elements of the rawData array using the pointer
-                    for (int i = 0; i < uncompressedSize; i++)
+                    int i = 0;
+                    if (Sse2.IsSupported)
+                    {
+                        for (; i <= uncompressedSize - 16; i += 16)
+                        {
+                            // Load 16 bytes (8 pixels: 4 BG pairs, 4 RA pairs)
+                            Vector128<byte> input = Sse2.LoadVector128(pRawData + i);
+
+                            // Extract low nibbles (e.g., B or R)
+                            Vector128<byte> lo = Sse2.And(input, Vector128.Create((byte)0x0F));
+
+                            // Extract high nibbles (e.g., G or A), shifted to low position
+                            Vector128<byte> hi = Sse2.And(Sse2.ShiftRightLogical(input.AsUInt32(), 4).AsByte(), Vector128.Create((byte)0x0F));
+
+                            // Expand to 8 bits: lo | (lo << 4), hi | (hi << 4)
+                            Vector128<byte> b = Sse2.Or(Sse2.ShiftLeftLogical(lo.AsUInt32(), 4).AsByte(), lo);
+                            Vector128<byte> g = Sse2.Or(Sse2.ShiftLeftLogical(hi.AsUInt32(), 4).AsByte(), hi);
+
+                            // Interleave b and g to get b0, g0, b1, g1, ..., for 32 bytes output
+                            Vector128<byte> low = Sse2.UnpackLow(b, g);   // b0, g0, ..., b7, g7
+                            Vector128<byte> high = Sse2.UnpackHigh(b, g); // b8, g8, ..., b15, g15
+
+                            // Store 32 bytes consecutively
+                            Sse2.Store(pDecoded + i * 2, low);
+                            Sse2.Store(pDecoded + i * 2 + 16, high);
+                        }
+                    }
+                    // Handle remaining bytes scalarly
+                    for (; i < uncompressedSize; i++)
                     {
                         byte byteAtPosition = *(pRawData + i);
-
                         int lo = byteAtPosition & 0x0F;
                         byte b = (byte)(lo | (lo << 4));
                         *(pDecoded + i * 2) = b;
-
                         int hi = byteAtPosition & 0xF0;
                         byte g = (byte)(hi | (hi >> 4));
                         *(pDecoded + i * 2 + 1) = g;
                     }
                 }
             }
-
-            // Copy the decoded data to the bitmap using a pointer
             Marshal.Copy(decoded, 0, bmpData.Scan0, decoded.Length);
-            bmp.UnlockBits(bmpData);
         }
 
         /// <summary>
@@ -619,51 +642,129 @@ namespace MapleLib.WzLib.WzProperties
         /// <param name="bmp"></param>
         /// <param name="bmpData"></param>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static void DecompressImageDXT3(byte[] rawData, int width, int height, Bitmap bmp, BitmapData bmpData)
+        public static unsafe void DecompressImageDXT3(byte[] rawData, int width, int height, BitmapData bmpData)
         {
-            byte[] decoded = new byte[width * height * 4];
+            byte* pRawData = (byte*)rawData.AsSpan().GetPinnableReference();
+            byte* pDecoded = (byte*)bmpData.Scan0;
+            int blockCountX = width / 4;
+            int blockCountY = height / 4;
 
-            if (SquishPNGWrapper.CheckAndLoadLibrary())
+            if (Sse2.IsSupported)
             {
-                SquishPNGWrapper.DecompressImage(decoded, width, height, rawData, (int)SquishPNGWrapper.FlagsEnum.kDxt3);
+                Vector128<byte> alphaMaskLow = Vector128.Create((byte)0x0F);
+                Vector128<byte> alphaMaskHigh = Vector128.Create((byte)0xF0);
+
+                for (int y = 0; y < blockCountY; y++)
+                {
+                    for (int x = 0; x < blockCountX; x += 2) // Process 2 blocks at a time
+                    {
+                        int offset = (y * blockCountX + x) * 16;
+                        if (offset + 32 <= rawData.Length)
+                        {
+                            // Load 16 bytes for two DXT3 blocks
+                            Vector128<byte> block1Alpha = Sse2.LoadVector128(pRawData + offset);
+                            Vector128<byte> block2Alpha = Sse2.LoadVector128(pRawData + offset + 16);
+
+                            // Extract alpha nibbles for block 1
+                            Vector128<byte> alphaLow1 = Sse2.And(block1Alpha, alphaMaskLow);
+                            Vector128<byte> alphaHigh1 = Sse2.And(block1Alpha, alphaMaskHigh);
+                            alphaHigh1 = Sse2.ShiftRightLogical(alphaHigh1.AsUInt32(), 4).AsByte();
+                            Vector128<byte> alphaExpanded1 = Sse2.Or(Sse2.ShiftLeftLogical(alphaLow1.AsUInt32(), 4).AsByte(), alphaLow1);
+
+                            // Colors for block 1
+                            ushort c0_1 = BitConverter.ToUInt16(rawData, offset + 8);
+                            ushort c1_1 = BitConverter.ToUInt16(rawData, offset + 10);
+                            Color[] colors1 = new Color[4];
+                            ExpandColorTable(colors1, c0_1, c1_1);
+
+                            // Color indices for block 1
+                            int[] colorIndices1 = new int[16];
+                            ExpandColorIndexTable(colorIndices1, rawData, offset + 12);
+
+                            // Process block 1 pixels
+                            for (int j = 0; j < 4; j++)
+                            {
+                                for (int i = 0; i < 4; i++)
+                                {
+                                    int pixelOffset = ((y * 4 + j) * width + (x * 4 + i)) * 4;
+                                    Color c = colors1[colorIndices1[j * 4 + i]];
+                                    byte alpha = alphaExpanded1.GetElement(j * 4 + i);
+                                    pDecoded[pixelOffset] = c.B;
+                                    pDecoded[pixelOffset + 1] = c.G;
+                                    pDecoded[pixelOffset + 2] = c.R;
+                                    pDecoded[pixelOffset + 3] = alpha;
+                                }
+                            }
+
+                            // Repeat for block 2 if within bounds
+                            if (x + 1 < blockCountX)
+                            {
+                                Vector128<byte> alphaLow2 = Sse2.And(block2Alpha, alphaMaskLow);
+                                Vector128<byte> alphaHigh2 = Sse2.And(block2Alpha, alphaMaskHigh);
+                                alphaHigh2 = Sse2.ShiftRightLogical(alphaHigh2.AsUInt32(), 4).AsByte();
+                                Vector128<byte> alphaExpanded2 = Sse2.Or(Sse2.ShiftLeftLogical(alphaLow2.AsUInt32(), 4).AsByte(), alphaLow2);
+
+                                ushort c0_2 = BitConverter.ToUInt16(rawData, offset + 24);
+                                ushort c1_2 = BitConverter.ToUInt16(rawData, offset + 26);
+                                Color[] colors2 = new Color[4];
+                                ExpandColorTable(colors2, c0_2, c1_2);
+
+                                int[] colorIndices2 = new int[16];
+                                ExpandColorIndexTable(colorIndices2, rawData, offset + 28);
+
+                                for (int j = 0; j < 4; j++)
+                                {
+                                    for (int i = 0; i < 4; i++)
+                                    {
+                                        int pixelOffset = ((y * 4 + j) * width + ((x + 1) * 4 + i)) * 4;
+                                        Color c = colors2[colorIndices2[j * 4 + i]];
+                                        byte alpha = alphaExpanded2.GetElement(j * 4 + i);
+                                        pDecoded[pixelOffset] = c.B;
+                                        pDecoded[pixelOffset + 1] = c.G;
+                                        pDecoded[pixelOffset + 2] = c.R;
+                                        pDecoded[pixelOffset + 3] = alpha;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
             }
-            else  // otherwise decode here directly, fallback.
+            else
             {
-                Color[] colorTable = new Color[4];
-                int[] colorIdxTable = new int[16];
-                byte[] alphaTable = new byte[16];
-                
+                // Scalar fallback
                 for (int y = 0; y < height; y += 4)
                 {
                     for (int x = 0; x < width; x += 4)
                     {
-                        int off = x * 4 + y * width;
+                        int off = (y * width + x) * 4 / 4;
+                        byte[] alphaTable = new byte[16];
                         ExpandAlphaTableDXT3(alphaTable, rawData, off);
                         ushort u0 = BitConverter.ToUInt16(rawData, off + 8);
                         ushort u1 = BitConverter.ToUInt16(rawData, off + 10);
+                        Color[] colorTable = new Color[4];
                         ExpandColorTable(colorTable, u0, u1);
+                        int[] colorIdxTable = new int[16];
                         ExpandColorIndexTable(colorIdxTable, rawData, off + 12);
 
                         for (int j = 0; j < 4; j++)
                         {
                             for (int i = 0; i < 4; i++)
                             {
-                                SetPixel(decoded,
-                                    x + i,
-                                    y + j,
-                                    width,
-                                    colorTable[colorIdxTable[j * 4 + i]],
-                                    alphaTable[j * 4 + i]);
+                                int pixelOffset = ((y + j) * width + (x + i)) * 4;
+                                Color c = colorTable[colorIdxTable[j * 4 + i]];
+                                pDecoded[pixelOffset] = c.B;
+                                pDecoded[pixelOffset + 1] = c.G;
+                                pDecoded[pixelOffset + 2] = c.R;
+                                pDecoded[pixelOffset + 3] = alphaTable[j * 4 + i];
                             }
                         }
                     }
                 }
             }
-            Marshal.Copy(decoded, 0, bmpData.Scan0, decoded.Length);
-            bmp.UnlockBits(bmpData);
         }
 
-        
+
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static void DecompressImage_PixelDataForm517(byte[] rawData, int width, int height, Bitmap bmp, BitmapData bmpData)
         {
@@ -693,7 +794,6 @@ namespace MapleLib.WzLib.WzProperties
                 lineIndex += width * 32;
             }
             Marshal.Copy(decoded, 0, bmpData.Scan0, decoded.Length);
-            bmp.UnlockBits(bmpData);
         }
 
         /// <summary>
@@ -705,49 +805,122 @@ namespace MapleLib.WzLib.WzProperties
         /// <param name="bmp"></param>
         /// <param name="bmpData"></param>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static void DecompressImageDXT5(byte[] rawData, int width, int height, Bitmap bmp, BitmapData bmpData)
+        public static unsafe void DecompressImageDXT5(byte[] rawData, int width, int height, BitmapData bmpData)
         {
-            byte[] decoded = new byte[width * height * 4];
+            byte* pRawData = (byte*)rawData.AsSpan().GetPinnableReference();
+            byte* pDecoded = (byte*)bmpData.Scan0;
+            int blockCountX = width / 4;
+            int blockCountY = height / 4;
 
-            if (SquishPNGWrapper.CheckAndLoadLibrary())
+            if (Sse2.IsSupported)
             {
-                SquishPNGWrapper.DecompressImage(decoded, width, height, rawData, (int)SquishPNGWrapper.FlagsEnum.kDxt5);
+                for (int y = 0; y < blockCountY; y++)
+                {
+                    for (int x = 0; x < blockCountX; x += 2) // Process 2 blocks at a time
+                    {
+                        int offset = (y * blockCountX + x) * 16;
+                        if (offset + 32 <= rawData.Length)
+                        {
+                            // Alpha for block 1
+                            byte a0_1 = rawData[offset];
+                            byte a1_1 = rawData[offset + 1];
+                            byte[] alphaTable1 = new byte[8];
+                            ExpandAlphaTableDXT5(alphaTable1, a0_1, a1_1);
+                            int[] alphaIdxTable1 = new int[16];
+                            ExpandAlphaIndexTableDXT5(alphaIdxTable1, rawData, offset + 2);
+
+                            // Colors for block 1
+                            ushort c0_1 = BitConverter.ToUInt16(rawData, offset + 8);
+                            ushort c1_1 = BitConverter.ToUInt16(rawData, offset + 10);
+                            Color[] colors1 = new Color[4];
+                            ExpandColorTable(colors1, c0_1, c1_1);
+                            int[] colorIndices1 = new int[16];
+                            ExpandColorIndexTable(colorIndices1, rawData, offset + 12);
+
+                            // Process block 1 pixels
+                            for (int j = 0; j < 4; j++)
+                            {
+                                for (int i = 0; i < 4; i++)
+                                {
+                                    int pixelOffset = ((y * 4 + j) * width + (x * 4 + i)) * 4;
+                                    Color c = colors1[colorIndices1[j * 4 + i]];
+                                    byte alpha = alphaTable1[alphaIdxTable1[j * 4 + i]];
+                                    pDecoded[pixelOffset] = c.B;
+                                    pDecoded[pixelOffset + 1] = c.G;
+                                    pDecoded[pixelOffset + 2] = c.R;
+                                    pDecoded[pixelOffset + 3] = alpha;
+                                }
+                            }
+
+                            // Repeat for block 2 if within bounds
+                            if (x + 1 < blockCountX)
+                            {
+                                byte a0_2 = rawData[offset + 16];
+                                byte a1_2 = rawData[offset + 17];
+                                byte[] alphaTable2 = new byte[8];
+                                ExpandAlphaTableDXT5(alphaTable2, a0_2, a1_2);
+                                int[] alphaIdxTable2 = new int[16];
+                                ExpandAlphaIndexTableDXT5(alphaIdxTable2, rawData, offset + 18);
+
+                                ushort c0_2 = BitConverter.ToUInt16(rawData, offset + 24);
+                                ushort c1_2 = BitConverter.ToUInt16(rawData, offset + 26);
+                                Color[] colors2 = new Color[4];
+                                ExpandColorTable(colors2, c0_2, c1_2);
+                                int[] colorIndices2 = new int[16];
+                                ExpandColorIndexTable(colorIndices2, rawData, offset + 28);
+
+                                for (int j = 0; j < 4; j++)
+                                {
+                                    for (int i = 0; i < 4; i++)
+                                    {
+                                        int pixelOffset = ((y * 4 + j) * width + ((x + 1) * 4 + i)) * 4;
+                                        Color c = colors2[colorIndices2[j * 4 + i]];
+                                        byte alpha = alphaTable2[alphaIdxTable2[j * 4 + i]];
+                                        pDecoded[pixelOffset] = c.B;
+                                        pDecoded[pixelOffset + 1] = c.G;
+                                        pDecoded[pixelOffset + 2] = c.R;
+                                        pDecoded[pixelOffset + 3] = alpha;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
             }
-            else  // otherwise decode here directly, fallback
+            else
             {
-                Color[] colorTable = new Color[4];
-                int[] colorIdxTable = new int[16];
-                byte[] alphaTable = new byte[8];
-                int[] alphaIdxTable = new int[16];
+                // Scalar fallback
                 for (int y = 0; y < height; y += 4)
                 {
                     for (int x = 0; x < width; x += 4)
                     {
-                        int off = x * 4 + y * width;
+                        int off = (y * width + x) * 4 / 4;
+                        byte[] alphaTable = new byte[8];
                         ExpandAlphaTableDXT5(alphaTable, rawData[off + 0], rawData[off + 1]);
+                        int[] alphaIdxTable = new int[16];
                         ExpandAlphaIndexTableDXT5(alphaIdxTable, rawData, off + 2);
                         ushort u0 = BitConverter.ToUInt16(rawData, off + 8);
                         ushort u1 = BitConverter.ToUInt16(rawData, off + 10);
+                        Color[] colorTable = new Color[4];
                         ExpandColorTable(colorTable, u0, u1);
+                        int[] colorIdxTable = new int[16];
                         ExpandColorIndexTable(colorIdxTable, rawData, off + 12);
 
                         for (int j = 0; j < 4; j++)
                         {
                             for (int i = 0; i < 4; i++)
                             {
-                                SetPixel(decoded,
-                                    x + i,
-                                    y + j,
-                                    width,
-                                    colorTable[colorIdxTable[j * 4 + i]],
-                                    alphaTable[alphaIdxTable[j * 4 + i]]);
+                                int pixelOffset = ((y + j) * width + (x + i)) * 4;
+                                Color c = colorTable[colorIdxTable[j * 4 + i]];
+                                pDecoded[pixelOffset] = c.B;
+                                pDecoded[pixelOffset + 1] = c.G;
+                                pDecoded[pixelOffset + 2] = c.R;
+                                pDecoded[pixelOffset + 3] = alphaTable[alphaIdxTable[j * 4 + i]];
                             }
                         }
                     }
                 }
             }
-            Marshal.Copy(decoded, 0, bmpData.Scan0, decoded.Length);
-            bmp.UnlockBits(bmpData);
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -877,15 +1050,7 @@ namespace MapleLib.WzLib.WzProperties
             format2 = 0;
             width = bmp.Width;
             height = bmp.Height;
-            
-            //byte[] bmpBytes = bmp.BitmapToBytes();
-            /* if (SquishPNGWrapper.CheckAndLoadLibrary())
-                        {
-                            byte[] bmpBytes = bmp.BitmapToBytes();
-                            SquishPNGWrapper.CompressImage(bmpBytes, width, height, buf, (int)SquishPNGWrapper.FlagsEnum.kDxt1);
-                        }
-                        else
-                        {*/
+
             unsafe
             {
                 fixed (byte* pBuf = buf)
