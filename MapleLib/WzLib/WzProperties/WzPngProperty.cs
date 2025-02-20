@@ -333,7 +333,7 @@ namespace MapleLib.WzLib.WzProperties
                             bmp = new Bitmap(width, height, PixelFormat.Format32bppArgb);
                             BitmapData bmpData = bmp.LockBits(rect_, ImageLockMode.WriteOnly, PixelFormat.Format32bppArgb);
 
-                            DecompressImage_PixelDataBgra4444(rawBytes, width, height, bmp, bmpData);
+                            DecompressImage_PixelDataBgra4444(rawBytes.AsSpan(), width, height, bmp, bmpData);
                             bmp.UnlockBits(bmpData);
                             break;
                         }
@@ -577,61 +577,85 @@ namespace MapleLib.WzLib.WzProperties
         /// <summary>
         /// For debugging: an example of this image may be found at "Effect.wz\\5skill.img\\character_delayed\\0"
         /// </summary>
-        /// <param name="rawData"></param>
-        /// <param name="width"></param>
-        /// <param name="height"></param>
-        /// <param name="bmp"></param>
-        /// <param name="bmpData"></param>
+        /// <param name="rawData">The raw compressed image data as a Span<byte></param>
+        /// <param name="width">The width of the image</param>
+        /// <param name="height">The height of the image</param>
+        /// <param name="bmp">The target Bitmap to write decompressed data to</param>
+        /// <param name="bmpData">The locked BitmapData for direct memory access</param>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public unsafe static void DecompressImage_PixelDataBgra4444(byte[] rawData, int width, int height, Bitmap bmp, BitmapData bmpData)
+        public unsafe static void DecompressImage_PixelDataBgra4444(Span<byte> rawData, int width, int height, Bitmap bmp, BitmapData bmpData)
         {
             int uncompressedSize = width * height * 2;
-            byte[] decoded = new byte[uncompressedSize * 2];
-            fixed (byte* pRawData = rawData)
+            if (rawData.Length < uncompressedSize)
+                throw new ArgumentException("Raw data length is insufficient for the specified dimensions.");
+
+            // Use Span for the decoded output, sized for 32bpp ARGB (4 bytes per pixel)
+            int outputSize = uncompressedSize * 2; // BGRA4444 expands 2 bytes to 4 bytes per pixel
+
+            Span<byte> decoded = outputSize <= WzBinaryReader.STACKALLOC_SIZE_LIMIT_L1
+                    ? stackalloc byte[outputSize] // Try to use stackalloc for small images to avoid heap allocation
+                    : new byte[outputSize].AsSpan();  // Fallback to heap allocation for larger images
+
+            // Process raw data with SIMD if supported
+            if (Sse2.IsSupported)
             {
-                fixed (byte* pDecoded = decoded)
+                int i = 0;
+                fixed (byte* pRawData = rawData)
                 {
-                    int i = 0;
-                    if (Sse2.IsSupported)
+                    for (i = 0; i <= rawData.Length - 16; i += 16)
                     {
-                        for (; i <= uncompressedSize - 16; i += 16)
-                        {
-                            // Load 16 bytes (8 pixels: 4 BG pairs, 4 RA pairs)
-                            Vector128<byte> input = Sse2.LoadVector128(pRawData + i);
+                        // Load 16 bytes (8 pixels) into a 128-bit SIMD register
+                        Vector128<byte> input = Sse2.LoadVector128(pRawData + i);
 
-                            // Extract low nibbles (e.g., B or R)
-                            Vector128<byte> lo = Sse2.And(input, Vector128.Create((byte)0x0F));
+                        // Extract low nibbles (B or R)
+                        Vector128<byte> lo = Sse2.And(input, Vector128.Create((byte)0x0F));
 
-                            // Extract high nibbles (e.g., G or A), shifted to low position
-                            Vector128<byte> hi = Sse2.And(Sse2.ShiftRightLogical(input.AsUInt32(), 4).AsByte(), Vector128.Create((byte)0x0F));
+                        // Extract high nibbles (G or A), shifted to low position
+                        Vector128<byte> hi = Sse2.And(Sse2.ShiftRightLogical(input.AsUInt32(), 4).AsByte(), Vector128.Create((byte)0x0F));
 
-                            // Expand to 8 bits: lo | (lo << 4), hi | (hi << 4)
-                            Vector128<byte> b = Sse2.Or(Sse2.ShiftLeftLogical(lo.AsUInt32(), 4).AsByte(), lo);
-                            Vector128<byte> g = Sse2.Or(Sse2.ShiftLeftLogical(hi.AsUInt32(), 4).AsByte(), hi);
+                        // Expand to 8 bits: lo | (lo << 4), hi | (hi << 4)
+                        Vector128<byte> b = Sse2.Or(Sse2.ShiftLeftLogical(lo.AsUInt32(), 4).AsByte(), lo);
+                        Vector128<byte> g = Sse2.Or(Sse2.ShiftLeftLogical(hi.AsUInt32(), 4).AsByte(), hi);
 
-                            // Interleave b and g to get b0, g0, b1, g1, ..., for 32 bytes output
-                            Vector128<byte> low = Sse2.UnpackLow(b, g);   // b0, g0, ..., b7, g7
-                            Vector128<byte> high = Sse2.UnpackHigh(b, g); // b8, g8, ..., b15, g15
+                        // Interleave b and g to get b0, g0, b1, g1, ..., for 32 bytes output
+                        Vector128<byte> low = Sse2.UnpackLow(b, g);   // b0, g0, ..., b7, g7
+                        Vector128<byte> high = Sse2.UnpackHigh(b, g); // b8, g8, ..., b15, g15
 
-                            // Store 32 bytes consecutively
-                            Sse2.Store(pDecoded + i * 2, low);
-                            Sse2.Store(pDecoded + i * 2 + 16, high);
-                        }
-                    }
-                    // Handle remaining bytes scalarly
-                    for (; i < uncompressedSize; i++)
-                    {
-                        byte byteAtPosition = *(pRawData + i);
-                        int lo = byteAtPosition & 0x0F;
-                        byte b = (byte)(lo | (lo << 4));
-                        *(pDecoded + i * 2) = b;
-                        int hi = byteAtPosition & 0xF0;
-                        byte g = (byte)(hi | (hi >> 4));
-                        *(pDecoded + i * 2 + 1) = g;
+                        // Store directly into the decoded Span
+                        low.CopyTo(decoded.Slice(i * 2));
+                        high.CopyTo(decoded.Slice(i * 2 + 16));
                     }
                 }
+
+                // Handle remaining bytes scalarly
+                for (; i < uncompressedSize; i++)
+                {
+                    byte byteAtPosition = rawData[i];
+                    int lo = byteAtPosition & 0x0F;
+                    byte b = (byte)(lo | (lo << 4));
+                    decoded[i * 2] = b;
+                    int hi = byteAtPosition & 0xF0;
+                    byte g = (byte)(hi | (hi >> 4));
+                    decoded[i * 2 + 1] = g;
+                }
             }
-            Marshal.Copy(decoded, 0, bmpData.Scan0, decoded.Length);
+            else
+            {
+                // Scalar fallback for non-SSE2 systems
+                for (int i = 0; i < uncompressedSize; i++)
+                {
+                    byte byteAtPosition = rawData[i];
+                    int lo = byteAtPosition & 0x0F;
+                    byte b = (byte)(lo | (lo << 4));
+                    decoded[i * 2] = b;
+                    int hi = byteAtPosition & 0xF0;
+                    byte g = (byte)(hi | (hi >> 4));
+                    decoded[i * 2 + 1] = g;
+                }
+            }
+
+            // Copy decoded data directly to BitmapData using Span
+            decoded.CopyTo(new Span<byte>(bmpData.Scan0.ToPointer(), outputSize));
         }
 
         /// <summary>

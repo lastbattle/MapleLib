@@ -43,7 +43,7 @@ namespace MapleLib.WzLib.Util
         /// AMD Ryzen 5800x, L1 Cache: 64 KB / core
         /// Intel 13/14th Raptor Lake: 80 KB per P-core (32 KB instructions + 48 KB data), 96 KB per E-core(64 KB instructions + 32 KB data)
         /// </summary>
-        private const int STACKALLOC_SIZE_LIMIT_L1 = 10 * 1024;  // optimal size is half of CPU's L1 cache.
+        public const int STACKALLOC_SIZE_LIMIT_L1 = 10 * 1024;  // optimal size is half of CPU's L1 cache.
 
         public WzMutableKey WzKey { get; init; }
         public uint Hash { get; set; }
