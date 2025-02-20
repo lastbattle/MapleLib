@@ -581,7 +581,7 @@ namespace MapleLib.WzLib.WzProperties
         /// <param name="height"></param>
         /// <param name="bmp"></param>
         /// <param name="bmpData"></param>
-
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public unsafe static void DecompressImage_PixelDataBgra4444(byte[] rawData, int width, int height, Bitmap bmp, BitmapData bmpData)
         {
             int uncompressedSize = width * height * 2;
@@ -1045,34 +1045,44 @@ namespace MapleLib.WzLib.WzProperties
 
         internal void CompressPng(Bitmap bmp)
         {
-            byte[] buf = new byte[bmp.Width * bmp.Height * 8];
             format = 2;
             format2 = 0;
             width = bmp.Width;
             height = bmp.Height;
 
-            unsafe
+            // Lock the bitmap to access pixel data directly, improving performance over GetPixel
+            BitmapData bmpData = bmp.LockBits(new Rectangle(0, 0, bmp.Width, bmp.Height), ImageLockMode.ReadOnly, PixelFormat.Format32bppArgb);
+            try
             {
-                fixed (byte* pBuf = buf)
+                // TODO: Automatically detect the suitable format for each image. See UnitTest_WzFile/UnitTest_MapleLib.cs/TestImageSurfaceFormatDetection
+
+                int length = bmp.Width * bmp.Height * 4; // 4 bytes per pixel (BGRA)
+                byte[] buf = new byte[length];
+
+                // Check if stride matches expected width * 4 (no padding)
+                if (bmpData.Stride == bmp.Width * 4)
                 {
-                    byte* pCurPixel = pBuf;
-                    for (int i = 0; i < height; i++)
+                    // Single copy for the entire bitmap data
+                    Marshal.Copy(bmpData.Scan0, buf, 0, length);
+                }
+                else
+                {
+                    // Copy row by row to handle padding in stride
+                    int stride = bmpData.Stride;
+                    for (int y = 0; y < bmp.Height; y++)
                     {
-                        for (int j = 0; j < width; j++)
-                        {
-                            Color curPixel = bmp.GetPixel(j, i);
-                            *pCurPixel = curPixel.B;
-                            *(pCurPixel + 1) = curPixel.G;
-                            *(pCurPixel + 2) = curPixel.R;
-                            *(pCurPixel + 3) = curPixel.A;
-                            pCurPixel += 4;
-                        }
+                        IntPtr rowPtr = bmpData.Scan0 + y * stride;
+                        Marshal.Copy(rowPtr, buf, y * bmp.Width * 4, bmp.Width * 4);
                     }
                 }
-            }
-            compressedImageBytes = Compress(buf);
 
-            buf = null;
+                compressedImageBytes = Compress(buf);
+            }
+            finally
+            {
+                // Ensure the bitmap is unlocked even if an exception occurs
+                bmp.UnlockBits(bmpData);
+            }
 
             if (listWzUsed)
             {
@@ -1088,7 +1098,7 @@ namespace MapleLib.WzLib.WzProperties
                         writer.Write(compressedImageBytes.Length - 2);
                         for (int i = 2; i < compressedImageBytes.Length; i++)
                             writer.Write((byte)(compressedImageBytes[i] ^ writer.WzKey[i - 2]));
-                        compressedImageBytes = memStream.GetBuffer();
+                        compressedImageBytes = memStream.ToArray();
                     }
                 }
             }
