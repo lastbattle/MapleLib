@@ -354,7 +354,7 @@ namespace MapleLib.WzLib.WzProperties
                             bmp = new Bitmap(width, height, PixelFormat.Format32bppArgb);
                             BitmapData bmpData3 = bmp.LockBits(rect_, ImageLockMode.WriteOnly, PixelFormat.Format32bppArgb);
 
-                            DecompressImageDXT3(rawBytes, width, height, bmpData3);
+                            DecompressImageDXT3(rawBytes, width, height, bmpData3); // FullPath = "Map.wz\\Back\\blackHeaven.img\\back\\98"
                             bmp.UnlockBits(bmpData3);
                             break;
                         }
@@ -383,7 +383,7 @@ namespace MapleLib.WzLib.WzProperties
                             bmp = new Bitmap(width, height, PixelFormat.Format16bppRgb565);
                             BitmapData bmpData = bmp.LockBits(rect_, ImageLockMode.WriteOnly, PixelFormat.Format16bppRgb565);
 
-                            DecompressImage_PixelDataForm517(rawBytes, width, height, bmp, bmpData);
+                            DecompressImage_PixelDataForm517(rawBytes, width, height, bmp, bmpData); // FullPath = "Map.wz\\Back\\midForest.img\\back\\0"
                             bmp.UnlockBits(bmpData);
                             break;
                         }
@@ -669,124 +669,125 @@ namespace MapleLib.WzLib.WzProperties
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static unsafe void DecompressImageDXT3(byte[] rawData, int width, int height, BitmapData bmpData)
         {
-            byte* pRawData = (byte*)rawData.AsSpan().GetPinnableReference();
-            byte* pDecoded = (byte*)bmpData.Scan0;
-            int blockCountX = width / 4;
-            int blockCountY = height / 4;
-
-            if (Sse2.IsSupported)
+            if (Sse2.IsSupported && Ssse3.IsSupported)
             {
-                Vector128<byte> alphaMaskLow = Vector128.Create((byte)0x0F);
-                Vector128<byte> alphaMaskHigh = Vector128.Create((byte)0xF0);
+                byte[] decoded = new byte[width * height * 4];
 
-                // Parallelize across rows of blocks to leverage multiple CPU cores
-                Parallel.For(0, blockCountY, y =>
+                Parallel.For(0, height / 4, blockY =>
                 {
-                    for (int x = 0; x < blockCountX; x += 2) // Process 2 blocks at a time
+                    // Each thread gets its own temporary arrays to avoid sharing
+                    Color[] colorTable = new Color[4];
+                    int[] colorIdxTable = new int[16];
+                    byte[] alphaTable = new byte[16];
+
+                    for (int blockX = 0; blockX < width / 4; blockX++)
                     {
-                        int offset = (y * blockCountX + x) * 16;
-                        if (offset + 32 <= rawData.Length)
+                        int x = blockX * 4;
+                        int y = blockY * 4;
+                        int off = x * 4 + y * width;
+
+                        // Extract block data
+                        ExpandAlphaTableDXT3(alphaTable, rawData, off);
+                        ushort u0 = BitConverter.ToUInt16(rawData, off + 8);
+                        ushort u1 = BitConverter.ToUInt16(rawData, off + 10);
+                        ExpandColorTable(colorTable, u0, u1);
+                        ExpandColorIndexTable(colorIdxTable, rawData, off + 12);
+
+                        // Precompute color components (first 4 bytes used)
+                        Vector128<byte> bVec = Vector128.Create(colorTable[0].B, colorTable[1].B, colorTable[2].B, colorTable[3].B,
+                                                                0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
+                        Vector128<byte> gVec = Vector128.Create(colorTable[0].G, colorTable[1].G, colorTable[2].G, colorTable[3].G,
+                                                                0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
+                        Vector128<byte> rVec = Vector128.Create(colorTable[0].R, colorTable[1].R, colorTable[2].R, colorTable[3].R,
+                                                                0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
+
+                        // Process each row of the 4x4 block
+                        for (int j = 0; j < 4; j++)
                         {
-                            // Load 16 bytes for two DXT3 blocks
-                            Vector128<byte> block1Alpha = Sse2.LoadVector128(pRawData + offset);
-                            Vector128<byte> block2Alpha = Sse2.LoadVector128(pRawData + offset + 16);
+                            int baseIdx = j * 4;
+                            Vector128<byte> idxVec = Vector128.Create((byte)colorIdxTable[baseIdx], (byte)colorIdxTable[baseIdx + 1],
+                                                                      (byte)colorIdxTable[baseIdx + 2], (byte)colorIdxTable[baseIdx + 3],
+                                                                      0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
+                            Vector128<byte> aVec = Vector128.Create(alphaTable[baseIdx], alphaTable[baseIdx + 1],
+                                                                    alphaTable[baseIdx + 2], alphaTable[baseIdx + 3],
+                                                                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
 
-                            // Extract alpha nibbles for block 1
-                            Vector128<byte> alphaLow1 = Sse2.And(block1Alpha, alphaMaskLow);
-                            Vector128<byte> alphaHigh1 = Sse2.And(block1Alpha, alphaMaskHigh);
-                            alphaHigh1 = Sse2.ShiftRightLogical(alphaHigh1.AsUInt32(), 4).AsByte();
-                            Vector128<byte> alphaExpanded1 = Sse2.Or(Sse2.ShiftLeftLogical(alphaLow1.AsUInt32(), 4).AsByte(), alphaLow1);
+                            // Select B, G, R using indices and prepare alpha
+                            Vector128<byte> b = Ssse3.Shuffle(bVec, idxVec);
+                            Vector128<byte> g = Ssse3.Shuffle(gVec, idxVec);
+                            Vector128<byte> r = Ssse3.Shuffle(rVec, idxVec);
+                            Vector128<byte> a = aVec;
 
-                            // Colors for block 1
-                            ushort c0_1 = BitConverter.ToUInt16(rawData, offset + 8);
-                            ushort c1_1 = BitConverter.ToUInt16(rawData, offset + 10);
-                            Color[] colors1 = new Color[4];
-                            ExpandColorTable(colors1, c0_1, c1_1);
+                            // Interleave into BGRA format
+                            Vector128<byte> br = Sse2.UnpackLow(b, r);
+                            Vector128<byte> ga = Sse2.UnpackLow(g, a);
+                            Vector128<byte> bgra = Sse2.UnpackLow(br, ga);
 
-                            // Color indices for block 1
-                            int[] colorIndices1 = new int[16];
-                            ExpandColorIndexTable(colorIndices1, rawData, offset + 12);
-
-                            // Process block 1 pixels
-                            for (int j = 0; j < 4; j++)
+                            // Debug: first pixel’s BGRA for verification
+                            /*if (x == 4 && y == 0 && j == 0)
                             {
-                                for (int i = 0; i < 4; i++)
-                                {
-                                    int pixelOffset = ((y * 4 + j) * width + (x * 4 + i)) * 4;
-                                    Color c = colors1[colorIndices1[j * 4 + i]];
-                                    byte alpha = alphaExpanded1.GetElement(j * 4 + i);
-                                    pDecoded[pixelOffset] = c.B;
-                                    pDecoded[pixelOffset + 1] = c.G;
-                                    pDecoded[pixelOffset + 2] = c.R;
-                                    pDecoded[pixelOffset + 3] = alpha;
-                                }
-                            }
+                                byte[] bytes = new byte[16];  // Vector128 is 16 bytes
+                                bgra.CopyTo(bytes);
+                                Debug.WriteLine($"BGRA: [{bytes[0]}, {bytes[1]}, {bytes[2]}, {bytes[3]}]");
+                            }*/
 
-                            // Repeat for block 2 if within bounds
-                            if (x + 1 < blockCountX)
+                            // Write 4 pixels to the decoded array
+                            int pos = (y + j) * width * 4 + x * 4;
+                            fixed (byte* ptr = decoded)
                             {
-                                Vector128<byte> alphaLow2 = Sse2.And(block2Alpha, alphaMaskLow);
-                                Vector128<byte> alphaHigh2 = Sse2.And(block2Alpha, alphaMaskHigh);
-                                alphaHigh2 = Sse2.ShiftRightLogical(alphaHigh2.AsUInt32(), 4).AsByte();
-                                Vector128<byte> alphaExpanded2 = Sse2.Or(Sse2.ShiftLeftLogical(alphaLow2.AsUInt32(), 4).AsByte(), alphaLow2);
-
-                                ushort c0_2 = BitConverter.ToUInt16(rawData, offset + 24);
-                                ushort c1_2 = BitConverter.ToUInt16(rawData, offset + 26);
-                                Color[] colors2 = new Color[4];
-                                ExpandColorTable(colors2, c0_2, c1_2);
-
-                                int[] colorIndices2 = new int[16];
-                                ExpandColorIndexTable(colorIndices2, rawData, offset + 28);
-
-                                for (int j = 0; j < 4; j++)
-                                {
-                                    for (int i = 0; i < 4; i++)
-                                    {
-                                        int pixelOffset = ((y * 4 + j) * width + ((x + 1) * 4 + i)) * 4;
-                                        Color c = colors2[colorIndices2[j * 4 + i]];
-                                        byte alpha = alphaExpanded2.GetElement(j * 4 + i);
-                                        pDecoded[pixelOffset] = c.B;
-                                        pDecoded[pixelOffset + 1] = c.G;
-                                        pDecoded[pixelOffset + 2] = c.R;
-                                        pDecoded[pixelOffset + 3] = alpha;
-                                    }
-                                }
+                                Sse2.Store(ptr + pos, bgra);
                             }
                         }
                     }
                 });
+
+                // Copy the final decompressed data to the bitmap
+                Marshal.Copy(decoded, 0, bmpData.Scan0, decoded.Length);
+
+                
             }
             else
             {
-                // Scalar fallback
+                byte[] decoded = new byte[width * height * 4];
+
+                Color[] colorTable = new Color[4];
+                int[] colorIdxTable = new int[16];
+                byte[] alphaTable = new byte[16];
+
                 for (int y = 0; y < height; y += 4)
                 {
                     for (int x = 0; x < width; x += 4)
                     {
-                        int off = (y * width + x) * 4 / 4;
-                        byte[] alphaTable = new byte[16];
+                        int off = x * 4 + y * width;
                         ExpandAlphaTableDXT3(alphaTable, rawData, off);
                         ushort u0 = BitConverter.ToUInt16(rawData, off + 8);
                         ushort u1 = BitConverter.ToUInt16(rawData, off + 10);
-                        Color[] colorTable = new Color[4];
                         ExpandColorTable(colorTable, u0, u1);
-                        int[] colorIdxTable = new int[16];
                         ExpandColorIndexTable(colorIdxTable, rawData, off + 12);
 
                         for (int j = 0; j < 4; j++)
                         {
                             for (int i = 0; i < 4; i++)
                             {
-                                int pixelOffset = ((y + j) * width + (x + i)) * 4;
-                                Color c = colorTable[colorIdxTable[j * 4 + i]];
-                                pDecoded[pixelOffset] = c.B;
-                                pDecoded[pixelOffset + 1] = c.G;
-                                pDecoded[pixelOffset + 2] = c.R;
-                                pDecoded[pixelOffset + 3] = alphaTable[j * 4 + i];
+                                Color color = colorTable[colorIdxTable[j * 4 + i]];
+                                byte alpha = alphaTable[j * 4 + i];
+
+                                SetPixel(decoded,
+                                    x + i,
+                                    y + j,
+                                    width,
+                                    color,
+                                    alpha);
+
+                                /*if (x == 4 && y == 0 && j == 0 && i == 0)
+                                {
+                                    Debug.WriteLine($"Scalar BGRA: [{color.B}, {color.G}, {color.R}, {alpha}]");
+                                }*/
                             }
                         }
                     }
                 }
+                Marshal.Copy(decoded, 0, bmpData.Scan0, decoded.Length);
             }
         }
 
