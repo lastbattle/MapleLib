@@ -26,6 +26,7 @@ using System.Runtime.InteropServices;
 using System.Runtime.Intrinsics;
 using System.Runtime.Intrinsics.X86;
 using System.Text;
+using System.Threading.Tasks;
 using System.Windows;
 using MapleLib.Converters;
 using MapleLib.Helpers;
@@ -654,7 +655,8 @@ namespace MapleLib.WzLib.WzProperties
                 Vector128<byte> alphaMaskLow = Vector128.Create((byte)0x0F);
                 Vector128<byte> alphaMaskHigh = Vector128.Create((byte)0xF0);
 
-                for (int y = 0; y < blockCountY; y++)
+                // Parallelize across rows of blocks to leverage multiple CPU cores
+                Parallel.For(0, blockCountY, y =>
                 {
                     for (int x = 0; x < blockCountX; x += 2) // Process 2 blocks at a time
                     {
@@ -728,7 +730,7 @@ namespace MapleLib.WzLib.WzProperties
                             }
                         }
                     }
-                }
+                });
             }
             else
             {
@@ -814,7 +816,8 @@ namespace MapleLib.WzLib.WzProperties
 
             if (Sse2.IsSupported)
             {
-                for (int y = 0; y < blockCountY; y++)
+                // Parallelize across rows of blocks to leverage multiple CPU cores
+                Parallel.For(0, blockCountY, y =>
                 {
                     for (int x = 0; x < blockCountX; x += 2) // Process 2 blocks at a time
                     {
@@ -885,7 +888,7 @@ namespace MapleLib.WzLib.WzProperties
                             }
                         }
                     }
-                }
+                });
             }
             else
             {
