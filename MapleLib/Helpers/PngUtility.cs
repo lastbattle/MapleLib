@@ -564,10 +564,16 @@ namespace MapleLib.Helpers
             WzPngFormat retFormat;
             switch (format)
             {
+                case SurfaceFormat.Dxt3:
+                    retPixelData = CompressDXT3(bmp);
+                    retFormat = WzPngFormat.Format1026;
+                    break;
+
                 case SurfaceFormat.Dxt5:
                     retPixelData = GetPixelDataFormat2050(bmp);
                     retFormat = WzPngFormat.Format2050;
                     break;
+
                 default: // compress as standard, default to BGRA8888 for now
                     retPixelData = GetPixelDataFormat2(bmp); 
                     retFormat = WzPngFormat.Format2;
