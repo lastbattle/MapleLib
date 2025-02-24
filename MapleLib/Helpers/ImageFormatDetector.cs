@@ -1,5 +1,5 @@
 ﻿/*  MapleLib - A general-purpose MapleStory library
- * Copyright (C) 2024 lastbattle
+ * Copyright (C) 2024-2025 lastbattle
    
  * This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by

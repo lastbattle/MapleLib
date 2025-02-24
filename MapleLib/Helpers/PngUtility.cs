@@ -564,6 +564,11 @@ namespace MapleLib.Helpers
             WzPngFormat retFormat;
             switch (format)
             {
+                case SurfaceFormat.Bgra4444:
+                    retPixelData = GetPixelDataFormat1(bmp);
+                    retFormat = WzPngFormat.Format1;
+                    break;
+
                 case SurfaceFormat.Dxt3:
                     retPixelData = CompressDXT3(bmp);
                     retFormat = WzPngFormat.Format1026;
@@ -583,6 +588,46 @@ namespace MapleLib.Helpers
             }
             return (retFormat, retPixelData);
         }
+
+        /// <summary>
+        /// BGRA4444
+        /// </summary>
+        /// <param name="bmp"></param>
+        /// <returns></returns>
+        private static byte[] GetPixelDataFormat1(Bitmap bmp)
+        {
+            BitmapData bmpData = bmp.LockBits(new Rectangle(0, 0, bmp.Width, bmp.Height), ImageLockMode.ReadOnly, PixelFormat.Format32bppArgb);
+            try
+            {
+                byte[] buf = new byte[bmp.Width * bmp.Height * 2];
+                int index = 0;
+                for (int y = 0; y < bmp.Height; y++)
+                {
+                    for (int x = 0; x < bmp.Width; x++)
+                    {
+                        int pixel = Marshal.ReadInt32(bmpData.Scan0 + y * bmpData.Stride + x * 4);
+                        byte b = (byte)((pixel >> 0) & 0xFF);
+                        byte g = (byte)((pixel >> 8) & 0xFF);
+                        byte r = (byte)((pixel >> 16) & 0xFF);
+                        byte a = (byte)((pixel >> 24) & 0xFF);
+
+                        byte b4 = (byte)(b >> 4);
+                        byte g4 = (byte)(g >> 4);
+                        byte r4 = (byte)(r >> 4);
+                        byte a4 = (byte)(a >> 4);
+
+                        buf[index++] = (byte)((g4 << 4) | b4); // Low byte: B4|G4<<4
+                        buf[index++] = (byte)((a4 << 4) | r4); // High byte: R4|A4<<4
+                    }
+                }
+                return buf;
+            }
+            finally
+            {
+                bmp.UnlockBits(bmpData);
+            }
+        }
+
 
         private static byte[] GetPixelDataFormat2(Bitmap bmp)
         {
