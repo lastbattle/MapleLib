@@ -15,136 +15,148 @@
     along with this program.  If not, see <http://www.gnu.org/licenses/>.*/
 
 
+using Microsoft.VisualBasic.Logging;
 using Microsoft.Xna.Framework.Graphics;
 using System;
 using System.Collections.Generic;
-using System.Diagnostics;
+using static System.Windows.Forms.VisualStyles.VisualStyleElement.ToolTip;
+using System.Windows.Documents;
 
-namespace MapleLib.Helpers {
-
+namespace MapleLib.Helpers
+{
     /// <summary>
     /// DXT3 and DXT5:
-    /// These are part of the S3 Texture Compression(S3TC) family, also known as DXT(DirectX Texture Compression).
-    /// DXT3: Uses a fixed alpha compression. It's good for images with sharp alpha transitions.
-    /// DXT5: Uses interpolated alpha compression. It's better for smooth alpha transitions and generally provides higher quality alpha than DXT3.
-    /// Both DXT3 and DXT5 compress RGB data in the same way, achieving a 4:1 compression ratio for RGB data.
+    /// These are part of the S3 Texture Compression (S3TC) family, also known as DXT (DirectX Texture Compression).
+    /// DXT3: Uses fixed alpha compression. Good for sharp alpha transitions.
+    /// DXT5: Uses interpolated alpha compression. Better for smooth alpha transitions and higher quality alpha.
+    /// Both compress RGB data at 4:1.
     /// 
-    /// BGR32:
-    /// This is an uncompressed format where each pixel is represented by 32 bits
-    /// B, G, and R channels each use 8 bits(1 byte)
-    /// The remaining 8 bits are typically unused or used as an alpha channel(making it effectively BGRA32)
-    /// It's a high-quality format but takes up more memory than compressed formats
+    /// BGR32 (BGRA32):
+    /// Uncompressed, 32 bits/pixel (8 bits each for B, G, R, A). High quality, high memory usage.
     /// 
     /// BGR565:
-    /// This is also an uncompressed format, but it uses less memory than BGR32.
-    /// Blue channel: 5 bits
-    /// Green channel: 6 bits(human eyes are more sensitive to green)
-    /// Red channel: 5 bits
-    /// Total: 16 bits(2 bytes) per pixel
-    /// No alpha channel
+    /// Uncompressed, 16 bits/pixel (5 bits B, 6 bits G, 5 bits R). No alpha, memory-efficient.
     /// 
     /// BGRA4444:
-    /// This is another 16 - bit format, but it includes an alpha channel.
-    /// B, G, R, and A channels each use 4 bits
-    /// Provides more color + transparency options than BGR565, but with less color depth
+    /// 16 bits/pixel (4 bits each for B, G, R, A). Supports alpha with reduced color depth.
     /// 
-    /// The main differences between these formats are:
-    /// Compression: DXT3 and DXT5 are compressed, while the others are not.
-    /// Color depth: BGR32 provides the highest color depth, followed by BGR565 and BGRA4444.
-    /// Alpha support: DXT3, DXT5, BGR32(as BGRA32), and BGRA4444 support alpha, while BGR565 does not.
-    /// Memory usage: Compressed formats(DXT) use less memory, followed by 16 - bit formats(BGR565, BGRA4444), with BGR32 using the most.
-    /// 
-    /// The choice between these formats depends on the specific needs of the application, balancing factors like image quality, memory usage, and processing speed.
+    /// The detector balances image quality, memory usage, and compression based on color depth, alpha behavior, and image size.
     /// </summary>
-    public class ImageFormatDetector {
-
+    public class ImageFormatDetector
+    {
         /// <summary>
-        /// Determines the recommended SurfaceFormat for a given image with its raw byte[], width, and height data
+        /// Determines the recommended SurfaceFormat for raw ARGB data given its width and height.
         /// </summary>
-        /// <param name="argbData"></param>
-        /// <param name="width"></param>
-        /// <param name="height"></param>
-        /// <returns></returns>
-        public static SurfaceFormat DetermineTextureFormat(byte[] argbData, int width, int height) {
+        public static SurfaceFormat DetermineTextureFormat(byte[] argbData, int width, int height)
+        {
             if (argbData == null || argbData.Length == 0)
                 throw new ArgumentException("Invalid argbData");
 
             if (argbData.Length != width * height * 4)
                 throw new ArgumentException("Data length does not match dimensions");
 
-            var (uniqueColors, hasAlpha, hasPartialAlpha, maxAlpha, alphaTransitions, alphaVariance) = AnalyzeImageData(argbData);
+            var (uniqueRgbColors, uniqueAlphaValues, hasAlpha, hasPartialAlpha, maxAlpha, avgAlphaGradient, alphaVariance) =
+                AnalyzeImageData(argbData, width, height);
+            bool isSmallImage = width * height < 256 * 256; // Favor 16-bit formats for small images
 
-            // Decision making
-            if (!hasAlpha) {
-                return SurfaceFormat.Bgr565;
+            if (!hasAlpha)
+            {
+                if (uniqueRgbColors <= 32 * 64 * 32) // Fits BGR565 (65,536 colors)
+                    return SurfaceFormat.Bgr565;
+                return isSmallImage ? SurfaceFormat.Bgr565 : SurfaceFormat.Bgra32; // Memory vs. quality trade-off
             }
-            else {
+            else
+            {
                 bool isDxtCandidate = IsDxtCompressionCandidate(width, height);
-
-                if (uniqueColors > 4096) {
-                    if (isDxtCandidate) {
-                        // Differentiate between DXT3 and DXT5
-                        double alphaTransitionRatio = (double)alphaTransitions / (width * height);
-                        if (alphaTransitionRatio > 0.2 && alphaVariance > 5000 && alphaVariance < 10000) {
-                            return SurfaceFormat.Dxt3;
-                        }
-                        return SurfaceFormat.Dxt5;
+                if (uniqueRgbColors > 4096 || uniqueAlphaValues > 16) // Beyond BGRA4444's capacity
+                {
+                    if (isDxtCandidate)
+                    {
+                        // Low avgAlphaGradient indicates smooth transitions (DXT5), high indicates sharp (DXT3)
+                        // DXT3: Chosen for sharp alpha transitions(high avgAlphaGradient) or binary alpha when compression is viable, leveraging its fixed alpha compression.
+                        // DXT5: Selected for smooth alpha gradients(low avgAlphaGradient), utilizing its interpolated alpha for higher quality.
+                        return avgAlphaGradient < 10 ? SurfaceFormat.Dxt5 : SurfaceFormat.Dxt3;
                     }
-                    return SurfaceFormat.Bgra32;
+                    return isSmallImage && !hasPartialAlpha ? SurfaceFormat.Bgra4444 : SurfaceFormat.Bgra32;
                 }
-                else if (hasPartialAlpha) {
+                else if (hasPartialAlpha)
+                {
                     return SurfaceFormat.Bgra4444;
                 }
-                else {
-                    // For binary alpha (only fully transparent or fully opaque)
+                else
+                {
                     return isDxtCandidate ? SurfaceFormat.Dxt3 : SurfaceFormat.Bgra4444;
                 }
             }
         }
 
-        public static (int uniqueColors, bool hasAlpha, bool hasPartialAlpha, byte maxAlpha, int alphaTransitions, double alphaVariance) AnalyzeImageData(byte[] argbData) {
+        /// <summary>
+        /// Analyzes raw ARGB data to extract metrics for format selection.
+        /// </summary>
+        public static (int uniqueRgbColors, int uniqueAlphaValues, bool hasAlpha, bool hasPartialAlpha, byte maxAlpha,
+            double avgAlphaGradient, double alphaVariance) AnalyzeImageData(byte[] argbData, int width, int height)
+        {
             bool hasAlpha = false;
             bool hasPartialAlpha = false;
             byte maxAlpha = 0;
-            int alphaTransitions = 0;
-            byte lastAlpha = 255;
-            HashSet<uint> colorSet = new HashSet<uint>();
+            HashSet<uint> rgbSet = new(); // Unique RGB colors
+            HashSet<byte> alphaSet = new(); // Unique alpha values
             long alphaSum = 0;
             long alphaSumSquares = 0;
+            long alphaGradientSum = 0;
+            int gradientCount = 0;
 
-            for (int i = 0; i < argbData.Length; i += 4) {
-                byte a = argbData[i + 3];
-                byte r = argbData[i + 2];
-                byte g = argbData[i + 1];
-                byte b = argbData[i];
+            for (int y = 0; y < height; y++)
+            {
+                for (int x = 0; x < width; x++)
+                {
+                    int i = (y * width + x) * 4;
+                    byte a = argbData[i + 3];
+                    byte r = argbData[i + 2];
+                    byte g = argbData[i + 1];
+                    byte b = argbData[i];
 
-                if (a < 255) {
-                    hasAlpha = true;
-                    if (a > 0)
-                        hasPartialAlpha = true;
+                    // Alpha analysis with tolerance
+                    if (a < 255) hasAlpha = true;
+                    if (a > 5 && a < 250) hasPartialAlpha = true; // Tolerance for near-0/near-255
+                    maxAlpha = Math.Max(maxAlpha, a);
+                    alphaSet.Add(a);
+                    alphaSum += a;
+                    alphaSumSquares += (long)a * a;
+
+                    // RGB color analysis
+                    uint rgbColor = (uint)((r << 16) | (g << 8) | b);
+                    rgbSet.Add(rgbColor);
+
+                    // Alpha gradient (horizontal and vertical)
+                    if (x > 0)
+                    {
+                        byte prevA = argbData[i - 4 + 3];
+                        alphaGradientSum += Math.Abs(a - prevA);
+                        gradientCount++;
+                    }
+                    if (y > 0)
+                    {
+                        byte aboveA = argbData[(i - width * 4) + 3];
+                        alphaGradientSum += Math.Abs(a - aboveA);
+                        gradientCount++;
+                    }
                 }
-
-                if (a != lastAlpha) {
-                    alphaTransitions++;
-                    lastAlpha = a;
-                }
-
-                maxAlpha = Math.Max(maxAlpha, a);
-                alphaSum += a;
-                alphaSumSquares += (long)a * a;
-
-                uint color = (uint)((a << 24) | (r << 16) | (g << 8) | b);
-                colorSet.Add(color);
             }
 
             int pixelCount = argbData.Length / 4;
             double meanAlpha = (double)alphaSum / pixelCount;
             double alphaVariance = ((double)alphaSumSquares / pixelCount) - (meanAlpha * meanAlpha);
+            double avgAlphaGradient = gradientCount > 0 ? (double)alphaGradientSum / gradientCount : 0;
 
-            return (colorSet.Count, hasAlpha, hasPartialAlpha, maxAlpha, alphaTransitions, alphaVariance);
+            return (rgbSet.Count, alphaSet.Count, hasAlpha, hasPartialAlpha, maxAlpha, avgAlphaGradient, alphaVariance);
         }
 
-        public static bool IsDxtCompressionCandidate(int width, int height) {
+        /// <summary>
+        /// Checks if the image dimensions are suitable for DXT compression (multiples of 4, min 4x4, area >= 64x64).
+        /// </summary>
+        public static bool IsDxtCompressionCandidate(int width, int height)
+        {
             return width % 4 == 0 && height % 4 == 0 && width >= 4 && height >= 4 && (width * height) >= 64 * 64;
         }
     }
