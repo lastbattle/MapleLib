@@ -766,10 +766,10 @@ namespace MapleLib.Helpers
                         int[] alphaIndices = CompressBlockAlphaDXT5(block, out a0, out a1);
                         buf[bufIndex++] = a0;
                         buf[bufIndex++] = a1;
-                        int flags = 0;
+                        long flags = 0;
                         for (int i = 0; i < 16; i++)
                         {
-                            flags |= alphaIndices[i] << (i * 3);
+                            flags |= (long)alphaIndices[i] << (i * 3);
                         }
                         buf[bufIndex++] = (byte)(flags & 0xFF);
                         buf[bufIndex++] = (byte)((flags >> 8) & 0xFF);
