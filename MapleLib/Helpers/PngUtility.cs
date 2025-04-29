@@ -315,8 +315,9 @@ namespace MapleLib.Helpers
         {
             byte* pRawData = (byte*)rawData.AsSpan().GetPinnableReference();
             byte* pDecoded = (byte*)bmpData.Scan0;
-            int blockCountX = width / 4;
-            int blockCountY = height / 4;
+            int blockCountX = (width + 3) / 4;  // Round up to cover partial blocks
+            int blockCountY = (height + 3) / 4; // Round up to cover partial blocks
+            int stride = bmpData.Stride;        // Use actual stride for offset calculation
 
             if (Sse2.IsSupported)
             {
@@ -326,9 +327,9 @@ namespace MapleLib.Helpers
                     for (int x = 0; x < blockCountX; x += 2) // Process 2 blocks at a time
                     {
                         int offset = (y * blockCountX + x) * 16;
-                        if (offset + 32 <= rawData.Length)
+                        if (offset + 16 <= rawData.Length)
                         {
-                            // Alpha for block 1
+                            // Process block 1
                             byte a0_1 = rawData[offset];
                             byte a1_1 = rawData[offset + 1];
                             byte[] alphaTable1 = new byte[8];
@@ -336,7 +337,6 @@ namespace MapleLib.Helpers
                             int[] alphaIdxTable1 = new int[16];
                             ExpandAlphaIndexTableDXT5(alphaIdxTable1, rawData, offset + 2);
 
-                            // Colors for block 1
                             ushort c0_1 = BitConverter.ToUInt16(rawData, offset + 8);
                             ushort c1_1 = BitConverter.ToUInt16(rawData, offset + 10);
                             Color[] colors1 = new Color[4];
@@ -344,12 +344,16 @@ namespace MapleLib.Helpers
                             int[] colorIndices1 = new int[16];
                             ExpandColorIndexTable(colorIndices1, rawData, offset + 12);
 
-                            // Process block 1 pixels
+                            // Write pixels for block 1
                             for (int j = 0; j < 4; j++)
                             {
+                                int pixelY = y * 4 + j;
+                                if (pixelY >= height) continue; // Skip if out of bounds
                                 for (int i = 0; i < 4; i++)
                                 {
-                                    int pixelOffset = ((y * 4 + j) * width + (x * 4 + i)) * 4;
+                                    int pixelX = x * 4 + i;
+                                    if (pixelX >= width) continue; // Skip if out of bounds
+                                    int pixelOffset = pixelY * stride + pixelX * 4;
                                     Color c = colors1[colorIndices1[j * 4 + i]];
                                     byte alpha = alphaTable1[alphaIdxTable1[j * 4 + i]];
                                     pDecoded[pixelOffset] = c.B;
@@ -359,8 +363,8 @@ namespace MapleLib.Helpers
                                 }
                             }
 
-                            // Repeat for block 2 if within bounds
-                            if (x + 1 < blockCountX)
+                            // Process block 2 if within bounds
+                            if (x + 1 < blockCountX && offset + 32 <= rawData.Length)
                             {
                                 byte a0_2 = rawData[offset + 16];
                                 byte a1_2 = rawData[offset + 17];
@@ -376,11 +380,16 @@ namespace MapleLib.Helpers
                                 int[] colorIndices2 = new int[16];
                                 ExpandColorIndexTable(colorIndices2, rawData, offset + 28);
 
+                                // Write pixels for block 2
                                 for (int j = 0; j < 4; j++)
                                 {
+                                    int pixelY = y * 4 + j;
+                                    if (pixelY >= height) continue; // Skip if out of bounds
                                     for (int i = 0; i < 4; i++)
                                     {
-                                        int pixelOffset = ((y * 4 + j) * width + ((x + 1) * 4 + i)) * 4;
+                                        int pixelX = (x + 1) * 4 + i;
+                                        if (pixelX >= width) continue; // Skip if out of bounds
+                                        int pixelOffset = pixelY * stride + pixelX * 4;
                                         Color c = colors2[colorIndices2[j * 4 + i]];
                                         byte alpha = alphaTable2[alphaIdxTable2[j * 4 + i]];
                                         pDecoded[pixelOffset] = c.B;
@@ -397,36 +406,39 @@ namespace MapleLib.Helpers
             else
             {
                 // Scalar fallback
+                byte[] decoded = new byte[width * height * 4];
+
+                Color[] colorTable = new Color[4];
+                int[] colorIdxTable = new int[16];
+                byte[] alphaTable = new byte[8];
+                int[] alphaIdxTable = new int[16];
                 for (int y = 0; y < height; y += 4)
                 {
                     for (int x = 0; x < width; x += 4)
                     {
-                        int off = (y * width + x) * 4 / 4;
-                        byte[] alphaTable = new byte[8];
+                        int off = x * 4 + y * width;
                         ExpandAlphaTableDXT5(alphaTable, rawData[off + 0], rawData[off + 1]);
-                        int[] alphaIdxTable = new int[16];
                         ExpandAlphaIndexTableDXT5(alphaIdxTable, rawData, off + 2);
                         ushort u0 = BitConverter.ToUInt16(rawData, off + 8);
                         ushort u1 = BitConverter.ToUInt16(rawData, off + 10);
-                        Color[] colorTable = new Color[4];
                         ExpandColorTable(colorTable, u0, u1);
-                        int[] colorIdxTable = new int[16];
                         ExpandColorIndexTable(colorIdxTable, rawData, off + 12);
 
                         for (int j = 0; j < 4; j++)
                         {
                             for (int i = 0; i < 4; i++)
                             {
-                                int pixelOffset = ((y + j) * width + (x + i)) * 4;
-                                Color c = colorTable[colorIdxTable[j * 4 + i]];
-                                pDecoded[pixelOffset] = c.B;
-                                pDecoded[pixelOffset + 1] = c.G;
-                                pDecoded[pixelOffset + 2] = c.R;
-                                pDecoded[pixelOffset + 3] = alphaTable[alphaIdxTable[j * 4 + i]];
+                                SetPixel(decoded,
+                                    x + i,
+                                    y + j,
+                                    width,
+                                    colorTable[colorIdxTable[j * 4 + i]],
+                                    alphaTable[alphaIdxTable[j * 4 + i]]);
                             }
                         }
                     }
                 }
+                Marshal.Copy(decoded, 0, bmpData.Scan0, decoded.Length);
             }
         }
 
