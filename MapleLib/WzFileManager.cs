@@ -28,6 +28,7 @@ namespace MapleLib {
             @"D:\Nexon\Maple",
             @"C:\Program Files\WIZET\MapleStory",
             @"C:\MapleStory",
+            @"C:\NEXPACE\MapleStoryN",
             @"C:\Program Files (x86)\Wizet\MapleStorySEA"
         };
 
