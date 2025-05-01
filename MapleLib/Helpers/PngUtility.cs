@@ -1,5 +1,4 @@
 ﻿using System;
-using System.Diagnostics;
 using System.Drawing;
 using System.Drawing.Imaging;
 using System.IO;
@@ -572,6 +571,7 @@ namespace MapleLib.Helpers
         /// <returns></returns>
         public static (WzPngFormat, byte[]) CompressImageToPngFormat(Bitmap bmp, SurfaceFormat format)
         {
+            // TODO: Format2, Format513, Format517
             byte[] retPixelData;
             WzPngFormat retFormat;
             switch (format)
@@ -581,6 +581,15 @@ namespace MapleLib.Helpers
                     retFormat = WzPngFormat.Format1;
                     break;
 
+                case SurfaceFormat.Bgra5551:
+                    retPixelData = GetPixelDataFormat257(bmp);
+                    retFormat = WzPngFormat.Format257;
+                    break;
+
+                case SurfaceFormat.Dxt3 when bmp.PixelFormat == PixelFormat.Format8bppIndexed:
+                    retPixelData = CompressDXT3(bmp); // Could add grayscale conversion if needed
+                    retFormat = WzPngFormat.Format3;
+                    break;
                 case SurfaceFormat.Dxt3:
                     retPixelData = CompressDXT3(bmp);
                     retFormat = WzPngFormat.Format1026;
@@ -591,8 +600,26 @@ namespace MapleLib.Helpers
                     retFormat = WzPngFormat.Format2050;
                     break;
 
+                /*
+                case WzPngFormat.Format2:
+                    pixelData = GetPixelDataFormat2(bmp);
+                    break;
+                case WzPngFormat.Format3:
+                    pixelData = GetPixelDataFormat3(bmp);
+                    break;
+                case WzPngFormat.Format257:
+                    pixelData = GetPixelDataFormat257(bmp);
+                    break;
+                case WzPngFormat.Format513:
+                    pixelData = GetPixelDataFormat513(bmp);
+                    break;
+                case WzPngFormat.Format517:
+                    pixelData = GetPixelDataFormat517(bmp);
+                    break;
+                */
+
                 default: // compress as standard, default to BGRA8888 for now
-                    retPixelData = GetPixelDataFormat2(bmp); 
+                    retPixelData = GetPixelDataFormat2(bmp);
                     retFormat = WzPngFormat.Format2;
                     break;
 
@@ -658,6 +685,121 @@ namespace MapleLib.Helpers
                     {
                         IntPtr rowPtr = bmpData.Scan0 + y * bmpData.Stride;
                         Marshal.Copy(rowPtr, buf, y * bmp.Width * 4, bmp.Width * 4);
+                    }
+                }
+                return buf;
+            }
+            finally
+            {
+                bmp.UnlockBits(bmpData);
+            }
+        }
+
+        private static byte[] GetPixelDataFormat257(Bitmap bmp)
+        {
+            BitmapData bmpData = bmp.LockBits(new Rectangle(0, 0, bmp.Width, bmp.Height), ImageLockMode.ReadOnly, PixelFormat.Format32bppArgb);
+            try
+            {
+                byte[] buf = new byte[bmp.Width * bmp.Height * 2];
+                int index = 0;
+                for (int y = 0; y < bmp.Height; y++)
+                {
+                    for (int x = 0; x < bmp.Width; x++)
+                    {
+                        int pixel = Marshal.ReadInt32(bmpData.Scan0 + y * bmpData.Stride + x * 4);
+                        byte b = (byte)((pixel >> 0) & 0xFF);
+                        byte g = (byte)((pixel >> 8) & 0xFF);
+                        byte r = (byte)((pixel >> 16) & 0xFF);
+                        byte a = (byte)((pixel >> 24) & 0xFF);
+
+                        byte a1 = (byte)(a >= 128 ? 1 : 0); // 1-bit alpha
+                        byte r5 = (byte)((r * 31) / 255);
+                        byte g5 = (byte)((g * 31) / 255);
+                        byte b5 = (byte)((b * 31) / 255);
+
+                        ushort argb1555 = (ushort)((a1 << 15) | (r5 << 10) | (g5 << 5) | b5);
+                        buf[index++] = (byte)(argb1555 & 0xFF);
+                        buf[index++] = (byte)((argb1555 >> 8) & 0xFF);
+                    }
+                }
+                return buf;
+            }
+            finally
+            {
+                bmp.UnlockBits(bmpData);
+            }
+        }
+
+        private static byte[] GetPixelDataFormat513(Bitmap bmp)
+        {
+            BitmapData bmpData = bmp.LockBits(new Rectangle(0, 0, bmp.Width, bmp.Height), ImageLockMode.ReadOnly, PixelFormat.Format32bppArgb);
+            try
+            {
+                byte[] buf = new byte[bmp.Width * bmp.Height * 2];
+                int index = 0;
+                for (int y = 0; y < bmp.Height; y++)
+                {
+                    for (int x = 0; x < bmp.Width; x++)
+                    {
+                        int pixel = Marshal.ReadInt32(bmpData.Scan0 + y * bmpData.Stride + x * 4);
+                        byte b = (byte)((pixel >> 0) & 0xFF);
+                        byte g = (byte)((pixel >> 8) & 0xFF);
+                        byte r = (byte)((pixel >> 16) & 0xFF);
+
+                        byte r5 = (byte)((r * 31) / 255);
+                        byte g6 = (byte)((g * 63) / 255);
+                        byte b5 = (byte)((b * 31) / 255);
+
+                        ushort rgb565 = (ushort)((r5 << 11) | (g6 << 5) | b5);
+                        buf[index++] = (byte)(rgb565 & 0xFF);
+                        buf[index++] = (byte)((rgb565 >> 8) & 0xFF);
+                    }
+                }
+                return buf;
+            }
+            finally
+            {
+                bmp.UnlockBits(bmpData);
+            }
+        }
+
+        private static byte[] GetPixelDataFormat517(Bitmap bmp)
+        {
+            int blockSize = 16;
+            int blockCountX = (bmp.Width + blockSize - 1) / blockSize;
+            int blockCountY = (bmp.Height + blockSize - 1) / blockSize;
+            byte[] buf = new byte[blockCountX * blockCountY * 2];
+
+            BitmapData bmpData = bmp.LockBits(new Rectangle(0, 0, bmp.Width, bmp.Height), ImageLockMode.ReadOnly, PixelFormat.Format32bppArgb);
+            try
+            {
+                int index = 0;
+                for (int by = 0; by < blockCountY; by++)
+                {
+                    for (int bx = 0; bx < blockCountX; bx++)
+                    {
+                        int x = bx * blockSize;
+                        int y = by * blockSize;
+                        if (x < bmp.Width && y < bmp.Height)
+                        {
+                            int pixel = Marshal.ReadInt32(bmpData.Scan0 + y * bmpData.Stride + x * 4);
+                            byte b = (byte)((pixel >> 0) & 0xFF);
+                            byte g = (byte)((pixel >> 8) & 0xFF);
+                            byte r = (byte)((pixel >> 16) & 0xFF);
+
+                            byte r5 = (byte)((r * 31) / 255);
+                            byte g6 = (byte)((g * 63) / 255);
+                            byte b5 = (byte)((b * 31) / 255);
+
+                            ushort rgb565 = (ushort)((r5 << 11) | (g6 << 5) | b5);
+                            buf[index++] = (byte)(rgb565 & 0xFF);
+                            buf[index++] = (byte)((rgb565 >> 8) & 0xFF);
+                        }
+                        else
+                        {
+                            buf[index++] = 0;
+                            buf[index++] = 0;
+                        }
                     }
                 }
                 return buf;
@@ -778,7 +920,7 @@ namespace MapleLib.Helpers
                         int[] alphaIndices = CompressBlockAlphaDXT5(block, out a0, out a1);
                         buf[bufIndex++] = a0;
                         buf[bufIndex++] = a1;
-                        long flags = 0;
+                        long flags = 0; // 48-bit value for 16 3-bit indices
                         for (int i = 0; i < 16; i++)
                         {
                             flags |= (long)alphaIndices[i] << (i * 3);

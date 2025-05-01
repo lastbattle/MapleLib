@@ -40,6 +40,9 @@ namespace MapleLib.Helpers
     /// BGRA4444:
     /// 16 bits/pixel (4 bits each for B, G, R, A). Supports alpha with reduced color depth.
     /// 
+    /// BGRA5551:
+    /// 16 bits/pixel (5 bits B, G, R; 1 bit A). Higher color depth (32,768 colors) but binary alpha (on/off).
+    /// 
     /// The detector balances image quality, memory usage, and compression based on color depth, alpha behavior, and image size.
     /// </summary>
     public class ImageFormatDetector
@@ -77,15 +80,27 @@ namespace MapleLib.Helpers
                         // DXT5: Selected for smooth alpha gradients(low avgAlphaGradient), utilizing its interpolated alpha for higher quality.
                         return avgAlphaGradient < 10 ? SurfaceFormat.Dxt5 : SurfaceFormat.Dxt3;
                     }
+                    // For non-DXT candidates, prefer BGRA5551 for binary alpha, else BGRA4444 or BGRA32
+                    // Bgra5551 and Bgra4444 are favored for small images or binary alpha to minimize memory while maintaining acceptable quality.
+                    if (!hasPartialAlpha && uniqueAlphaValues <= 2 && uniqueRgbColors <= 32 * 32 * 32) // Fits BGRA5551 (32,768 colors, binary alpha)
+                        return SurfaceFormat.Bgra5551;
+
                     return isSmallImage && !hasPartialAlpha ? SurfaceFormat.Bgra4444 : SurfaceFormat.Bgra32;
-                }
-                else if (hasPartialAlpha)
-                {
-                    return SurfaceFormat.Bgra4444;
                 }
                 else
                 {
-                    return isDxtCandidate ? SurfaceFormat.Dxt3 : SurfaceFormat.Bgra4444;
+                    // Bgra5551 and Bgra4444 are favored for small images or binary alpha to minimize memory while maintaining acceptable quality.
+                    if (!hasPartialAlpha && uniqueAlphaValues <= 2 && uniqueRgbColors <= 32 * 32 * 32) // Binary alpha, fits BGRA5551
+                        return SurfaceFormat.Bgra5551;
+
+                    if (hasPartialAlpha)
+                    {
+                        return SurfaceFormat.Bgra4444;
+                    }
+                    else
+                    {
+                        return isDxtCandidate ? SurfaceFormat.Dxt3 : SurfaceFormat.Bgra4444;
+                    }
                 }
             }
         }
