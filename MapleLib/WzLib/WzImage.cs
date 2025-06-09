@@ -82,6 +82,7 @@ namespace MapleLib.WzLib
         public WzImage(string name)
         {
             this.name = name;
+            this.Changed = true; // default for new item.
 
             this.properties = new WzPropertyCollection(this);
         }
