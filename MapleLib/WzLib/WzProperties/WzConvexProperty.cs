@@ -191,13 +191,30 @@ namespace MapleLib.WzLib.WzProperties
 			}
         }
 
+		/// <summary>
+		/// Remove a property by the property object
+		/// </summary>
+		/// <param name="prop"></param>
         public void RemoveProperty(WzImageProperty prop)
         {
             prop.Parent = null;
             properties.Remove(prop);
         }
 
-		public void ClearProperties()
+        /// <summary>
+        /// Remove a property by its name
+        /// </summary>
+        /// <param name="name">Name of Property</param>
+        public void RemoveProperty(string propertyName)
+        {
+            WzImageProperty prop = this[propertyName];
+            if (prop != null)
+            {
+                RemoveProperty(prop);
+            }
+        }
+
+        public void ClearProperties()
 		{
             foreach (WzImageProperty prop in properties) prop.Parent = null;
 			properties.Clear();

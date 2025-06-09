@@ -382,6 +382,18 @@ namespace MapleLib.WzLib.WzProperties {
         }
 
         /// <summary>
+        /// Remove a property by its name
+        /// </summary>
+        /// <param name="name">Name of Property</param>
+        public void RemoveProperty(string propertyName)
+        {
+            WzImageProperty prop = this[propertyName];
+            if (prop != null) {
+                RemoveProperty(prop);
+            }
+        }
+
+        /// <summary>
         /// Clears the list of properties
         /// </summary>
         public void ClearProperties() {
