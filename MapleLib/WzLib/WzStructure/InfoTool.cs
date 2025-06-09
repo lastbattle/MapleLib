@@ -218,7 +218,14 @@ namespace MapleLib.WzLib.WzStructure
 
         public static WzIntProperty SetOptionalBool(this MapleBool value)
         {
-            return value.HasValue ? SetBool(value.Value) : null;
+            if (value.HasValue)
+            {
+                if (value.Value == true)
+                {
+                    return SetBool(value.Value);
+                }
+            }
+            return null;
         }
         #endregion
 
