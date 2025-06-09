@@ -618,11 +618,6 @@ namespace MapleLib.WzLib.WzStructure
             info["timeLimit"] = InfoTool.SetOptionalInt(timeLimit);
             info["lvLimit"] = InfoTool.SetOptionalInt(lvLimit);
 
-            info["VRTop"] = InfoTool.SetOptionalInt(VRTop);
-            info["VRBottom"] = InfoTool.SetOptionalInt(VRBottom);
-            info["VRLeft"] = InfoTool.SetOptionalInt(VRLeft);
-            info["VRRight"] = InfoTool.SetOptionalInt(VRRight);
-
             info["onFirstUserEnter"] = InfoTool.SetOptionalString(onFirstUserEnter);
             info["onUserEnter"] = InfoTool.SetOptionalString(onUserEnter);
             info["fly"] = InfoTool.SetOptionalBool(fly);
