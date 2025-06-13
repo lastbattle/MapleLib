@@ -268,9 +268,28 @@ namespace MapleLib.WzLib
                     }
                 case WzRawDataProperty.RAW_DATA_HEADER:  // GMS v220++
                     {
-                        return new WzRawDataProperty(name, reader, imgParent.ParseEverything) { 
-                            Parent = parent 
-                        };
+                        // GMS v255+
+                        // UI_000.wz\Login.img\RaceSelect_new\Back0\3\skeleton.skel 
+                        // UI_000.wz\Login.img\RaceSelect_new\Back0\16\skeleton.skel
+                        // UI_000.wz\Login.img\RaceSelect_new\Back0\1005\Sia.skel
+                        var type = reader.ReadByte();
+
+                        var rawDataProp = new WzRawDataProperty(name, reader, type) { Parent = parent };
+
+                        // type 0: do nothing
+                        // type 1: similar to CanvasProperty that has binary data (the PNG) and sub properties (the origin, _hash, etc.)
+                        if (type == 1)
+                        {
+                            if (reader.ReadByte() == 1)
+                            {
+                                reader.BaseStream.Position += 2; // Reserved?
+                                rawDataProp.AddProperties(ParsePropertyList(offset, reader, rawDataProp, imgParent));
+                            }
+                        }
+
+                        // all types: parse the binary data (similar to parse WzPngProperty for WzCanvasProperty)
+                        rawDataProp.Parse(imgParent.ParseEverything); // TODO: be able to display this raw data in HaRepacker
+                        return rawDataProp;
                     }
                 default:
                     throw new Exception("Unknown iname: " + iname);
