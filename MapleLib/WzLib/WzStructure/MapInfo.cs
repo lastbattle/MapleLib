@@ -16,17 +16,18 @@
  * You should have received a copy of the GNU General Public License
     along with this program.  If not, see <http://www.gnu.org/licenses/>.*/
 
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
+using MapleLib.Helpers;
 using MapleLib.WzLib;
 using MapleLib.WzLib.WzProperties;
-using MapleLib.WzLib.WzStructure.Data;
 using MapleLib.WzLib.WzStructure;
-using System.Drawing;
-using MapleLib.Helpers;
+using MapleLib.WzLib.WzStructure.Data;
 using MapleLib.WzLib.WzStructure.Data.MapStructure;
+using SharpDX.Direct2D1.Effects;
+using System;
+using System.Collections.Generic;
+using System.Drawing;
+using System.Linq;
+using System.Text;
 
 namespace MapleLib.WzLib.WzStructure
 {
@@ -62,6 +63,7 @@ namespace MapleLib.WzLib.WzStructure
         //Optional
         //public int link = -1;
         public int? VRTop = null, VRBottom = null, VRLeft = null, VRRight = null;
+        public int? LBSide = null, LBTop = null, LBBottom = null;
         public int? timeLimit = null;
         public int? lvLimit = null;
         public FieldType? fieldType = null;
@@ -384,6 +386,15 @@ namespace MapleLib.WzLib.WzStructure
                     case "mirror_Bottom":
                         mirror_Bottom = InfoTool.GetBool(prop);
                         break;
+                    case "LBSide":
+                        LBSide = InfoTool.GetInt(prop);
+                        break;
+                    case "LBTop":
+                        LBTop = InfoTool.GetInt(prop); // the height of the border
+                        break;
+                    case "LBBottom":
+                        LBBottom = InfoTool.GetInt(prop); // the height of the border
+                        break;
                     case "AmbientBGM":
                     case "AmbientBGMv":
                     case "areaCtrl":
@@ -422,9 +433,6 @@ namespace MapleLib.WzLib.WzStructure
                     case "MRBottom":
                     case "limitSpeedAndJump":
                     case "directionInfo":
-                    case "LBSide":
-                    case "LBTop":
-                    case "LBBottom":
                     case "bgmSub":
                     case "fieldLimit2":
                     case "fieldLimit_tw":
@@ -714,6 +722,18 @@ namespace MapleLib.WzLib.WzStructure
                 info["VRTop"] = InfoTool.SetInt(VR.Value.Top);
                 info["VRBottom"] = InfoTool.SetInt(VR.Value.Bottom);
             }
+
+            // Not supported yet, black borders nexon used as a hack for unsupported resolutions
+            //info.RemoveProperty("LBSide");
+            //info.RemoveProperty("LBTop");
+            //info.RemoveProperty("LBBottom");
+
+            if (LBSide != null)
+                info["LBSide"] = InfoTool.SetInt((int) LBSide);
+            if (LBTop != null)
+                info["LBTop"] = InfoTool.SetInt((int) LBTop);
+            if (LBBottom != null) 
+                info["LBBottom"] = InfoTool.SetInt((int) LBBottom);
 
             // Add back all unsupported properties
             foreach (WzImageProperty imgProp in unsupportedInfoProperties)
