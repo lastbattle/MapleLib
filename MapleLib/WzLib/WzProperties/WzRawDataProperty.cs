@@ -108,6 +108,12 @@ namespace MapleLib.WzLib.WzProperties
         {
             this._name = null;
             this._bytes = null;
+            foreach (WzImageProperty prop in properties)
+            {
+                prop.Dispose();
+            }
+            properties.Clear();
+            properties = null;
         }
         #endregion
 
