@@ -291,6 +291,20 @@ namespace MapleLib.WzLib
                         rawDataProp.Parse(imgParent.ParseEverything); // TODO: be able to display this raw data in HaRepacker
                         return rawDataProp;
                     }
+                case WzVideoProperty.CANVAS_VIDEO_HEADER: // KMST v1181
+                    {
+                        WzVideoProperty videoProperty = new WzVideoProperty(name, reader);
+                        videoProperty.Parent = parent;
+
+                        reader.BaseStream.Position++;
+                        if (reader.ReadByte() == 1)
+                        {
+                            reader.BaseStream.Position += 2;
+                            videoProperty.AddProperties(WzImageProperty.ParsePropertyList(offset, reader, videoProperty, imgParent));
+                        }
+                        videoProperty.Parse(imgParent.ParseEverything); // TODO:  be able to display this Canvas#Video in HaRepacker
+                        return videoProperty;
+                    }
                 default:
                     throw new Exception("Unknown iname: " + iname);
             }
