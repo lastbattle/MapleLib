@@ -79,14 +79,17 @@ namespace MapleLib.WzLib.WzProperties
             writer.WriteStringValue(RAW_DATA_HEADER, WzImage.WzImageHeaderByte_WithoutOffset,
                 WzImage.WzImageHeaderByte_WithOffset);
             writer.Write(_type);
-            if (properties.Count > 0)
+            if (_type == 1)
             {
-                writer.Write((byte)1);
-                WritePropertyList(writer, properties);
-            }
-            else
-            {
-                writer.Write((byte)0);
+                if (properties.Count > 0)
+                {
+                    writer.Write((byte)1);
+                    WritePropertyList(writer, properties);
+                }
+                else
+                {
+                    writer.Write((byte)0);
+                }
             }
             writer.WriteCompressedInt(data.Length);
             writer.Write(data);
