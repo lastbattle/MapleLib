@@ -105,14 +105,21 @@ namespace MapleLib.WzLib.Serializer
             if (useMemorySaving)
             {
                 string path = Path.GetTempFileName();
-                using (WzBinaryWriter wzWriter = new WzBinaryWriter(File.Create(path), iv))
+                try
                 {
-                    result.SaveImage(wzWriter);
-                    result.Dispose();
-                }
+                    using (WzBinaryWriter wzWriter = new WzBinaryWriter(File.Create(path), iv))
+                    {
+                        result.SaveImage(wzWriter);
+                        result.Dispose();
+                    }
 
-                bool successfullyParsedImage;
-                result = imgDeserializer.WzImageFromIMGFile(path, iv, name, out successfullyParsedImage);
+                    bool successfullyParsedImage;
+                    result = imgDeserializer.WzImageFromIMGFile(path, iv, name, out successfullyParsedImage);
+                }
+                finally
+                {
+                    File.Delete(path);
+                }
             }
             return result;
         }
