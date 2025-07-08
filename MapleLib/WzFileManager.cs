@@ -69,16 +69,20 @@ namespace MapleLib {
         }
 
 
-        private readonly ReaderWriterLockSlim _readWriteLock = new ReaderWriterLockSlim(); // for '_wzFiles', '_wzFilesUpdated', '_updatedImages', & '_wzDirs'
-        private readonly Dictionary<string, WzFile> _wzFiles = new Dictionary<string, WzFile>();
-        private readonly Dictionary<WzFile, bool> _wzFilesUpdated = new Dictionary<WzFile, bool>(); // key = WzFile, flag for the list of WZ files changed to be saved later via Repack 
-        private readonly HashSet<WzImage> _updatedWzImages = new HashSet<WzImage>();
-        private readonly Dictionary<string, WzMainDirectory> _wzDirs = new Dictionary<string, WzMainDirectory>();
+        private readonly ReaderWriterLockSlim _readWriteLock = new(); // for '_wzFiles', '_wzFilesUpdated', '_updatedImages', & '_wzDirs'
+        private readonly Dictionary<string, WzFile> _wzFiles = [];
+        private readonly Dictionary<WzFile, bool> _wzFilesUpdated = []; // key = WzFile, flag for the list of WZ files changed to be saved later via Repack 
+        private readonly Dictionary<string, WzMainDirectory> _wzDirs = [];
+
+        private readonly Dictionary<string, WzImage> _wzImages = []; // The raw wz images loaded in memory.. Hotfix Data.wz or raw .img
+        private readonly Dictionary<WzImage, bool> _wzImagesUpdated = [];
+
+        private readonly HashSet<WzImage> _updatedWzImages = [];
 
         /// <summary>
         /// The list of list.wz image paths
         /// </summary>
-        private readonly List<string> _listWzPaths = new List<string>();
+        private readonly List<string> _listWzPaths = [];
 
 
         /// <summary>
@@ -88,11 +92,11 @@ namespace MapleLib {
         /// 
         /// {[Map\Map\Map4, Count = 1]}
         /// </summary>
-        private readonly Dictionary<string, List<string>> _wzFilesList = new Dictionary<string, List<string>>();
+        private readonly Dictionary<string, List<string>> _wzFilesList = [];
         /// <summary>
         /// The list of directory where the wz file residues
         /// </summary>
-        private readonly Dictionary<string, string> _wzFilesDirectoryList = new Dictionary<string, string>();
+        private readonly Dictionary<string, string> _wzFilesDirectoryList = [];
 
         #endregion
 
@@ -257,8 +261,8 @@ namespace MapleLib {
                             else
                                 _wzFilesList.Add(wzDirectoryNameOfWzFile, new List<string> { fileName2 });
 
-                            if (!_wzFilesDirectoryList.ContainsKey(fileName2))
-                                _wzFilesDirectoryList.Add(fileName2, dir);
+                                if (!_wzFilesDirectoryList.ContainsKey(fileName2))
+                                    _wzFilesDirectoryList.Add(fileName2, dir);
                         }
                     }
                 }
@@ -389,16 +393,33 @@ namespace MapleLib {
         /// <summary>
         /// Loads the hotfix Data.wz file
         /// </summary>
-        /// <param name="baseName"></param>
+        /// <param name="basePath"></param>
         /// <param name="encVersion"></param>
         /// <param name="panel"></param>
         /// <returns></returns>
-        public WzImage LoadDataWzHotfixFile(string baseName, WzMapleVersion encVersion) {
-            string filePath = GetWzFilePath(baseName);
+        public WzImage LoadDataWzHotfixFile(string basePath, WzMapleVersion encVersion) {
+            string filePath = GetWzFilePath(basePath);
+            if (!File.Exists(filePath))
+            {
+                throw new Exception(string.Format("File '{0}' does not exist", basePath));
+            }
+
             FileStream fs = File.Open(filePath, FileMode.Open); // dont close this file stream until it is unloaded from memory
 
             WzImage img = new WzImage(Path.GetFileName(filePath), fs, encVersion);
             img.ParseImage(true);
+
+            // write lock to begin adding to the dictionary
+            _readWriteLock.EnterWriteLock();
+            try
+            {
+                _wzImages[basePath] = img; // store the image in the dictionary
+                _wzImagesUpdated[img] = false; // set the image as not updated
+            }
+            finally
+            {
+                _readWriteLock.ExitWriteLock();
+            }
 
             return img;
         }
@@ -476,6 +497,31 @@ namespace MapleLib {
                 wzFile.Dispose();
             }
         }
+
+        /// <summary>
+        /// Unload the wz image file from memory
+        /// </summary>
+        /// <param name="wzFile"></param>
+        public void UnloadWzImgFile(WzImage wzImage)
+        {
+            string baseName = _wzImages.FirstOrDefault(kvp => kvp.Value == wzImage).Key;
+
+            if (_wzImages.ContainsKey(baseName))
+            {
+                // write lock to begin adding to the dictionary
+                _readWriteLock.EnterWriteLock();
+                try
+                {
+                    _wzImages.Remove(baseName);
+                    _wzImagesUpdated.Remove(wzImage);
+                }
+                finally
+                {
+                    _readWriteLock.ExitWriteLock();
+                }
+                wzImage.Dispose();
+            }
+        }
         #endregion
 
         #region Inherited Members
@@ -521,6 +567,16 @@ namespace MapleLib {
         /// <returns></returns>
         public ReadOnlyCollection<WzImage> WzUpdatedImageList {
             get { return new List<WzImage>(this._updatedWzImages).AsReadOnly(); }
+            private set { }
+        }
+
+        /// <summary>
+        /// Gets a read-only list of loaded image files in the WzFileManager
+        /// </summary>
+        /// <returns></returns>
+        public ReadOnlyCollection<WzImage> WzImagesList
+        {
+            get { return new List<WzImage>(this._wzImages.Values).AsReadOnly(); }
             private set { }
         }
         #endregion
@@ -643,6 +699,7 @@ namespace MapleLib {
 
             string fileName = StringUtility.CapitalizeFirstCharacter(filePathOrBaseFileName) + ".wz";
             string filePath = Path.Combine(_wzFilesDirectoryList[filePathOrBaseFileName], fileName);
+
             if (!File.Exists(filePath))
                 throw new Exception("wz file at the path '" + filePathOrBaseFileName + "' does not exist.");
 
