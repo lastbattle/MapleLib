@@ -118,7 +118,8 @@ namespace MapleLib.WzLib.Serializer
                 }
                 finally
                 {
-                    File.Delete(path);
+                    if (result.ParseEverything)
+                        File.Delete(path);
                 }
             }
             return result;
