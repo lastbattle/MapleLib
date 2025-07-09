@@ -43,7 +43,9 @@ namespace MapleLib.WzLib.Serializer
             {
                 using (WzBinaryWriter wzWriter = new WzBinaryWriter(stream, ((WzDirectory)img.parent).WzIv))
                 {
-                    img.SaveImage(wzWriter);
+                    img.SaveImage(wzWriter, true,
+                        forceReadFromData: true // update the pos of data relative to itself, instead of the wz
+                        );
                 }
             }
         }
