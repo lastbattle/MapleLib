@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Diagnostics.CodeAnalysis;
 using System.Linq;
 
 namespace MapleLib.WzLib.WzStructure.Data
@@ -72,7 +73,7 @@ namespace MapleLib.WzLib.WzStructure.Data
             { PortalType.StartPoint, "sp" },
             { PortalType.Invisible, "pi" },
             { PortalType.Visible, "pv" },
-            { PortalType.Default, "default" }, // same as pv
+            { PortalType.Default, "default" }, // Equivalent to 'pv' (Visible)
             { PortalType.Collision, "pc" },
             { PortalType.Changeable, "pg" },
             { PortalType.ChangeableInvisible, "pgi" },
@@ -90,6 +91,31 @@ namespace MapleLib.WzLib.WzStructure.Data
 
             { PortalType.UNKNOWN_PCC, "pcc" }, // unknown for now
             { PortalType.UNKNOWN_PCIR, "pcir" }, // unknown for now
+        };
+
+        private static readonly IReadOnlyDictionary<PortalType, string> _portalTypeToNames = new Dictionary<PortalType, string>
+        {
+            { PortalType.StartPoint, "Start Point" },
+            { PortalType.Invisible, "Invisible" },
+            { PortalType.Visible, "Visible" },
+            { PortalType.Default, "Visible (Default)" },
+            { PortalType.Collision, "Collision" },
+            { PortalType.Changeable, "Changeable" },
+            { PortalType.ChangeableInvisible, "Changeable Invisible" },
+            { PortalType.TownPortalPoint, "Town Portal" },
+            { PortalType.Script, "Script" },
+            { PortalType.ScriptInvisible, "Script Invisible" },
+            { PortalType.CollisionScript, "Script Collision" },
+            { PortalType.Hidden, "Hidden" },
+            { PortalType.ScriptHidden, "Script Hidden" },
+            { PortalType.CollisionVerticalJump, "Collision Vertical Jump" },
+            { PortalType.CollisionCustomImpact, "Collision Custom Impact Spring" },
+            { PortalType.CollisionCustomImpact2, "Collision Custom Impact Spring 2" },
+            { PortalType.CollisionUnknownPcig, "Unknown (PCIG)" },
+            { PortalType.ScriptHiddenUng, "Script Hidden Ung" },  // Added this one since it was in the enum
+
+            { PortalType.UNKNOWN_PCC, "Unknown pcc" },
+            { PortalType.UNKNOWN_PCIR, "Unknown pcir" },
         };
 
         private static readonly IReadOnlyDictionary<string, PortalType> _codeToPortalTypes =
@@ -112,31 +138,6 @@ namespace MapleLib.WzLib.WzStructure.Data
                 : throw new ArgumentException($"Invalid portal type code: {code}", nameof(code));
         }
 
-
-        private static readonly IReadOnlyDictionary<PortalType, string> _portalTypeToNames = new Dictionary<PortalType, string>
-        {
-            { PortalType.StartPoint, "Start Point" },
-            { PortalType.Invisible, "Invisible" },
-            { PortalType.Visible, "Visible" },
-            { PortalType.Default, "Visible (Default)" },
-            { PortalType.Collision, "Collision" },
-            { PortalType.Changeable, "Changable" },
-            { PortalType.ChangeableInvisible, "Changable Invisible" },
-            { PortalType.TownPortalPoint, "Town Portal" },
-            { PortalType.Script, "Script" },
-            { PortalType.ScriptInvisible, "Script Invisible" },
-            { PortalType.CollisionScript, "Script Collision" },
-            { PortalType.Hidden, "Hidden" },
-            { PortalType.ScriptHidden, "Script Hidden" },
-            { PortalType.CollisionVerticalJump, "Collision Vertical Jump" },
-            { PortalType.CollisionCustomImpact, "Collision Custom Impact Spring" },
-            { PortalType.CollisionCustomImpact2, "Collision Custom Impact Spring 2" },
-            { PortalType.CollisionUnknownPcig, "Unknown (PCIG)" },
-            { PortalType.ScriptHiddenUng, "Script Hidden Ung" },  // Added this one since it was in the enum
-
-            { PortalType.UNKNOWN_PCC, "Unknown pcc" },
-            { PortalType.UNKNOWN_PCIR, "Unknown pcir" },
-        };
 
         public static string GetFriendlyName(this PortalType portalType)
         {
