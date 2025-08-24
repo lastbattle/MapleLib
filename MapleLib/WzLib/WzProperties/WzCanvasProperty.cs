@@ -324,22 +324,21 @@ namespace MapleLib.WzLib.WzProperties {
                     else {
                         // If its a 64-bit wz file format, with "_Canvas".
                         // parse that instead, the canvas will never be in the data wz directory.
-                        if (WzFileManager.fileManager != null && WzFileManager.fileManager.Is64Bit && _outlink.Contains(WzFileManager.CANVAS_DIRECTORY_NAME)) {
+                        // TODO: Move this into the loader instead.
+                        if (WzFileManager.fileManager != null && WzFileManager.fileManager.Is64Bit) {
 
-                            if (WzFileManager.fileManager.Is64Bit) {
+                            if (_outlink.Contains(WzFileManager.CANVAS_DIRECTORY_NAME)) {
                                 bool bIsCanvasDir = WzFileManager.ContainsCanvasDirectory(_outlink);
                                 if (bIsCanvasDir) {
-                                    string beforeCanvasPath = WzFileManager.NormaliseWzCanvasDirectory(_outlink);
+                                    string canvasFileBase = WzFileManager.NormaliseWzCanvasDirectory(_outlink);
+                                    string canvasFileBase_ = canvasFileBase + string.Format(@"/{0}_00", WzFileManager.CANVAS_DIRECTORY_NAME.ToLower());
+                                    string canvasDirectory = WzFileManager.fileManager.WzBaseDirectory + canvasFileBase;
 
-                                    // Step 3: Add "_canvas" after "_Canvas"
-                                    for (int canvasNumber = 0; canvasNumber < 20; canvasNumber++) {
-                                        string beforeCanvasPath_ = beforeCanvasPath + string.Format(@"/{0}_00{1}", WzFileManager.CANVAS_DIRECTORY_NAME.ToLower(), canvasNumber);
-                                        // "map/_canvas/_canvas_000"
-
-                                        if (!WzFileManager.fileManager.IsWzFileLoaded(beforeCanvasPath_))
-                                            WzFileManager.fileManager.LoadWzFile(beforeCanvasPath_, wzFileParent.MapleVersion);
-                                    }
+                                    WzFileManager.fileManager.LoadCanvasSection(canvasFileBase_, canvasDirectory, wzFileParent.MapleVersion);
                                 }
+                            } else
+                            {
+
                             }
                         }
 

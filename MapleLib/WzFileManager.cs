@@ -1,20 +1,21 @@
 ﻿using MapleLib.Helpers;
-using MapleLib.WzLib.WzProperties;
 using MapleLib.WzLib;
+using MapleLib.WzLib.WzProperties;
+using Microsoft.Xna.Framework;
+using NAudio.Midi;
 using System;
 using System.Collections.Generic;
+using System.Collections.ObjectModel;
+using System.Diagnostics;
 using System.IO;
+using System.IO.Packaging;
 using System.Linq;
 using System.Text;
+using System.Text.RegularExpressions;
+using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Xml.Linq;
-using System.Collections.ObjectModel;
-using System.Threading;
-using System.Text.RegularExpressions;
-using Microsoft.Xna.Framework;
-using System.Diagnostics;
-using System.IO.Packaging;
 
 namespace MapleLib {
 
@@ -72,6 +73,7 @@ namespace MapleLib {
         private readonly ReaderWriterLockSlim _readWriteLock = new(); // for '_wzFiles', '_wzFilesUpdated', '_updatedImages', & '_wzDirs'
         private readonly Dictionary<string, WzFile> _wzFiles = [];
         private readonly Dictionary<WzFile, bool> _wzFilesUpdated = []; // key = WzFile, flag for the list of WZ files changed to be saved later via Repack
+        private readonly Dictionary<string, bool> _wzCanvasSectionLoaded = []; // key = "map/_canvas", value = true if loaded
         private readonly Dictionary<string, WzMainDirectory> _wzDirs = [];
 
         private readonly Dictionary<string, WzImage> _wzImages = []; // The raw wz images loaded in memory.. Hotfix Data.wz or raw .img
@@ -201,6 +203,46 @@ namespace MapleLib {
             return false;
         }
 
+
+        /// <summary>
+        /// Gets the .ini file path and index information from a directory
+        /// </summary>
+        /// <param name="directoryPath">Directory to search for .ini file</param>
+        /// <returns>Tuple containing .ini file path and index</returns>
+        /// <exception cref="Exception">Thrown when .ini file is missing or invalid</exception>
+        public (string iniFilePath, int fileIndex) GetWzIndexInfo(string directoryPath)
+        {
+            if (!Path.Exists(directoryPath))
+                return (null, -1);
+
+            // Find .ini files in directory
+            string[] iniFiles = Directory.GetFiles(directoryPath, "*.ini");
+            if (iniFiles.Length <= 0 || iniFiles.Length > 1)
+                throw new Exception(".ini file at the directory '" + directoryPath + "' is missing, or unavailable.");
+
+            string iniFile = iniFiles[0]; // expecting only 1 .ini file for now.
+            if (!File.Exists(iniFile))
+                throw new Exception(".ini file at the directory '" + directoryPath + "' is missing.");
+
+            // Read and parse .ini content
+            string[] iniFileLines = File.ReadAllLines(iniFile);
+            if (iniFileLines.Length <= 0)
+                throw new Exception(".ini file does not contain LastWzIndex information.");
+
+            foreach (string line in iniFileLines)
+            {
+                string[] iniFileSplit = iniFileLines[0].Split('|');
+                if (iniFileSplit[0] == "LastWzIndex")
+                {
+                    if (iniFileSplit.Length <= 1)
+                        throw new Exception(".ini file does not contain LastWzIndex information.");
+
+                    return (iniFile, int.Parse(iniFileSplit[1]));
+                }
+            }
+            throw new Exception(".ini file does not contain LastWzIndex information.");
+        }
+
         /// <summary>
         /// Builds the list of WZ files in the MapleStory directory (for HaCreator only, not used for HaRepacker)
         /// </summary>
@@ -224,60 +266,44 @@ namespace MapleLib {
                     //Debug.WriteLine("----");
                     //Debug.WriteLine(dir);
 
-                    string[] iniFiles = Directory.GetFiles(dir, "*.ini");
-                    if (iniFiles.Length <= 0 || iniFiles.Length > 1)
-                        throw new Exception(".ini file at the directory '" + dir + "' is missing, or unavailable.");
+                    (string iniFileName, int wzFileIndex) = GetWzIndexInfo(dir);
 
-                    string iniFile = iniFiles[0];
-                    if (!File.Exists(iniFile))
-                        throw new Exception(".ini file at the directory '" + dir + "' is missing.");
-                    else {
-                        string[] iniFileLines = File.ReadAllLines(iniFile);
-                        if (iniFileLines.Length <= 0)
-                            throw new Exception(".ini file does not contain LastWzIndex information.");
+                    for (int i = 0; i <= wzFileIndex; i++)
+                    {
+                        string partialWzFilePath = string.Format(iniFileName.Replace(".ini", "_{0}.wz"), i.ToString("D3")); // 3 padding '0's
+                        string fileName = Path.GetFileName(partialWzFilePath);
+                        string fileName2 = fileName.Replace(".wz", "");
 
-                        string[] iniFileSplit = iniFileLines[0].Split('|');
-                        if (iniFileSplit.Length <= 1)
-                            throw new Exception(".ini file does not contain LastWzIndex information.");
+                        string wzDirectoryNameOfWzFile = dir.Replace(baseDir, "").ToLower();
 
-                        int index = int.Parse(iniFileSplit[1]);
+                        if (EXCLUDED_DIRECTORY_FROM_WZ_LIST.Any(item => fileName2.ToLower().Contains(item)))
+                            continue; // backup files
 
-                        for (int i = 0; i <= index; i++) {
-                            string partialWzFilePath = string.Format(iniFile.Replace(".ini", "_{0}.wz"), i.ToString("D3")); // 3 padding '0's
-                            string fileName = Path.GetFileName(partialWzFilePath);
-                            string fileName2 = fileName.Replace(".wz", "");
+                        //Debug.WriteLine(partialWzFileName);
+                        //Debug.WriteLine(wzDirectoryOfWzFile);
 
-                            string wzDirectoryNameOfWzFile = dir.Replace(baseDir, "").ToLower();
+                        if (_wzFilesList.ContainsKey(wzDirectoryNameOfWzFile))
+                            _wzFilesList[wzDirectoryNameOfWzFile].Add(fileName2);
+                        else
+                            _wzFilesList.Add(wzDirectoryNameOfWzFile, new List<string> { fileName2 });
 
-                            if (EXCLUDED_DIRECTORY_FROM_WZ_LIST.Any(item => fileName2.ToLower().Contains(item)))
-                                continue; // backup files
-
-                            //Debug.WriteLine(partialWzFileName);
-                            //Debug.WriteLine(wzDirectoryOfWzFile);
-
-                            if (_wzFilesList.ContainsKey(wzDirectoryNameOfWzFile))
-                                _wzFilesList[wzDirectoryNameOfWzFile].Add(fileName2);
-                            else
-                                _wzFilesList.Add(wzDirectoryNameOfWzFile, new List<string> { fileName2 });
-
-                            // check if its a canvas directory
-                            bool bIsCanvasDir = ContainsCanvasDirectory(partialWzFilePath);
-                            if (!bIsCanvasDir)
-                            {
-                                // key looks like this: "skill", "mob_001"
-                                if (!_wzFilesDirectoryList.ContainsKey(fileName2))
-                                    _wzFilesDirectoryList.Add(fileName2, dir);
-                                else
-                                {
-                                }
-                            }
+                        // check if its a canvas directory
+                        bool bIsCanvasDir = ContainsCanvasDirectory(partialWzFilePath);
+                        if (!bIsCanvasDir)
+                        {
+                            // key looks like this: "skill", "mob_001"
+                            if (!_wzFilesDirectoryList.ContainsKey(fileName2))
+                                _wzFilesDirectoryList.Add(fileName2, dir);
                             else
                             {
-                                // key looks like this if its canvas: "character\\_canvas\\_Canvas_000"
-                                string canvasDirKeyName = Path.Combine(wzDirectoryNameOfWzFile, fileName2.ToLower()).Replace(@"\", @"/");
-                                if (!_wzFilesDirectoryList.ContainsKey(canvasDirKeyName))
-                                    _wzFilesDirectoryList.Add(canvasDirKeyName, dir);
                             }
+                        }
+                        else
+                        {
+                            // key looks like this if its canvas: "character\\_canvas\\_Canvas_000"
+                            string canvasDirKeyName = Path.Combine(wzDirectoryNameOfWzFile, fileName2.ToLower()).Replace(@"\", @"/");
+                            if (!_wzFilesDirectoryList.ContainsKey(canvasDirKeyName))
+                                _wzFilesDirectoryList.Add(canvasDirKeyName, dir);
                         }
                     }
                 }
@@ -386,6 +412,43 @@ namespace MapleLib {
                 _readWriteLock.ExitWriteLock();
             }
             return wzf;
+        }
+
+        /// <summary>
+        /// Loads the WZ Canvas section i.e '\Data\Map\_Canvas', '\Data\Mob\MExplorerMob\_Canvas'
+        /// </summary>
+        /// <param name="canvasFileBase"></param>
+        /// <param name="canvasDirectory"></param>
+        /// <param name="encVersion"></param>
+        public void LoadCanvasSection(string canvasFileBase, string canvasDirectory, WzMapleVersion encVersion)
+        {
+            if (_wzCanvasSectionLoaded.ContainsKey(canvasFileBase))
+                return; // already loaded
+
+            (string iniFileName, int wzFileIndex) = GetWzIndexInfo(canvasDirectory);
+            if (iniFileName == null)
+                return;
+            for (int canvasNumber = 0; canvasNumber <= wzFileIndex; canvasNumber++)
+            {
+                string canvasFileBase_ = string.Format("{0}{1}", canvasFileBase, canvasNumber);
+                // "map/_canvas/_canvas_000"
+
+                if (!IsWzFileLoaded(canvasFileBase_))
+                {
+                    WzFile loadedWzFile = LoadWzFile(canvasFileBase_, encVersion);
+                }
+            }
+
+            // flag section loaded once it has past through here once.
+            _readWriteLock.EnterWriteLock();
+            try
+            {
+                _wzCanvasSectionLoaded[canvasFileBase.ToLower()] = true;
+            }
+            finally
+            {
+                _readWriteLock.ExitWriteLock();
+            }
         }
 
         /// <summary>
@@ -499,7 +562,7 @@ namespace MapleLib {
         /// </summary>
         /// <returns></returns>
         public List<WzFile> GetUpdatedWzFiles() {
-            List<WzFile> updatedWzFiles = new List<WzFile>();
+            List<WzFile> updatedWzFiles = new();
             // readlock
             _readWriteLock.EnterReadLock();
             try {
@@ -573,6 +636,7 @@ namespace MapleLib {
                 _wzFilesUpdated.Clear();
                 _updatedWzImages.Clear();
                 _wzDirs.Clear();
+                _wzCanvasSectionLoaded.Clear();
             }
             finally {
                 _readWriteLock.ExitWriteLock();
@@ -762,13 +826,10 @@ namespace MapleLib {
             // find the base directory from 'wzFilesList'
             if (!_wzFilesDirectoryList.ContainsKey(filePathOrBaseFileName))  // if the key is not found, it might be a path instead
             {
-                if (File.Exists(filePathOrBaseFileName)) // [142] = {[map\\_canvas\\_canvas_000, D:\Installations\MapleOrigin\Data\Map\_Canvas]}
-                    return filePathOrBaseFileName;
-                //throw new Exception("Couldnt find the directory key for the wz file " + filePathOrBaseFileName);
                 return null;
             }
 
-            if (!WzFileManager.ContainsCanvasDirectory(filePathOrBaseFileName))
+            if (!ContainsCanvasDirectory(filePathOrBaseFileName))
             {
                 string filePath_half = StringUtility.CapitalizeFirstCharacter(filePathOrBaseFileName) + ".wz";
                 string fileName = Path.GetFileName(filePath_half);
