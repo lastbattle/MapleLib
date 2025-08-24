@@ -14,13 +14,9 @@
  * You should have received a copy of the GNU General Public License
     along with this program.  If not, see <http://www.gnu.org/licenses/>.*/
 
-
-using Microsoft.VisualBasic.Logging;
 using Microsoft.Xna.Framework.Graphics;
 using System;
 using System.Collections.Generic;
-using static System.Windows.Forms.VisualStyles.VisualStyleElement.ToolTip;
-using System.Windows.Documents;
 
 namespace MapleLib.Helpers
 {
@@ -114,8 +110,8 @@ namespace MapleLib.Helpers
             bool hasAlpha = false;
             bool hasPartialAlpha = false;
             byte maxAlpha = 0;
-            HashSet<uint> rgbSet = new(); // Unique RGB colors
-            HashSet<byte> alphaSet = new(); // Unique alpha values
+            HashSet<uint> rgbSet = []; // Unique RGB colors
+            HashSet<byte> alphaSet = []; // Unique alpha values
             long alphaSum = 0;
             long alphaSumSquares = 0;
             long alphaGradientSum = 0;

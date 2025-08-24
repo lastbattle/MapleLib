@@ -322,6 +322,28 @@ namespace MapleLib.WzLib.WzProperties {
                         foundProperty = wzFileParent.GetObjectFromPath(realpath);
                     }
                     else {
+                        // If its a 64-bit wz file format, with "_Canvas".
+                        // parse that instead, the canvas will never be in the data wz directory.
+                        if (WzFileManager.fileManager != null && WzFileManager.fileManager.Is64Bit && _outlink.Contains(WzFileManager.CANVAS_DIRECTORY_NAME)) {
+
+                            if (WzFileManager.fileManager.Is64Bit) {
+                                bool bIsCanvasDir = WzFileManager.ContainsCanvasDirectory(_outlink);
+                                if (bIsCanvasDir) {
+                                    string beforeCanvasPath = WzFileManager.NormaliseWzCanvasDirectory(_outlink);
+
+                                    // Step 3: Add "_canvas" after "_Canvas"
+                                    for (int canvasNumber = 0; canvasNumber < 20; canvasNumber++) {
+                                        string beforeCanvasPath_ = beforeCanvasPath + string.Format(@"/{0}_00{1}", WzFileManager.CANVAS_DIRECTORY_NAME.ToLower(), canvasNumber);
+                                        // "map/_canvas/_canvas_000"
+
+                                        if (!WzFileManager.fileManager.IsWzFileLoaded(beforeCanvasPath_))
+                                            WzFileManager.fileManager.LoadWzFile(beforeCanvasPath_, wzFileParent.MapleVersion);
+                                    }
+                                }
+                            }
+                        }
+
+                        // Get from path
                         foundProperty = wzFileParent.GetObjectFromPath(_outlink);
                     }
                     if (foundProperty != null && foundProperty is WzImageProperty property) {

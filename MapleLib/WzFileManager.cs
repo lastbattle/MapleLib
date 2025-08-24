@@ -1,5 +1,4 @@
-﻿
-using MapleLib.Helpers;
+﻿using MapleLib.Helpers;
 using MapleLib.WzLib.WzProperties;
 using MapleLib.WzLib;
 using System;
@@ -31,8 +30,9 @@ namespace MapleLib {
             @"C:\NEXPACE\MapleStoryN",
             @"C:\Program Files (x86)\Wizet\MapleStorySEA"
         };
-
-        private static bool IsListWz(string inBaseName) {
+        public static string CANVAS_DIRECTORY_NAME = "_Canvas";
+        private static bool IsListWz(string inBaseName)
+        {
             return inBaseName == "list";
         }
         #endregion
@@ -71,7 +71,7 @@ namespace MapleLib {
 
         private readonly ReaderWriterLockSlim _readWriteLock = new(); // for '_wzFiles', '_wzFilesUpdated', '_updatedImages', & '_wzDirs'
         private readonly Dictionary<string, WzFile> _wzFiles = [];
-        private readonly Dictionary<WzFile, bool> _wzFilesUpdated = []; // key = WzFile, flag for the list of WZ files changed to be saved later via Repack 
+        private readonly Dictionary<WzFile, bool> _wzFilesUpdated = []; // key = WzFile, flag for the list of WZ files changed to be saved later via Repack
         private readonly Dictionary<string, WzMainDirectory> _wzDirs = [];
 
         private readonly Dictionary<string, WzImage> _wzImages = []; // The raw wz images loaded in memory.. Hotfix Data.wz or raw .img
@@ -89,7 +89,7 @@ namespace MapleLib {
         /// The list of sub wz files.
         /// Key, <List of files, directory path>
         /// i.e sound.wz expands to the list array of "Mob001", "Mob2"
-        /// 
+        ///
         /// {[Map\Map\Map4, Count = 1]}
         /// </summary>
         private readonly Dictionary<string, List<string>> _wzFilesList = [];
@@ -207,14 +207,13 @@ namespace MapleLib {
         /// <returns></returns>
         /// <exception cref="Exception"></exception>
         public void BuildWzFileList() {
-            if (_wzFilesDirectoryList.Count != 0)  // dont load again
+            if (_wzFilesDirectoryList.Count != 0) // dont load again
                 return;
 
             bool b64BitClient = this._bInitAs64Bit;
+            string baseDir = WzBaseDirectory;
             if (b64BitClient) {
                 // parse through "Data" directory and iterate through every folder
-                string baseDir = WzBaseDirectory;
-
                 // Use Where() and Select() to filter and transform the directories
                 var directories = Directory.EnumerateDirectories(baseDir, "*", SearchOption.AllDirectories)
                                            .Where(dir => !EXCLUDED_DIRECTORY_FROM_WZ_LIST.Any(x => dir.ToLower().Contains(x)));
@@ -261,13 +260,30 @@ namespace MapleLib {
                             else
                                 _wzFilesList.Add(wzDirectoryNameOfWzFile, new List<string> { fileName2 });
 
+                            // check if its a canvas directory
+                            bool bIsCanvasDir = ContainsCanvasDirectory(partialWzFilePath);
+                            if (!bIsCanvasDir)
+                            {
+                                // key looks like this: "skill", "mob_001"
                                 if (!_wzFilesDirectoryList.ContainsKey(fileName2))
                                     _wzFilesDirectoryList.Add(fileName2, dir);
+                                else
+                                {
+                                }
+                            }
+                            else
+                            {
+                                // key looks like this if its canvas: "character\\_canvas\\_Canvas_000"
+                                string canvasDirKeyName = Path.Combine(wzDirectoryNameOfWzFile, fileName2.ToLower()).Replace(@"\", @"/");
+                                if (!_wzFilesDirectoryList.ContainsKey(canvasDirKeyName))
+                                    _wzFilesDirectoryList.Add(canvasDirKeyName, dir);
+                            }
                         }
                     }
                 }
             }
-            else {
+            else
+            {
                 var wzFilePathNames = Directory.EnumerateFileSystemEntries(baseDir, "*.wz", SearchOption.AllDirectories)
                     .Where(f => !File.GetAttributes(f).HasFlag(FileAttributes.Directory) // exclude directories
                                 && !EXCLUDED_DIRECTORY_FROM_WZ_LIST.Any(x => x.ToLower() == new DirectoryInfo(Path.GetDirectoryName(f)).Name)); // exclude folders
@@ -320,6 +336,23 @@ namespace MapleLib {
         }
 
         /// <summary>
+        /// Is the WZ file basename currently loaded.
+        /// </summary>
+        /// <param name="baseName"></param>
+        /// <returns></returns>
+        public bool IsWzFileLoaded(string baseName)
+        {
+            bool bIsCanvasDir = false;
+            if (this.Is64Bit)
+            {
+                bIsCanvasDir = ContainsCanvasDirectory(baseName);
+                // TODO
+            }
+            string fileName_ = baseName.ToLower().Replace(".wz", "");
+            return _wzFiles.ContainsKey(fileName_);
+        }
+
+        /// <summary>
         /// Loads the oridinary WZ file
         /// </summary>
         /// <param name="baseName"></param>
@@ -328,6 +361,8 @@ namespace MapleLib {
         /// <exception cref="Exception"></exception>
         public WzFile LoadWzFile(string baseName, WzMapleVersion encVersion) {
             string filePath = GetWzFilePath(baseName);
+            if (filePath == null)
+                return null;
             WzFile wzf = new WzFile(filePath, encVersion);
 
             WzFileParseStatus parseStatus = wzf.ParseWzFile();
@@ -339,7 +374,7 @@ namespace MapleLib {
 
             if (_wzFilesUpdated.ContainsKey(wzf)) // some safety check
                 throw new Exception(string.Format("Wz {0} at the path {1} has already been loaded, and cannot be loaded again. Remove it from memory first.", fileName_, wzf.FilePath));
-
+            
             // write lock to begin adding to the dictionary
             _readWriteLock.EnterWriteLock();
             try {
@@ -549,7 +584,7 @@ namespace MapleLib {
         public WzDirectory this[string name] {
             get {
                 return _wzDirs.ContainsKey(name.ToLower()) ? _wzDirs[name.ToLower()].MainDir : null;
-            }    //really not very useful to return null in this case
+            } //really not very useful to return null in this case
         }
 
         /// <summary>
@@ -582,6 +617,31 @@ namespace MapleLib {
         #endregion
 
         #region Finder
+        /// <summary>
+        /// Checks if the directory path contains "_Canvas"
+        /// </summary>
+        /// <param name="path"></param>
+        /// <returns></returns>
+        public static bool ContainsCanvasDirectory(string path)
+        {
+            path = path.ToLower();
+            string canvasDirLower = CANVAS_DIRECTORY_NAME.ToLower();
+            return Path.GetDirectoryName(path)?
+                .Split(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
+                .Any(dir => dir == canvasDirLower) ?? false;
+        }
+
+        /// <summary>
+        /// Transform the path to canvas dictionary header str
+        /// </summary>
+        /// <param name="filePathOrBaseFileName"></param>
+        /// <returns></returns>
+        public static string NormaliseWzCanvasDirectory(string filePathOrBaseFileName) {
+            // Step 1: Extract the part before "_Canvas"
+            string beforeCanvasPath = Regex.Match(filePathOrBaseFileName, string.Format(@"^.*?(?=)/{0}", CANVAS_DIRECTORY_NAME)).Value.ToLower();
+            return beforeCanvasPath; // "map/_canvas"
+        }
+
         /// <summary>
         /// Gets WZ by name from the list of loaded files
         /// </summary>
@@ -620,9 +680,10 @@ namespace MapleLib {
         /// Get the list of sub wz directories by its base name ("mob")
         /// </summary>
         /// <param name="baseName"></param>
+        /// <param name="isCanvas"></param>
         /// <returns></returns>
-        public List<WzDirectory> GetWzDirectoriesFromBase(string baseName) {
-            List<string> wzDirs = GetWzFileNameListFromBase(baseName);
+        public List<WzDirectory> GetWzDirectoriesFromBase(string baseName, bool isCanvas = false) {
+            List<string> wzDirs = GetWzFileNameListFromBase(baseName); // {[character\pants\_canvas, Count = 1]}
             // Use Select() and Where() to transform and filter the WzDirectory list
             if (_bIsPreBBDataWzFormat) {
                 return wzDirs
@@ -631,10 +692,19 @@ namespace MapleLib {
                     .ToList();
             }
             else {
-                return wzDirs
-                    .Select(name => this[name])
-                    .Where(dir => dir != null)
-                    .ToList();
+                if (isCanvas)
+                {
+                    string canvasDir = baseName.Replace(@"\", @"/") + @"/";
+                    return wzDirs
+                        .Select(name => this[canvasDir + name])
+                        .Where(dir => dir != null)
+                        .ToList();
+                } else {
+                    return wzDirs
+                        .Select(name => this[name])
+                        .Where(dir => dir != null)
+                        .ToList();
+                }
             }
         }
 
@@ -690,20 +760,35 @@ namespace MapleLib {
         /// <exception cref="Exception"></exception>
         private string GetWzFilePath(string filePathOrBaseFileName) {
             // find the base directory from 'wzFilesList'
-            if (!_wzFilesDirectoryList.ContainsKey(filePathOrBaseFileName)) // if the key is not found, it might be a path instead
+            if (!_wzFilesDirectoryList.ContainsKey(filePathOrBaseFileName))  // if the key is not found, it might be a path instead
             {
-                if (File.Exists(filePathOrBaseFileName))
+                if (File.Exists(filePathOrBaseFileName)) // [142] = {[map\\_canvas\\_canvas_000, D:\Installations\MapleOrigin\Data\Map\_Canvas]}
                     return filePathOrBaseFileName;
-                throw new Exception("Couldnt find the directory key for the wz file " + filePathOrBaseFileName);
+                //throw new Exception("Couldnt find the directory key for the wz file " + filePathOrBaseFileName);
+                return null;
             }
 
-            string fileName = StringUtility.CapitalizeFirstCharacter(filePathOrBaseFileName) + ".wz";
-            string filePath = Path.Combine(_wzFilesDirectoryList[filePathOrBaseFileName], fileName);
+            if (!WzFileManager.ContainsCanvasDirectory(filePathOrBaseFileName))
+            {
+                string filePath_half = StringUtility.CapitalizeFirstCharacter(filePathOrBaseFileName) + ".wz";
+                string fileName = Path.GetFileName(filePath_half);
+                string filePath = Path.Combine(_wzFilesDirectoryList[filePathOrBaseFileName], fileName);
+                if (!File.Exists(filePath))
+                    throw new Exception("wz file at the path '" + filePath + "' does not exist.");
+                return filePath;
+            } else
+            {
+                // Map/_Canvas/Canvas_000 -> Map\_Canvas\Canvas_000.wz
+                string fileDir =_wzFilesDirectoryList[filePathOrBaseFileName];
+                string fileName = Path.GetFileName(filePathOrBaseFileName);
+                string filePath = Path.Combine(fileDir, fileName + ".wz");
 
-            if (!File.Exists(filePath))
-                throw new Exception("wz file at the path '" + filePathOrBaseFileName + "' does not exist.");
+                if (!File.Exists(filePath))
+                    throw new Exception("canvas wz file at the path '" + filePath + "' does not exist.");
+                return filePath;
 
-            return filePath;
+            }
+            throw new Exception(string.Format("Canvas directory at '{0}' does not exist.", filePathOrBaseFileName));
         }
         #endregion
     }

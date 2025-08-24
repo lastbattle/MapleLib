@@ -233,10 +233,10 @@ namespace MapleLib.WzLib
             this.Header.Ident = reader.ReadString(4);
             this.Header.FSize = reader.ReadUInt64();
             this.Header.FStart = reader.ReadUInt32();
-            this.Header.Copyright = reader.ReadString((int)(Header.FStart - 17U));
+            this.Header.Copyright = reader.ReadString((int)(this.Header.FStart - 17U));
 
             byte unk1 = reader.ReadByte();
-            byte[] unk2 = reader.ReadBytes((int)(Header.FStart - (ulong)reader.BaseStream.Position));
+            byte[] unk2 = reader.ReadBytes((int)(this.Header.FStart - (ulong)reader.BaseStream.Position));
             reader.Header = this.Header;
 
             Check64BitClient(reader);  // update b64BitClient flag
@@ -370,7 +370,7 @@ namespace MapleLib.WzLib
             }
 
             // test the image and see if its correct by parsing it 
-            bool bCloseTestDirectory = true;
+            //bool bCloseTestDirectory = true;
             try
             {
                 WzImage testImage = testDirectory.WzImages.FirstOrDefault();
@@ -390,7 +390,7 @@ namespace MapleLib.WzLib
                                     WzDirectory directory = new WzDirectory(reader, this.name, this.versionHash, this.WzIv, this);
 
                                     directory.ParseDirectory(lazyParse);
-                                    this.wzDir = directory;
+                                    this.wzDir = testDirectory;
                                     return true;
                                 }
                             case 0x30:
@@ -429,7 +429,7 @@ namespace MapleLib.WzLib
                     else
                     {
                         this.wzDir = testDirectory;
-                        bCloseTestDirectory = false;
+                        //bCloseTestDirectory = false;
 
                         return true;
                     }
@@ -861,27 +861,54 @@ namespace MapleLib.WzLib
                 {
                     // Use FirstOrDefault() and Any() to find the first matching WzDirectory
                     // and check if there are any matching WzDirectory in the list
-                    WzDirectory wzDir = WzFileManager.fileManager.GetWzDirectoriesFromBase(seperatedPath[0]).
-                        FirstOrDefault(
-                            dir => dir.name.ToLower() == seperatedPath[0].ToLower() || 
-                            dir.name.Substring(0, dir.name.Length - 3).ToLower() == seperatedPath[0].ToLower());
-                    if (wzDir == null && seperatedPath.Length >= 1)
-                    {
-                        checkObjInOtherWzFile = WzFileManager.fileManager.FindWzImageByName(seperatedPath[0], seperatedPath[1]); // Map/xxx.img
+                    List<WzDirectory> wzDir;
+                    WzDirectory wzInnerDir = null;
 
-                        if (checkObjInOtherWzFile == null && seperatedPath.Length >= 2) // Map/Obj/xxx.img -> Obj.wz
+                    bool bIsCanvasDir = WzFileManager.ContainsCanvasDirectory(path);
+                    if (bIsCanvasDir) {
+                        string beforeCanvasPath = WzFileManager.NormaliseWzCanvasDirectory(path).Replace(@"/", @"\"); // "map/_canvas"
+
+                        wzDir = WzFileManager.fileManager.GetWzDirectoriesFromBase(beforeCanvasPath, true); // all of the possible "._Canvas_000.wz" file that the image may be in
+
+                        // path = "Map/_Canvas/MapHelper.img/mark/Hilla"
+                        string itemDirectoryPath = path.Contains(string.Format("/{0}/", WzFileManager.CANVAS_DIRECTORY_NAME)) ?
+                            path.Substring(path.IndexOf(string.Format("/{0}/", WzFileManager.CANVAS_DIRECTORY_NAME)) + string.Format("/{0}/", WzFileManager.CANVAS_DIRECTORY_NAME).Length) : path;
+                        string[] itemDirectoryPaths = itemDirectoryPath.Split("/".ToCharArray());
+
+                        foreach (WzDirectory dir in wzDir)
                         {
-                            checkObjInOtherWzFile = WzFileManager.fileManager.FindWzImageByName(seperatedPath[0] + Path.DirectorySeparatorChar + seperatedPath[1], seperatedPath[2]);
-                            if (checkObjInOtherWzFile == null)
-                                return null;
-                            seperatedPath = seperatedPath.Skip(2).ToArray();
-                        } else
-                        {
-                            seperatedPath = seperatedPath.Skip(1).ToArray();
+                            WzObject innerWzObject = dir[itemDirectoryPaths[0]];
+                            if (innerWzObject != null) // check if the directory exists
+                            {
+                                checkObjInOtherWzFile = innerWzObject;
+                                seperatedPath = itemDirectoryPaths;
+                                break;
+                            }
                         }
                     }
-                    else
-                        return null;
+                    else {
+                        wzDir = WzFileManager.fileManager.GetWzDirectoriesFromBase(seperatedPath[0], true);  // all of the possible "._Canvas_000.wz" file that the image may be in
+                        wzInnerDir = wzDir.FirstOrDefault(
+                                dir => dir.name.ToLower() == seperatedPath[0].ToLower() ||
+                                dir.name.Substring(0, dir.name.Length - 3).ToLower() == seperatedPath[0].ToLower());
+
+                        if (wzInnerDir == null && seperatedPath.Length >= 1)
+                        {
+                            checkObjInOtherWzFile = WzFileManager.fileManager.FindWzImageByName(seperatedPath[0], seperatedPath[1]); // Map/xxx.img
+
+                            if (checkObjInOtherWzFile == null && seperatedPath.Length >= 2) // Map/Obj/xxx.img -> Obj.wz
+                            {
+                                checkObjInOtherWzFile = WzFileManager.fileManager.FindWzImageByName(seperatedPath[0] + Path.DirectorySeparatorChar + seperatedPath[1], seperatedPath[2]);
+                                if (checkObjInOtherWzFile == null)
+                                    return null;
+                                seperatedPath = seperatedPath.Skip(2).ToArray();
+                            }
+                            else
+                            {
+                                seperatedPath = seperatedPath.Skip(1).ToArray();
+                            }
+                        }
+                    }
                 } else
                     return null;
             }
