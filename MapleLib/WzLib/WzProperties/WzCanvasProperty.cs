@@ -21,6 +21,7 @@ using System;
 using System.Drawing;
 using System.Text.RegularExpressions;
 using System.Linq;
+using System.Diagnostics;
 
 namespace MapleLib.WzLib.WzProperties {
     /// <summary>
@@ -298,6 +299,7 @@ namespace MapleLib.WzLib.WzProperties {
                         return property;
                     }
                 }
+                Debug.WriteLine("Could not resolve _inlink path: " + _inlink);
             }
             else if (_outlink != null) {
                 WzObject currentWzObj = this; // first object to work with
@@ -328,17 +330,18 @@ namespace MapleLib.WzLib.WzProperties {
                         if (WzFileManager.fileManager != null && WzFileManager.fileManager.Is64Bit) {
 
                             if (_outlink.Contains(WzFileManager.CANVAS_DIRECTORY_NAME)) {
+                                // _outlink = 'Map/Back/_Canvas/snowyDarkrock.img/back/0'
                                 bool bIsCanvasDir = WzFileManager.ContainsCanvasDirectory(_outlink);
                                 if (bIsCanvasDir) {
                                     string canvasFileBase = WzFileManager.NormaliseWzCanvasDirectory(_outlink);
-                                    string canvasFileBase_ = canvasFileBase + string.Format(@"/{0}_00", WzFileManager.CANVAS_DIRECTORY_NAME.ToLower());
+                                    string canvasFileBase_ = canvasFileBase + string.Format(@"/{0}_0", WzFileManager.CANVAS_DIRECTORY_NAME.ToLower()); // "map/_canvas/_canvas_0"
                                     string canvasDirectory = WzFileManager.fileManager.WzBaseDirectory + canvasFileBase;
 
                                     WzFileManager.fileManager.LoadCanvasSection(canvasFileBase_, canvasDirectory, wzFileParent.MapleVersion);
                                 }
                             } else
                             {
-
+                                Debug.WriteLine(GetLinkedWzImageProperty().Name + " has an _outlink that does not contain '" + WzFileManager.CANVAS_DIRECTORY_NAME);
                             }
                         }
 
@@ -349,6 +352,7 @@ namespace MapleLib.WzLib.WzProperties {
                         return property;
                     }
                 }
+                Debug.WriteLine("Could not resolve _outlink path: " + _outlink);
             }
             return this;
         }

@@ -210,7 +210,7 @@ namespace MapleLib {
         /// <param name="directoryPath">Directory to search for .ini file</param>
         /// <returns>Tuple containing .ini file path and index</returns>
         /// <exception cref="Exception">Thrown when .ini file is missing or invalid</exception>
-        public (string iniFilePath, int fileIndex) GetWzIndexInfo(string directoryPath)
+        public (string iniFilePath, int fileIndex) GetIniWzIndexInfo(string directoryPath)
         {
             if (!Path.Exists(directoryPath))
                 return (null, -1);
@@ -266,7 +266,7 @@ namespace MapleLib {
                     //Debug.WriteLine("----");
                     //Debug.WriteLine(dir);
 
-                    (string iniFileName, int wzFileIndex) = GetWzIndexInfo(dir);
+                    (string iniFileName, int wzFileIndex) = GetIniWzIndexInfo(dir);
 
                     for (int i = 0; i <= wzFileIndex; i++)
                     {
@@ -415,22 +415,22 @@ namespace MapleLib {
         }
 
         /// <summary>
-        /// Loads the WZ Canvas section i.e '\Data\Map\_Canvas', '\Data\Mob\MExplorerMob\_Canvas'
+        /// Loads the WZ Canvas section of wz directory.
         /// </summary>
-        /// <param name="canvasFileBase"></param>
+        /// <param name="canvasFileBase">i.e 'map/back/_canvas/_canvas_00'</param>
         /// <param name="canvasDirectory"></param>
         /// <param name="encVersion"></param>
         public void LoadCanvasSection(string canvasFileBase, string canvasDirectory, WzMapleVersion encVersion)
         {
-            if (_wzCanvasSectionLoaded.ContainsKey(canvasFileBase))
+            if (_wzCanvasSectionLoaded.ContainsKey(canvasFileBase) && _wzCanvasSectionLoaded[canvasFileBase] == true)
                 return; // already loaded
 
-            (string iniFileName, int wzFileIndex) = GetWzIndexInfo(canvasDirectory);
+            (string iniFileName, int wzFileIndex) = GetIniWzIndexInfo(canvasDirectory);
             if (iniFileName == null)
                 return;
             for (int canvasNumber = 0; canvasNumber <= wzFileIndex; canvasNumber++)
             {
-                string canvasFileBase_ = string.Format("{0}{1}", canvasFileBase, canvasNumber);
+                string canvasFileBase_ = string.Format("{0}{1:D2}", canvasFileBase, canvasNumber);
                 // "map/_canvas/_canvas_000"
 
                 if (!IsWzFileLoaded(canvasFileBase_))
