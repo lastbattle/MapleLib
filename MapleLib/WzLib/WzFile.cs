@@ -88,6 +88,12 @@ namespace MapleLib.WzLib
         {
             get { return WzDirectory[name]; }
         }
+        /// <summary>
+        /// Pathcaching to avoid repeated lookups for the same path
+        /// Assuming data is immutable after loading and case-insensitive paths; adjust comparer if needed
+        /// Note: If checkFirstDirectoryName varies often, consider including it in the cache key, e.g., path + "|" + checkFirstDirectoryName.ToString()
+        /// </summary>
+        private readonly Dictionary<string, WzObject> _pathCache = new(StringComparer.OrdinalIgnoreCase);
 
         public WzHeader Header { get { return header; } set { header = value; } }
 
@@ -124,6 +130,7 @@ namespace MapleLib.WzLib
             Header = null;
             path = null;
             name = null;
+            _pathCache.Clear();
             WzDirectory.Dispose();
         }
 
@@ -845,89 +852,136 @@ namespace MapleLib.WzLib
         /// Get WZ objects from path
         /// </summary>
         /// <param name="path"></param>
-        /// <param name="lookupOtherOpenedWzFile"></param>
+        /// <param name="checkFirstDirectoryName"></param>
         /// <returns></returns>
         public WzObject GetObjectFromPath(string path, bool checkFirstDirectoryName = true)
         {
-            string[] seperatedPath = path.Split("/".ToCharArray());
-            if (seperatedPath.Length == 1)
-                return WzDirectory;
+            // Add caching to avoid repeated lookups for the same path
+            // Assuming data is immutable after loading and case-insensitive paths; adjust comparer if needed
+            // Note: If checkFirstDirectoryName varies often, consider including it in the cache key, e.g., path + "|" + checkFirstDirectoryName.ToString()
+            if (_pathCache.TryGetValue(path, out WzObject cached))
+            {
+                return cached;
+            }
 
-            WzObject checkObjInOtherWzFile = null;
+            string[] separatedPath = path.Split('/');
+            if (separatedPath.Length == 1)
+            {
+                _pathCache[path] = WzDirectory;
+                return WzDirectory;
+            }
+
+            WzObject curObj = null;
+            int pathIndex = 0;
 
             if (checkFirstDirectoryName)
             {
-                if (WzFileManager.fileManager != null)
+                if (WzFileManager.fileManager == null)
                 {
-                    // Use FirstOrDefault() and Any() to find the first matching WzDirectory
-                    // and check if there are any matching WzDirectory in the list
-                    List<WzDirectory> wzDir;
-                    WzDirectory wzInnerDir = null;
+                    return null;
+                }
 
-                    bool bIsCanvasDir = WzFileManager.ContainsCanvasDirectory(path);
-                    if (bIsCanvasDir) {
-                        string beforeCanvasPath = WzFileManager.NormaliseWzCanvasDirectory(path).Replace(@"/", @"\"); // "map/_canvas"
+                bool bIsCanvasDir = WzFileManager.ContainsCanvasDirectory(path);
+                if (bIsCanvasDir)
+                {
+                    string beforeCanvasPath = WzFileManager.NormaliseWzCanvasDirectory(path).Replace("/", "\\");  // "map/_canvas"
+                    List<WzDirectory> wzDir = WzFileManager.fileManager.GetWzDirectoriesFromBase(beforeCanvasPath, true);  // all of the possible "._Canvas_000.wz" file that the image may be in
 
-                        wzDir = WzFileManager.fileManager.GetWzDirectoriesFromBase(beforeCanvasPath, true); // all of the possible "._Canvas_000.wz" file that the image may be in
+                    // path = "Map/_Canvas/MapHelper.img/mark/Hilla"
+                    string canvasMarker = $"/{WzFileManager.CANVAS_DIRECTORY_NAME}/"; 
+                    string itemDirectoryPath = path.Contains(canvasMarker) ?
+                        path.Substring(path.IndexOf(canvasMarker) + canvasMarker.Length) : path;
+                    string[] itemDirectoryPaths = itemDirectoryPath.Split('/');
 
-                        // path = "Map/_Canvas/MapHelper.img/mark/Hilla"
-                        string itemDirectoryPath = path.Contains(string.Format("/{0}/", WzFileManager.CANVAS_DIRECTORY_NAME)) ?
-                            path.Substring(path.IndexOf(string.Format("/{0}/", WzFileManager.CANVAS_DIRECTORY_NAME)) + string.Format("/{0}/", WzFileManager.CANVAS_DIRECTORY_NAME).Length) : path;
-                        string[] itemDirectoryPaths = itemDirectoryPath.Split("/".ToCharArray());
-
-                        foreach (WzDirectory dir in wzDir)
+                    bool found = false;
+                    foreach (WzDirectory dir in wzDir)
+                    {
+                        WzObject innerWzObject = dir[itemDirectoryPaths[0]];
+                        if (innerWzObject != null)
                         {
-                            WzObject innerWzObject = dir[itemDirectoryPaths[0]];
-                            if (innerWzObject != null) // check if the directory exists
-                            {
-                                checkObjInOtherWzFile = innerWzObject;
-                                seperatedPath = itemDirectoryPaths;
-                                break;
-                            }
+                            curObj = innerWzObject;
+                            // Calculate start index in original separatedPath to avoid array copy
+                            pathIndex = separatedPath.Length - itemDirectoryPaths.Length + 1;
+                            found = true;
+                            break;
                         }
                     }
-                    else {
-                        wzDir = WzFileManager.fileManager.GetWzDirectoriesFromBase(seperatedPath[0], true);  // all of the possible "._Canvas_000.wz" file that the image may be in
-                        wzInnerDir = wzDir.FirstOrDefault(
-                                dir => dir.name.ToLower() == seperatedPath[0].ToLower() ||
-                                dir.name.Substring(0, dir.name.Length - 3).ToLower() == seperatedPath[0].ToLower());
-
-                        if (wzInnerDir == null && seperatedPath.Length >= 1)
+                    if (!found)
+                    {
+                        return null;
+                    }
+                }
+                else
+                {
+                    List<WzDirectory> wzDir = WzFileManager.fileManager.GetWzDirectoriesFromBase(separatedPath[0], true); 
+                    WzDirectory wzInnerDir = null;
+                    foreach (WzDirectory dir in wzDir)
+                    {
+                        ReadOnlySpan<char> nameSpan = dir.name.AsSpan();
+                        ReadOnlySpan<char> partSpan = separatedPath[0].AsSpan();
+                        if (string.Equals(dir.name, separatedPath[0], StringComparison.OrdinalIgnoreCase) ||
+                            (dir.name.Length > 3 && nameSpan.Slice(0, dir.name.Length - 3).SequenceEqual(partSpan) && // SequenceEqual for spans, but for ignore case, use custom or fallback
+                             string.Equals(dir.name.Substring(0, dir.name.Length - 3), separatedPath[0], StringComparison.OrdinalIgnoreCase))) // Fallback to Substring for ignore case; optimize if possible
                         {
-                            checkObjInOtherWzFile = WzFileManager.fileManager.FindWzImageByName(seperatedPath[0], seperatedPath[1]); // Map/xxx.img
+                            wzInnerDir = dir;
+                            break;
+                        }
+                    }
 
-                            if (checkObjInOtherWzFile == null && seperatedPath.Length >= 2) // Map/Obj/xxx.img -> Obj.wz
+                    if (wzInnerDir != null)
+                    {
+                        // Fixed potential bug: Use the found wzInnerDir as starting point if available
+                        curObj = wzInnerDir;
+                        pathIndex = 1;
+                    }
+                    else if (separatedPath.Length >= 2)  // Map/Obj/xxx.img -> Obj.wz
+                    {
+                        curObj = WzFileManager.fileManager.FindWzImageByName(separatedPath[0], separatedPath[1]);  // Map/xxx.img
+                        if (curObj != null)
+                        {
+                            pathIndex = 2;
+                        }
+                        else if (separatedPath.Length >= 3)
+                        {
+                            curObj = WzFileManager.fileManager.FindWzImageByName(separatedPath[0] + Path.DirectorySeparatorChar + separatedPath[1], separatedPath[2]);
+                            if (curObj != null)
                             {
-                                checkObjInOtherWzFile = WzFileManager.fileManager.FindWzImageByName(seperatedPath[0] + Path.DirectorySeparatorChar + seperatedPath[1], seperatedPath[2]);
-                                if (checkObjInOtherWzFile == null)
-                                    return null;
-                                seperatedPath = seperatedPath.Skip(2).ToArray();
+                                pathIndex = 3;
                             }
                             else
                             {
-                                seperatedPath = seperatedPath.Skip(1).ToArray();
+                                return null;
                             }
                         }
+                        else
+                        {
+                            return null;
+                        }
                     }
-                } else
-                    return null;
-            }
-            
-            WzObject curObj = checkObjInOtherWzFile ?? WzDirectory;
-            if (curObj == null)
-                return null;
-            
-            bool bFirst = true;
-            foreach (string pathPart in seperatedPath)
-            {
-                if (bFirst)
-                {
-                    bFirst = false;
-                    continue;
+                    else
+                    {
+                        return null;
+                    }
                 }
-                if (curObj == null)
-                    return null;
+            }
+            else
+            {
+                curObj = WzDirectory;
+                pathIndex = 0;
+            }
 
+            if (curObj == null)
+            {
+                return null;
+            }
+
+            for (int i = pathIndex; i < separatedPath.Length; i++)
+            {
+                string pathPart = separatedPath[i];
+                if (curObj == null)
+                {
+                    return null;
+                }
                 switch (curObj.ObjectType)
                 {
                     case WzObjectType.Directory:
@@ -960,10 +1014,8 @@ namespace MapleLib.WzLib
                         }
                 }
             }
-            if (curObj == null)
-            {
-                return null;
-            }
+
+            _pathCache[path] = curObj;
             return curObj;
         }
 
