@@ -261,12 +261,16 @@ namespace MapleLib {
                                            .Where(dir => !EXCLUDED_DIRECTORY_FROM_WZ_LIST.Any(x => dir.ToLower().Contains(x)));
 
                 // Iterate over the filtered and transformed directories
-                foreach (string dir in directories) {
+                foreach (string path in directories) {
                     //string folderName = new DirectoryInfo(Path.GetDirectoryName(dir)).Name.ToLower();
                     //Debug.WriteLine("----");
                     //Debug.WriteLine(dir);
 
-                    (string iniFileName, int wzFileIndex) = GetIniWzIndexInfo(dir);
+                    string directoryName = new DirectoryInfo(path).Name;
+                    if (directoryName == "Packs") // not handled yet.
+                        continue;
+
+                    (string iniFileName, int wzFileIndex) = GetIniWzIndexInfo(path);
 
                     for (int i = 0; i <= wzFileIndex; i++)
                     {
@@ -274,7 +278,7 @@ namespace MapleLib {
                         string fileName = Path.GetFileName(partialWzFilePath);
                         string fileName2 = fileName.Replace(".wz", "");
 
-                        string wzDirectoryNameOfWzFile = dir.Replace(baseDir, "").ToLower();
+                        string wzDirectoryNameOfWzFile = path.Replace(baseDir, "").ToLower();
 
                         if (EXCLUDED_DIRECTORY_FROM_WZ_LIST.Any(item => fileName2.ToLower().Contains(item)))
                             continue; // backup files
@@ -293,7 +297,7 @@ namespace MapleLib {
                         {
                             // key looks like this: "skill", "mob_001"
                             if (!_wzFilesDirectoryList.ContainsKey(fileName2))
-                                _wzFilesDirectoryList.Add(fileName2, dir);
+                                _wzFilesDirectoryList.Add(fileName2, path);
                             else
                             {
                             }
@@ -303,7 +307,7 @@ namespace MapleLib {
                             // key looks like this if its canvas: "character\\_canvas\\_Canvas_000"
                             string canvasDirKeyName = Path.Combine(wzDirectoryNameOfWzFile, fileName2.ToLower()).Replace(@"\", @"/");
                             if (!_wzFilesDirectoryList.ContainsKey(canvasDirKeyName))
-                                _wzFilesDirectoryList.Add(canvasDirKeyName, dir);
+                                _wzFilesDirectoryList.Add(canvasDirKeyName, path);
                         }
                     }
                 }
