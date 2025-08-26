@@ -276,13 +276,6 @@ namespace MapleLib.WzLib.WzProperties {
         /// It will be handled via HaRepackerMainPanel instead.
         /// </summary>
         /// <returns></returns>
-        /// <summary>
-        /// Gets the '_inlink' WzCanvasProperty of this.
-        /// 
-        /// '_inlink' is not implemented as part of WzCanvasProperty as I dont want to override existing Wz structure. 
-        /// It will be handled via HaRepackerMainPanel instead.
-        /// </summary>
-        /// <returns></returns>
         public WzImageProperty GetLinkedWzImageProperty() {
             string _inlink = ((WzStringProperty)this[InlinkPropertyName])?.Value; // could get nexon'd here. In case they place an _inlink that's not WzStringProperty
             string _outlink = ((WzStringProperty)this[OutlinkPropertyName])?.Value; // could get nexon'd here. In case they place an _outlink that's not WzStringProperty
@@ -333,11 +326,9 @@ namespace MapleLib.WzLib.WzProperties {
                                 // _outlink = 'Map/Back/_Canvas/snowyDarkrock.img/back/0'
                                 bool bIsCanvasDir = WzFileManager.ContainsCanvasDirectory(_outlink);
                                 if (bIsCanvasDir) {
-                                    string canvasFileBase = WzFileManager.NormaliseWzCanvasDirectory(_outlink);
-                                    string canvasFileBase_ = canvasFileBase + string.Format(@"/{0}_0", WzFileManager.CANVAS_DIRECTORY_NAME.ToLower()); // "map/_canvas/_canvas_0"
-                                    string canvasDirectory = WzFileManager.fileManager.WzBaseDirectory + canvasFileBase;
+                                    string canvasFolderBase = WzFileManager.NormaliseWzCanvasDirectory(_outlink);  // "map", "map/back"
 
-                                    WzFileManager.fileManager.LoadCanvasSection(canvasFileBase_, canvasDirectory, wzFileParent.MapleVersion);
+                                    WzFileManager.fileManager.LoadCanvasSection(canvasFolderBase, wzFileParent.MapleVersion);
                                 }
                             } else
                             {

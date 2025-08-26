@@ -417,22 +417,22 @@ namespace MapleLib {
         /// <summary>
         /// Loads the WZ Canvas section of wz directory.
         /// </summary>
-        /// <param name="canvasFileBase">i.e 'map/back/_canvas/_canvas_00'</param>
-        /// <param name="canvasDirectory"></param>
+        /// <param name="canvasFolder">i.e 'map/back', "map/tile"</param>
         /// <param name="encVersion"></param>
-        public void LoadCanvasSection(string canvasFileBase, string canvasDirectory, WzMapleVersion encVersion)
+        public void LoadCanvasSection(string canvasFolder, WzMapleVersion encVersion)
         {
-            if (_wzCanvasSectionLoaded.ContainsKey(canvasFileBase) && _wzCanvasSectionLoaded[canvasFileBase] == true)
+            if (_wzCanvasSectionLoaded.ContainsKey(canvasFolder) && _wzCanvasSectionLoaded[canvasFolder] == true)
                 return; // already loaded
 
+            string canvasDirectory = Path.Combine(this.WzBaseDirectory, canvasFolder, WzFileManager.CANVAS_DIRECTORY_NAME); // "C://Nexon/MapleStory/Data/Map/Back/_Canvas"
             (string iniFileName, int wzFileIndex) = GetIniWzIndexInfo(canvasDirectory);
             if (iniFileName == null)
                 return;
+
+            string canvasFileBase = string.Format(@"{0}/{1}/{2}_0", canvasFolder, CANVAS_DIRECTORY_NAME.ToLower(), CANVAS_DIRECTORY_NAME.ToLower()); // "map/_canvas/_canvas_0"
             for (int canvasNumber = 0; canvasNumber <= wzFileIndex; canvasNumber++)
             {
-                string canvasFileBase_ = string.Format("{0}{1:D2}", canvasFileBase, canvasNumber);
-                // "map/_canvas/_canvas_000"
-
+                string canvasFileBase_ = string.Format("{0}{1:D2}", canvasFileBase, canvasNumber); // "map/_canvas/_canvas_001.wz"
                 if (!IsWzFileLoaded(canvasFileBase_))
                 {
                     WzFile loadedWzFile = LoadWzFile(canvasFileBase_, encVersion);
@@ -443,7 +443,7 @@ namespace MapleLib {
             _readWriteLock.EnterWriteLock();
             try
             {
-                _wzCanvasSectionLoaded[canvasFileBase.ToLower()] = true;
+                _wzCanvasSectionLoaded[canvasFolder] = true;
             }
             finally
             {
@@ -826,6 +826,8 @@ namespace MapleLib {
             // find the base directory from 'wzFilesList'
             if (!_wzFilesDirectoryList.ContainsKey(filePathOrBaseFileName))  // if the key is not found, it might be a path instead
             {
+                if (File.Exists(filePathOrBaseFileName)) 
+                    return filePathOrBaseFileName;
                 return null;
             }
 
