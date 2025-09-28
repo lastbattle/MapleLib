@@ -640,23 +640,28 @@ namespace MapleLib.Helpers
             {
                 byte[] buf = new byte[bmp.Width * bmp.Height * 2];
                 int index = 0;
-                for (int y = 0; y < bmp.Height; y++)
+                unsafe
                 {
-                    for (int x = 0; x < bmp.Width; x++)
+                    byte* scan0 = (byte*)bmpData.Scan0;
+                    for (int y = 0; y < bmp.Height; y++)
                     {
-                        int pixel = Marshal.ReadInt32(bmpData.Scan0 + y * bmpData.Stride + x * 4);
-                        byte b = (byte)((pixel >> 0) & 0xFF);
-                        byte g = (byte)((pixel >> 8) & 0xFF);
-                        byte r = (byte)((pixel >> 16) & 0xFF);
-                        byte a = (byte)((pixel >> 24) & 0xFF);
+                        byte* row = scan0 + y * bmpData.Stride;
+                        for (int x = 0; x < bmp.Width; x++)
+                        {
+                            int pixel = *(int*)(row + x * 4);
+                            byte b = (byte)((pixel >> 0) & 0xFF);
+                            byte g = (byte)((pixel >> 8) & 0xFF);
+                            byte r = (byte)((pixel >> 16) & 0xFF);
+                            byte a = (byte)((pixel >> 24) & 0xFF);
 
-                        byte b4 = (byte)(b >> 4);
-                        byte g4 = (byte)(g >> 4);
-                        byte r4 = (byte)(r >> 4);
-                        byte a4 = (byte)(a >> 4);
+                            byte b4 = (byte)(b >> 4);
+                            byte g4 = (byte)(g >> 4);
+                            byte r4 = (byte)(r >> 4);
+                            byte a4 = (byte)(a >> 4);
 
-                        buf[index++] = (byte)((g4 << 4) | b4); // Low byte: B4|G4<<4
-                        buf[index++] = (byte)((a4 << 4) | r4); // High byte: R4|A4<<4
+                            buf[index++] = (byte)((g4 << 4) | b4); // Low byte: B4|G4<<4
+                            buf[index++] = (byte)((a4 << 4) | r4); // High byte: R4|A4<<4
+                        }
                     }
                 }
                 return buf;
@@ -702,24 +707,29 @@ namespace MapleLib.Helpers
             {
                 byte[] buf = new byte[bmp.Width * bmp.Height * 2];
                 int index = 0;
-                for (int y = 0; y < bmp.Height; y++)
+                unsafe
                 {
-                    for (int x = 0; x < bmp.Width; x++)
+                    byte* scan0 = (byte*)bmpData.Scan0;
+                    for (int y = 0; y < bmp.Height; y++)
                     {
-                        int pixel = Marshal.ReadInt32(bmpData.Scan0 + y * bmpData.Stride + x * 4);
-                        byte b = (byte)((pixel >> 0) & 0xFF);
-                        byte g = (byte)((pixel >> 8) & 0xFF);
-                        byte r = (byte)((pixel >> 16) & 0xFF);
-                        byte a = (byte)((pixel >> 24) & 0xFF);
+                        byte* row = scan0 + y * bmpData.Stride;
+                        for (int x = 0; x < bmp.Width; x++)
+                        {
+                            int pixel = *(int*)(row + x * 4);
+                            byte b = (byte)((pixel >> 0) & 0xFF);
+                            byte g = (byte)((pixel >> 8) & 0xFF);
+                            byte r = (byte)((pixel >> 16) & 0xFF);
+                            byte a = (byte)((pixel >> 24) & 0xFF);
 
-                        byte a1 = (byte)(a >= 128 ? 1 : 0); // 1-bit alpha
-                        byte r5 = (byte)((r * 31) / 255);
-                        byte g5 = (byte)((g * 31) / 255);
-                        byte b5 = (byte)((b * 31) / 255);
+                            byte a1 = (byte)(a >= 128 ? 1 : 0); // 1-bit alpha
+                            byte r5 = (byte)((r * 31) / 255);
+                            byte g5 = (byte)((g * 31) / 255);
+                            byte b5 = (byte)((b * 31) / 255);
 
-                        ushort argb1555 = (ushort)((a1 << 15) | (r5 << 10) | (g5 << 5) | b5);
-                        buf[index++] = (byte)(argb1555 & 0xFF);
-                        buf[index++] = (byte)((argb1555 >> 8) & 0xFF);
+                            ushort argb1555 = (ushort)((a1 << 15) | (r5 << 10) | (g5 << 5) | b5);
+                            buf[index++] = (byte)(argb1555 & 0xFF);
+                            buf[index++] = (byte)((argb1555 >> 8) & 0xFF);
+                        }
                     }
                 }
                 return buf;
@@ -737,22 +747,27 @@ namespace MapleLib.Helpers
             {
                 byte[] buf = new byte[bmp.Width * bmp.Height * 2];
                 int index = 0;
-                for (int y = 0; y < bmp.Height; y++)
+                unsafe
                 {
-                    for (int x = 0; x < bmp.Width; x++)
+                    byte* scan0 = (byte*)bmpData.Scan0;
+                    for (int y = 0; y < bmp.Height; y++)
                     {
-                        int pixel = Marshal.ReadInt32(bmpData.Scan0 + y * bmpData.Stride + x * 4);
-                        byte b = (byte)((pixel >> 0) & 0xFF);
-                        byte g = (byte)((pixel >> 8) & 0xFF);
-                        byte r = (byte)((pixel >> 16) & 0xFF);
+                        byte* row = scan0 + y * bmpData.Stride;
+                        for (int x = 0; x < bmp.Width; x++)
+                        {
+                            int pixel = *(int*)(row + x * 4);
+                            byte b = (byte)((pixel >> 0) & 0xFF);
+                            byte g = (byte)((pixel >> 8) & 0xFF);
+                            byte r = (byte)((pixel >> 16) & 0xFF);
 
-                        byte r5 = (byte)((r * 31) / 255);
-                        byte g6 = (byte)((g * 63) / 255);
-                        byte b5 = (byte)((b * 31) / 255);
+                            byte r5 = (byte)((r * 31) / 255);
+                            byte g6 = (byte)((g * 63) / 255);
+                            byte b5 = (byte)((b * 31) / 255);
 
-                        ushort rgb565 = (ushort)((r5 << 11) | (g6 << 5) | b5);
-                        buf[index++] = (byte)(rgb565 & 0xFF);
-                        buf[index++] = (byte)((rgb565 >> 8) & 0xFF);
+                            ushort rgb565 = (ushort)((r5 << 11) | (g6 << 5) | b5);
+                            buf[index++] = (byte)(rgb565 & 0xFF);
+                            buf[index++] = (byte)((rgb565 >> 8) & 0xFF);
+                        }
                     }
                 }
                 return buf;
@@ -774,31 +789,36 @@ namespace MapleLib.Helpers
             try
             {
                 int index = 0;
-                for (int by = 0; by < blockCountY; by++)
+                unsafe
                 {
-                    for (int bx = 0; bx < blockCountX; bx++)
+                    byte* scan0 = (byte*)bmpData.Scan0;
+                    for (int by = 0; by < blockCountY; by++)
                     {
-                        int x = bx * blockSize;
-                        int y = by * blockSize;
-                        if (x < bmp.Width && y < bmp.Height)
+                        for (int bx = 0; bx < blockCountX; bx++)
                         {
-                            int pixel = Marshal.ReadInt32(bmpData.Scan0 + y * bmpData.Stride + x * 4);
-                            byte b = (byte)((pixel >> 0) & 0xFF);
-                            byte g = (byte)((pixel >> 8) & 0xFF);
-                            byte r = (byte)((pixel >> 16) & 0xFF);
+                            int x = bx * blockSize;
+                            int y = by * blockSize;
+                            if (x < bmp.Width && y < bmp.Height)
+                            {
+                                byte* row = scan0 + y * bmpData.Stride;
+                                int pixel = *(int*)(row + x * 4);
+                                byte b = (byte)((pixel >> 0) & 0xFF);
+                                byte g = (byte)((pixel >> 8) & 0xFF);
+                                byte r = (byte)((pixel >> 16) & 0xFF);
 
-                            byte r5 = (byte)((r * 31) / 255);
-                            byte g6 = (byte)((g * 63) / 255);
-                            byte b5 = (byte)((b * 31) / 255);
+                                byte r5 = (byte)((r * 31) / 255);
+                                byte g6 = (byte)((g * 63) / 255);
+                                byte b5 = (byte)((b * 31) / 255);
 
-                            ushort rgb565 = (ushort)((r5 << 11) | (g6 << 5) | b5);
-                            buf[index++] = (byte)(rgb565 & 0xFF);
-                            buf[index++] = (byte)((rgb565 >> 8) & 0xFF);
-                        }
-                        else
-                        {
-                            buf[index++] = 0;
-                            buf[index++] = 0;
+                                ushort rgb565 = (ushort)((r5 << 11) | (g6 << 5) | b5);
+                                buf[index++] = (byte)(rgb565 & 0xFF);
+                                buf[index++] = (byte)((rgb565 >> 8) & 0xFF);
+                            }
+                            else
+                            {
+                                buf[index++] = 0;
+                                buf[index++] = 0;
+                            }
                         }
                     }
                 }
@@ -819,6 +839,8 @@ namespace MapleLib.Helpers
         /// <returns></returns>
         private static byte[] CompressDXT3(Bitmap bmp)
         {
+            if (bmp.Width % 4 != 0 || bmp.Height % 4 != 0)
+                throw new ArgumentException("DXT3 compression requires width and height to be multiples of 4.");
             BitmapData bmpData = bmp.LockBits(new Rectangle(0, 0, bmp.Width, bmp.Height), ImageLockMode.ReadOnly, PixelFormat.Format32bppArgb);
             try
             {
@@ -826,48 +848,52 @@ namespace MapleLib.Helpers
                 int blockCountY = bmp.Height / 4;
                 byte[] buf = new byte[blockCountX * blockCountY * 16]; // 16 bytes per 4x4 block
                 int bufIndex = 0;
-
-                for (int by = 0; by < blockCountY; by++)
+                unsafe
                 {
-                    for (int bx = 0; bx < blockCountX; bx++)
+                    byte* scan0 = (byte*)bmpData.Scan0;
+                    Color[] block = new Color[16]; // Reuse block buffer for all blocks
+                    for (int by = 0; by < blockCountY; by++)
                     {
-                        // Extract 4x4 block pixels
-                        Color[] block = new Color[16];
-                        for (int j = 0; j < 4; j++)
+                        for (int bx = 0; bx < blockCountX; bx++)
                         {
+                            // Extract 4x4 block pixels
+                            for (int j = 0; j < 4; j++)
+                            {
+                                int y = by * 4 + j;
+                                byte* row = scan0 + y * bmpData.Stride;
+                                for (int i = 0; i < 4; i++)
+                                {
+                                    int x = bx * 4 + i;
+                                    int pixel = *(int*)(row + x * 4);
+                                    byte b = (byte)(pixel & 0xFF);
+                                    byte g = (byte)((pixel >> 8) & 0xFF);
+                                    byte r = (byte)((pixel >> 16) & 0xFF);
+                                    byte a = (byte)((pixel >> 24) & 0xFF);
+                                    block[j * 4 + i] = Color.FromArgb(a, r, g, b);
+                                }
+                            }
+
+                            // Compress alpha (4 bits per pixel, 8 bytes total)
+                            for (int i = 0; i < 16; i += 2)
+                            {
+                                byte a0 = (byte)(block[i].A >> 4);     // Low nibble
+                                byte a1 = (byte)(block[i + 1].A >> 4); // High nibble
+                                buf[bufIndex++] = (byte)((a1 << 4) | a0);
+                            }
+
+                            // Compress color (DXT1 style: 2 RGB565 colors + 4 indices)
+                            Color[] colors = CompressBlockColors(block, out ushort c0, out ushort c1);
+                            byte[] indices = ComputeColorIndices(block, colors);
+
+                            // Write color data
+                            buf[bufIndex++] = (byte)(c0 & 0xFF);
+                            buf[bufIndex++] = (byte)(c0 >> 8);
+                            buf[bufIndex++] = (byte)(c1 & 0xFF);
+                            buf[bufIndex++] = (byte)(c1 >> 8);
                             for (int i = 0; i < 4; i++)
                             {
-                                int x = bx * 4 + i;
-                                int y = by * 4 + j;
-                                int pixel = Marshal.ReadInt32(bmpData.Scan0 + y * bmpData.Stride + x * 4);
-                                byte b = (byte)(pixel & 0xFF);
-                                byte g = (byte)((pixel >> 8) & 0xFF);
-                                byte r = (byte)((pixel >> 16) & 0xFF);
-                                byte a = (byte)((pixel >> 24) & 0xFF);
-                                block[j * 4 + i] = Color.FromArgb(a, r, g, b);
+                                buf[bufIndex++] = indices[i];
                             }
-                        }
-
-                        // Compress alpha (4 bits per pixel, 8 bytes total)
-                        for (int i = 0; i < 16; i += 2)
-                        {
-                            byte a0 = (byte)(block[i].A >> 4);     // Low nibble
-                            byte a1 = (byte)(block[i + 1].A >> 4); // High nibble
-                            buf[bufIndex++] = (byte)((a1 << 4) | a0);
-                        }
-
-                        // Compress color (DXT1 style: 2 RGB565 colors + 4 indices)
-                        Color[] colors = CompressBlockColors(block, out ushort c0, out ushort c1);
-                        byte[] indices = ComputeColorIndices(block, colors);
-
-                        // Write color data
-                        buf[bufIndex++] = (byte)(c0 & 0xFF);
-                        buf[bufIndex++] = (byte)(c0 >> 8);
-                        buf[bufIndex++] = (byte)(c1 & 0xFF);
-                        buf[bufIndex++] = (byte)(c1 >> 8);
-                        for (int i = 0; i < 4; i++)
-                        {
-                            buf[bufIndex++] = indices[i];
                         }
                     }
                 }
@@ -880,12 +906,15 @@ namespace MapleLib.Helpers
         }
 
         /// <summary>
-        /// DXT5 Compression (Format2050)
+        /// DXT5 compression (Format2050). Encodes BGRA8888 pixel data into DXT5-compressed format.
         /// </summary>
-        /// <param name="bmp"></param>
-        /// <returns></returns>
+        /// <param name="bmp">Source bitmap (Format32bppArgb)</param>
+        /// <returns>DXT5 compressed byte array</returns>
+        /// <exception cref="ArgumentException">Thrown if width or height is not a multiple of 4</exception>
         private static byte[] GetPixelDataFormat2050(Bitmap bmp)
         {
+            if (bmp.Width % 4 != 0 || bmp.Height % 4 != 0)
+                throw new ArgumentException("DXT5 compression requires width and height to be multiples of 4.");
             BitmapData bmpData = bmp.LockBits(new Rectangle(0, 0, bmp.Width, bmp.Height), ImageLockMode.ReadOnly, PixelFormat.Format32bppArgb);
             try
             {
@@ -893,57 +922,61 @@ namespace MapleLib.Helpers
                 int blockCountY = bmp.Height / 4;
                 byte[] buf = new byte[blockCountX * blockCountY * 16];
                 int bufIndex = 0;
-
-                for (int by = 0; by < blockCountY; by++)
+                unsafe
                 {
-                    for (int bx = 0; bx < blockCountX; bx++)
+                    byte* scan0 = (byte*)bmpData.Scan0;
+                    Color[] block = new Color[16]; // Reuse block buffer for all blocks
+                    for (int by = 0; by < blockCountY; by++)
                     {
-                        // Extract 4x4 block pixels
-                        Color[] block = new Color[16];
-                        for (int j = 0; j < 4; j++)
+                        for (int bx = 0; bx < blockCountX; bx++)
                         {
+                            // Extract 4x4 block pixels
+                            for (int j = 0; j < 4; j++)
+                            {
+                                int y = by * 4 + j;
+                                byte* row = scan0 + y * bmpData.Stride;
+                                for (int i = 0; i < 4; i++)
+                                {
+                                    int x = bx * 4 + i;
+                                    int pixel = *(int*)(row + x * 4);
+                                    byte b = (byte)(pixel & 0xFF);
+                                    byte g = (byte)((pixel >> 8) & 0xFF);
+                                    byte r = (byte)((pixel >> 16) & 0xFF);
+                                    byte a = (byte)((pixel >> 24) & 0xFF);
+                                    block[j * 4 + i] = Color.FromArgb(a, r, g, b);
+                                }
+                            }
+
+                            // Compress alpha
+                            byte a0, a1;
+                            int[] alphaIndices = CompressBlockAlphaDXT5(block, out a0, out a1);
+                            buf[bufIndex++] = a0;
+                            buf[bufIndex++] = a1;
+                            long flags = 0; // 48-bit value for 16 3-bit indices
+                            for (int i = 0; i < 16; i++)
+                            {
+                                flags |= (long)alphaIndices[i] << (i * 3);
+                            }
+                            buf[bufIndex++] = (byte)(flags & 0xFF);
+                            buf[bufIndex++] = (byte)((flags >> 8) & 0xFF);
+                            buf[bufIndex++] = (byte)((flags >> 16) & 0xFF);
+                            buf[bufIndex++] = (byte)((flags >> 24) & 0xFF);
+                            buf[bufIndex++] = (byte)((flags >> 32) & 0xFF);
+                            buf[bufIndex++] = (byte)((flags >> 40) & 0xFF);
+
+                            // Compress color
+                            Color[] colors = CompressBlockColors(block, out ushort c0, out ushort c1);
+                            byte[] indices = ComputeColorIndices(block, colors);
+
+                            // Write color data
+                            buf[bufIndex++] = (byte)(c0 & 0xFF);
+                            buf[bufIndex++] = (byte)(c0 >> 8);
+                            buf[bufIndex++] = (byte)(c1 & 0xFF);
+                            buf[bufIndex++] = (byte)(c1 >> 8);
                             for (int i = 0; i < 4; i++)
                             {
-                                int x = bx * 4 + i;
-                                int y = by * 4 + j;
-                                int pixel = Marshal.ReadInt32(bmpData.Scan0 + y * bmpData.Stride + x * 4);
-                                byte b = (byte)(pixel & 0xFF);
-                                byte g = (byte)((pixel >> 8) & 0xFF);
-                                byte r = (byte)((pixel >> 16) & 0xFF);
-                                byte a = (byte)((pixel >> 24) & 0xFF);
-                                block[j * 4 + i] = Color.FromArgb(a, r, g, b);
+                                buf[bufIndex++] = indices[i];
                             }
-                        }
-
-                        // Compress alpha
-                        byte a0, a1;
-                        int[] alphaIndices = CompressBlockAlphaDXT5(block, out a0, out a1);
-                        buf[bufIndex++] = a0;
-                        buf[bufIndex++] = a1;
-                        long flags = 0; // 48-bit value for 16 3-bit indices
-                        for (int i = 0; i < 16; i++)
-                        {
-                            flags |= (long)alphaIndices[i] << (i * 3);
-                        }
-                        buf[bufIndex++] = (byte)(flags & 0xFF);
-                        buf[bufIndex++] = (byte)((flags >> 8) & 0xFF);
-                        buf[bufIndex++] = (byte)((flags >> 16) & 0xFF);
-                        buf[bufIndex++] = (byte)((flags >> 24) & 0xFF);
-                        buf[bufIndex++] = (byte)((flags >> 32) & 0xFF);
-                        buf[bufIndex++] = (byte)((flags >> 40) & 0xFF);
-
-                        // Compress color
-                        Color[] colors = CompressBlockColors(block, out ushort c0, out ushort c1);
-                        byte[] indices = ComputeColorIndices(block, colors);
-
-                        // Write color data
-                        buf[bufIndex++] = (byte)(c0 & 0xFF);
-                        buf[bufIndex++] = (byte)(c0 >> 8);
-                        buf[bufIndex++] = (byte)(c1 & 0xFF);
-                        buf[bufIndex++] = (byte)(c1 >> 8);
-                        for (int i = 0; i < 4; i++)
-                        {
-                            buf[bufIndex++] = indices[i];
                         }
                     }
                 }
