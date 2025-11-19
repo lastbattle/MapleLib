@@ -5,6 +5,7 @@ using System.Linq;
 using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Text;
+using MapleLib.WzLib;
 
 namespace MapleLib.WzLib.MSFile
 {
@@ -12,10 +13,12 @@ namespace MapleLib.WzLib.MSFile
     // https://github.com/Elem8100/MapleNecrocer/blob/a1194a96ddf99e5d16225a05dfdf4d616f1fac3f/WzComparerR2.WzLib/Ms_File.cs
     public class WzMsFile : IDisposable
     {
-        public WzMsFile(string fileName)
+        private string originalFileName;
+        private string msFilePath;
+
+        public WzMsFile(Stream baseStream, string originalFileName, string msFilePath, bool leaveOpen = false)
         {
-            var fileStream = new FileStream(fileName, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
-            this.Init(fileStream, fileName, false);
+            this.Init(baseStream, originalFileName, msFilePath, leaveOpen);
         }
 
         /// <summary>
@@ -23,20 +26,10 @@ namespace MapleLib.WzLib.MSFile
         /// </summary>
         /// <param name="baseStream"></param>
         /// <param name="originalFileName">i.e Mob_00000.ms</param>
-        /// <param name="leaveOpen"></param>
-        public WzMsFile(Stream baseStream, string originalFileName, bool leaveOpen = false)
-        {
-            this.Init(baseStream, originalFileName, leaveOpen);
-        }
-
-        /// <summary>
-        /// Constructor
-        /// </summary>
-        /// <param name="baseStream"></param>
-        /// <param name="originalFileName">i.e Mob_00000.ms</param>
+        /// <param name="msFilePath"></param>Full path to .ms file</param>
         /// <param name="leaveOpen"></param>
         /// <exception cref="ArgumentNullException"></exception>
-        private void Init(Stream baseStream, string originalFileName, bool leaveOpen)
+        private void Init(Stream baseStream, string originalFileName, string msFilePath, bool leaveOpen)
         {
             if (baseStream == null)
                 throw new ArgumentNullException(nameof(baseStream));
@@ -45,6 +38,7 @@ namespace MapleLib.WzLib.MSFile
 
             this.BaseStream = baseStream;
             this.leaveOpen = leaveOpen;
+            this.msFilePath = msFilePath;
             this.ReadHeader(originalFileName);
             this.Entries = new List<WzMsEntry>(0);
         }
@@ -123,13 +117,13 @@ namespace MapleLib.WzLib.MSFile
             }
             using var snowCipher = new Snow2CryptoTransform(snowCipherKey2.ToArray(), null, false);
             this.BaseStream.Position = this.Header.EntryStartPosition;
-            using var snowDecoderStream = new CryptoStream(this.BaseStream, snowCipher, CryptoStreamMode.Read);
-            using var snowReader = new BinaryReader(snowDecoderStream, Encoding.Unicode, true);
+            var snowDecoderStream = new CryptoStream(this.BaseStream, snowCipher, CryptoStreamMode.Read);
+            var snowReader = new BinaryReader(snowDecoderStream, Encoding.Unicode, true);
 
             for (int i = 0; i < entryCount; i++)
             {
                 int entryNameLen = snowReader.ReadInt32();
-                string entryName = new string(snowReader.ReadChars(entryNameLen));
+                string entryName = new string(snowReader.ReadChars(entryNameLen)); // "Mob/0100000.img"
                 int checkSum = snowReader.ReadInt32();
                 int flags = snowReader.ReadInt32();
                 int startPos = snowReader.ReadInt32();
@@ -140,7 +134,7 @@ namespace MapleLib.WzLib.MSFile
                 byte[] entryKey = snowReader.ReadBytes(16);
 
                 var entry = new WzMsEntry(entryName, checkSum, flags, startPos, size, sizeAligned, unk1, unk2, entryKey);
-                entry.CalculatedCheckSum = flags + startPos + size + sizeAligned + unk1 + entryKey.Sum(b => (int)b);
+                // CalculatedCheckSum is set in constructor or via RecalculateFields, no need to set here
                 this.Entries.Add(entry);
             }
 
@@ -154,6 +148,37 @@ namespace MapleLib.WzLib.MSFile
             {
                 entry.StartPos = dataStartPos + entry.StartPos * 1024;
             }
+        }
+
+        /// <summary>
+        /// Loads a .ms file and returns a WzFile containing all WzImages from this .ms file.
+        /// </summary>
+        /// <param name="msFilePath">Path to the .ms file</param>
+        /// <returns>WzFile containing all images from the .ms file</returns>
+        public WzFile LoadAsWzFile()
+        {
+            this.ReadEntries();
+
+            var wzFile = new WzFile(-1, WzMapleVersion.BMS);
+            wzFile.Name = Path.GetFileName(msFilePath.Replace(".ms", ".wz"));
+            wzFile.path = msFilePath;
+            var wzDir = wzFile.WzDirectory;
+
+            foreach (var entry in Entries)
+            {
+                if (entry.Data == null)
+                {
+                    BaseStream.Position = entry.StartPos;
+                    var buffer = new byte[entry.Size];
+                    BaseStream.Read(buffer, 0, entry.Size);
+                    entry.Data = buffer;
+                }
+                var dataStream = new MemoryStream(entry.Data, writable: false);
+                var wzImage = new WzImage(Path.GetFileName(entry.Name), dataStream, WzMapleVersion.BMS);
+                wzImage.ParseImage();
+                wzDir.AddImage(wzImage);
+            }
+            return wzFile;
         }
 
         public void Close()
