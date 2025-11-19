@@ -276,20 +276,47 @@ namespace MapleLib {
                         var msFiles = Directory.GetFiles(path, "*.ms", SearchOption.TopDirectoryOnly);
                         foreach (var msFilePath in msFiles)
                         {
-                            string msFileName = Path.GetFileName(msFilePath);
-                            string msFileNameLower = Path.GetFileNameWithoutExtension(msFilePath).ToLower();
-                            if (!_msFiles.ContainsKey(msFileName))
+                            string msFileName = Path.GetFileName(msFilePath); // e.g. Mob_00000.ms
+                            string msFileName_ = Path.GetFileNameWithoutExtension(msFilePath); // e.g. mob_00000
+                            string msFileNameLower = msFileName_.ToLower(); // e.g. mob_00000
+                            // Use the prefix before '_' as the base key (e.g. "mob" for Mob_00000.ms)
+
+                            if (!_msFiles.ContainsKey(msFileNameLower))
                             {
                                 try
                                 {
-                                    // Read file into memory stream, then use as parameter
-                                    using var fileStream = File.OpenRead(msFilePath);
-                                    using var memoryStream = new MemoryStream();
+                                    // Also keep the msFile instance for reference (optional, as before)
+                                    var fileStream = File.OpenRead(msFilePath);
+                                    var memoryStream = new MemoryStream(); // leave open
                                     fileStream.CopyTo(memoryStream);
                                     memoryStream.Position = 0;
-                                    var msFile = new MapleLib.WzLib.MSFile.WzMsFile(memoryStream, msFileName, true);
+
+                                    var msFile = new MapleLib.WzLib.MSFile.WzMsFile(memoryStream, msFileName, msFilePath, true);
                                     msFile.ReadEntries();
+                                    string msBaseKey = msFileNameLower.Split('_')[0];
                                     _msFiles.Add(msFileNameLower, msFile);
+
+                                    // Use the new static method to load as WzFile
+                                    var wzFile = msFile.LoadAsWzFile();
+
+                                    this.LoadWzFile(wzFile.Name, wzFile, WzMapleVersion.BMS);
+
+                                    // Add the WzFile to _wzFiles using the ms file base name (without extension)
+                                    string wzFileKey = msFileNameLower;
+
+                                    // Add to _wzFilesList (key: ms base key, value: list containing ms file name without extension)
+                                    // mob -> Mob_000
+                                    if (!_wzFilesList.ContainsKey(msBaseKey))
+                                        _wzFilesList[msBaseKey] = new List<string> { wzFileKey };
+                                    else if (!_wzFilesList[msBaseKey].Contains(wzFileKey))
+                                        _wzFilesList[msBaseKey].Add(wzFileKey);
+
+                                    // Add to _wzFilesDirectoryList (key: Character_000, value: Packs directory path)
+                                    string msPrefix = msFileName_.Split('_')[0];
+                                    string msNum = msFileName_.Split('_').Length > 1 ? msFileName_.Split('_')[1] : "";
+                                    string msKey = msPrefix + (msNum.Length >= 3 ? "_" + msNum.Substring(0, 3) : "");
+                                    if (!_wzFilesDirectoryList.ContainsKey(msKey))
+                                        _wzFilesDirectoryList[msKey] = path;
                                 }
                                 catch (Exception ex)
                                 {
@@ -434,23 +461,40 @@ namespace MapleLib {
             WzFile wzf = new WzFile(filePath, encVersion);
 
             WzFileParseStatus parseStatus = wzf.ParseWzFile();
-            if (parseStatus != WzFileParseStatus.Success) {
+            if (parseStatus != WzFileParseStatus.Success)
+            {
                 throw new Exception("Error parsing " + baseName + ".wz (" + parseStatus.GetErrorDescription() + ")");
             }
 
+            LoadWzFile(baseName, wzf, encVersion);
+            return wzf;
+        }
+
+        /// <summary>
+        /// Loads the oridinary WZ file
+        /// </summary>
+        /// <param name="baseName"></param>
+        /// <param name="wzFile"></param>
+        /// <param name="encVersion"></param>
+        /// <returns></returns>
+        /// <exception cref="Exception"></exception>
+        public WzFile LoadWzFile(string baseName, WzFile wzf, WzMapleVersion encVersion)
+        {
             string fileName_ = baseName.ToLower().Replace(".wz", "");
 
             if (_wzFilesUpdated.ContainsKey(wzf)) // some safety check
                 throw new Exception(string.Format("Wz {0} at the path {1} has already been loaded, and cannot be loaded again. Remove it from memory first.", fileName_, wzf.FilePath));
-            
+
             // write lock to begin adding to the dictionary
             _readWriteLock.EnterWriteLock();
-            try {
+            try
+            {
                 _wzFiles[fileName_] = wzf;
                 _wzFilesUpdated[wzf] = false;
                 _wzDirs[fileName_] = new WzMainDirectory(wzf);
             }
-            finally {
+            finally
+            {
                 _readWriteLock.ExitWriteLock();
             }
             return wzf;
@@ -829,7 +873,6 @@ namespace MapleLib {
             baseWzName = baseWzName.ToLower();
 
             List<WzDirectory> dirs = GetWzDirectoriesFromBase(baseWzName);
-            // Use Where() and FirstOrDefault() to filter the WzDirectories and find the first matching WzObject
             WzObject image;
             if (imageName != string.Empty) {
                 image = dirs
@@ -847,21 +890,24 @@ namespace MapleLib {
         }
 
         /// <summary>
-        /// Finds the wz image within the multiple wz files (by the base wz name)
+        /// Finds the wz images within the multiple wz files (by the base wz name)
         /// </summary>
         /// <param name="baseWzName"></param>
         /// <param name="imageName">Matches any if string.empty.</param>
         /// <returns></returns>
         public List<WzObject> FindWzImagesByName(string baseWzName, string imageName) {
             baseWzName = baseWzName.ToLower();
+            var results = new List<WzObject>();
 
             List<WzDirectory> dirs = GetWzDirectoriesFromBase(baseWzName);
-            // Use Where() and FirstOrDefault() to filter the WzDirectories and find the first matching WzObject
-            return dirs
+            results.AddRange(
+                dirs
                 .Where(wzFile => wzFile != null && wzFile[imageName] != null)
                 .Select(wzFile => wzFile[imageName])
-                .ToList();
+            );
+            return results;
         }
+        #endregion
 
         /// <summary>
         /// Gets the wz file path by its base name, or check if it is a file path.
@@ -900,6 +946,5 @@ namespace MapleLib {
             }
             throw new Exception(string.Format("Canvas directory at '{0}' does not exist.", filePathOrBaseFileName));
         }
-        #endregion
     }
 }
