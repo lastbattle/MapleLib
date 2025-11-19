@@ -1,6 +1,7 @@
 ﻿using MapleLib.Helpers;
 using MapleLib.WzLib;
 using MapleLib.WzLib.WzProperties;
+using MapleLib.WzLib.MSFile;
 using Microsoft.Xna.Framework;
 using NAudio.Midi;
 using System;
@@ -99,6 +100,8 @@ namespace MapleLib {
         /// The list of directory where the wz file residues
         /// </summary>
         private readonly Dictionary<string, string> _wzFilesDirectoryList = [];
+
+        private readonly Dictionary<string, WzMsFile> _msFiles = new(); // key = ms file name, value = MsFile instance
 
         #endregion
 
@@ -267,8 +270,43 @@ namespace MapleLib {
                     //Debug.WriteLine(dir);
 
                     string directoryName = new DirectoryInfo(path).Name;
-                    if (directoryName == "Packs") // not handled yet.
+                    if (directoryName == "Packs")
+                    {
+                        // Handle .ms files in Packs folder
+                        var msFiles = Directory.GetFiles(path, "*.ms", SearchOption.TopDirectoryOnly);
+                        foreach (var msFilePath in msFiles)
+                        {
+                            string msFileName = Path.GetFileName(msFilePath);
+                            string msFileNameLower = Path.GetFileNameWithoutExtension(msFilePath).ToLower();
+                            if (!_msFiles.ContainsKey(msFileName))
+                            {
+                                try
+                                {
+                                    // Read file into memory stream, then use as parameter
+                                    using var fileStream = File.OpenRead(msFilePath);
+                                    using var memoryStream = new MemoryStream();
+                                    fileStream.CopyTo(memoryStream);
+                                    memoryStream.Position = 0;
+                                    var msFile = new MapleLib.WzLib.MSFile.WzMsFile(memoryStream, msFileName, true);
+                                    msFile.ReadEntries();
+                                    _msFiles.Add(msFileNameLower, msFile);
+                                }
+                                catch (Exception ex)
+                                {
+                                    Debug.WriteLine($"Failed to load MS file '{msFilePath}': {ex.Message}");
+                                }
+                            }
+                        }
+                        // Handle .nm files in Packs folder
+                        // Used by MapleStoryN
+                        var nmFiles = Directory.GetFiles(path, "*.nm", SearchOption.TopDirectoryOnly);
+                        foreach (var nmFilePath in msFiles)
+                        {
+                            string nmFileName = Path.GetFileNameWithoutExtension(nmFilePath).ToLower();
+                            // TODO
+                        }
                         continue;
+                    }
 
                     (string iniFileName, int wzFileIndex) = GetIniWzIndexInfo(path);
 
@@ -419,7 +457,10 @@ namespace MapleLib {
         }
 
         /// <summary>
-        /// Loads the WZ Canvas section of wz directory.
+        /// Loads the WZ Canvas section of wz directory. 
+        /// "C://Nexon/MapleStory/Data/Map/Back/_Canvas"
+        /// "C://Nexon/MapleStory/Data/Map/_Canvas"
+        /// "C://Nexon/MapleStory/Data/Skill/_Canvas"
         /// </summary>
         /// <param name="canvasFolder">i.e 'map/back', "map/tile"</param>
         /// <param name="encVersion"></param>
@@ -428,7 +469,7 @@ namespace MapleLib {
             if (_wzCanvasSectionLoaded.ContainsKey(canvasFolder) && _wzCanvasSectionLoaded[canvasFolder] == true)
                 return; // already loaded
 
-            string canvasDirectory = Path.Combine(this.WzBaseDirectory, canvasFolder, WzFileManager.CANVAS_DIRECTORY_NAME); // "C://Nexon/MapleStory/Data/Map/Back/_Canvas"
+            string canvasDirectory = Path.Combine(this.WzBaseDirectory, canvasFolder, CANVAS_DIRECTORY_NAME); // "C://Nexon/MapleStory/Data/Map/Back/_Canvas"
             (string iniFileName, int wzFileIndex) = GetIniWzIndexInfo(canvasDirectory);
             if (iniFileName == null)
                 return;
@@ -682,6 +723,8 @@ namespace MapleLib {
             get { return new List<WzImage>(this._wzImages.Values).AsReadOnly(); }
             private set { }
         }
+
+        public IReadOnlyDictionary<string, WzMsFile> MsFiles => _msFiles;
         #endregion
 
         #region Finder
@@ -752,7 +795,7 @@ namespace MapleLib {
         /// <returns></returns>
         public List<WzDirectory> GetWzDirectoriesFromBase(string baseName, bool isCanvas = false) {
             List<string> wzDirs = GetWzFileNameListFromBase(baseName); // {[character\pants\_canvas, Count = 1]}
-            // Use Select() and Where() to transform and filter the WzDirectory list
+            // Use Select() and Where() to transform the WzDirectory list
             if (_bIsPreBBDataWzFormat) {
                 return wzDirs
                     .Select(name => this["data"][baseName] as WzDirectory)
