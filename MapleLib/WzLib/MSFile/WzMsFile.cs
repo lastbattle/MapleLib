@@ -150,6 +150,204 @@ namespace MapleLib.WzLib.MSFile
             }
         }
 
+        public void Save(string saltStr = null)
+        {
+            if (!BaseStream.CanWrite)
+                throw new InvalidOperationException("Stream not opened for writing");
+
+            Random rng = new Random();
+
+            string fileName = this.originalFileName.ToLower();
+
+            int randByteCount = fileName.Sum(c => (int)c) % 312 + 30;
+
+            byte[] randBytes = new byte[randByteCount];
+
+            rng.NextBytes(randBytes);
+
+            if (string.IsNullOrEmpty(saltStr))
+            {
+                int saltLenGen = rng.Next(10, 20); // Renamed to avoid shadowing
+                char[] saltChars = new char[saltLenGen];
+                for (int i = 0; i < saltLenGen; i++)
+                {
+                    saltChars[i] = (char)rng.Next(32, 127);
+                }
+                saltStr = new string(saltChars);
+            }
+
+            int saltLen = saltStr.Length;
+
+            int hashedSaltLen = saltLen ^ randBytes[0];
+
+            byte[] saltBytes = new byte[saltLen * 2];
+
+            for (int i = 0; i < saltLen; i++)
+            {
+                saltBytes[i * 2] = (byte)(randBytes[i] ^ (byte)saltStr[i]);
+                saltBytes[i * 2 + 1] = (byte)rng.Next(256);
+            }
+
+            string fileNameWithSalt = fileName + saltStr;
+
+            byte[] snowCipherKey = new byte[16];
+
+            for (int i = 0; i < 16; i++)
+            {
+                snowCipherKey[i] = (byte)(fileNameWithSalt[i % fileNameWithSalt.Length] + i);
+            }
+
+            byte version = 2;
+
+            int entryCount = this.Entries.Count;
+
+            ReadOnlySpan<byte> saltBytesSpan = saltBytes;
+
+            ReadOnlySpan<ushort> u16SaltBytes = MemoryMarshal.Cast<byte, ushort>(saltBytesSpan);
+
+            int sumSalt = 0;
+
+            for (int i = 0; i < u16SaltBytes.Length; i++)
+            {
+                sumSalt += u16SaltBytes[i];
+            }
+
+            int hash = hashedSaltLen + version + entryCount + sumSalt;
+
+            using (var bWriter = new BinaryWriter(this.BaseStream, Encoding.ASCII, true))
+            {
+                bWriter.Write(randBytes);
+                bWriter.Write(hashedSaltLen);
+                bWriter.Write(saltBytes);
+            }
+
+            long headerStartPos = this.BaseStream.Position;
+
+            using (var snowCipher = new Snow2CryptoTransform(snowCipherKey, null, true))
+            {
+                using (var snowEncoderStream = new CryptoStream(this.BaseStream, snowCipher, CryptoStreamMode.Write, true))
+                {
+                    using (var snowWriter = new BinaryWriter(snowEncoderStream))
+                    {
+                        snowWriter.Write(hash);
+                        snowWriter.Write(version);
+                        snowWriter.Write(entryCount);
+                    }
+                }
+            }
+
+            int sumName = fileName.Sum(c => (int)c * 3);
+
+            int padSize = sumName % 212 + 33;
+
+            byte[] pad = new byte[padSize];
+
+            rng.NextBytes(pad);
+
+            this.BaseStream.Write(pad, 0, padSize);
+
+            long entryStartPos = this.BaseStream.Position;
+
+            byte[] snowCipherKey2 = new byte[16];
+
+            for (int i = 0; i < 16; i++)
+            {
+                int lastIndex = fileNameWithSalt.Length - 1 - i % fileNameWithSalt.Length;
+
+                snowCipherKey2[i] = (byte)(i + (i % 3 + 2) * fileNameWithSalt[lastIndex]);
+            }
+
+            // compute for entries
+
+            int currentBlock = 0;
+
+            foreach (var entry in this.Entries)
+            {
+                if (entry.Data == null)
+                    throw new Exception("Data not set for entry");
+
+                entry.RecalculateFields(entry.Flags, currentBlock, entry.Unk1, rng);
+                entry.StartPos = currentBlock;
+                currentBlock += entry.SizeAligned / 1024;
+            }
+
+            using (var snowEntryCipher = new Snow2CryptoTransform(snowCipherKey2, null, true))
+            {
+                using (var snowEntryStream = new CryptoStream(this.BaseStream, snowEntryCipher, CryptoStreamMode.Write))
+                {
+                    using (var snowEntryWriter = new BinaryWriter(snowEntryStream, Encoding.Unicode, true))
+                    {
+                        for (int i = 0; i < entryCount; i++)
+                        {
+                            var entry = this.Entries[i];
+                            int entryNameLen = entry.Name.Length;
+                            snowEntryWriter.Write(entryNameLen);
+                            snowEntryWriter.Write(entry.Name.ToCharArray());
+                            snowEntryWriter.Write(entry.CheckSum);
+                            snowEntryWriter.Write(entry.Flags);
+                            snowEntryWriter.Write((int)entry.StartPos);
+                            snowEntryWriter.Write(entry.Size);
+                            snowEntryWriter.Write(entry.SizeAligned);
+                            snowEntryWriter.Write(entry.Unk1);
+                            snowEntryWriter.Write(entry.Unk2);
+                            snowEntryWriter.Write(entry.EntryKey);
+                        }
+                    }
+                }
+            }
+
+            long dataStartPos = this.BaseStream.Position;
+
+            if ((dataStartPos & 0x3ff) != 0)
+            {
+                int padding = (int)(0x400 - (dataStartPos & 0x3ff));
+                byte[] padData = new byte[padding];
+                rng.NextBytes(padData);
+                this.BaseStream.Write(padData, 0, padding);
+                dataStartPos += padding;
+            }
+
+            // write data
+
+            for (int i = 0; i < entryCount; i++)
+            {
+                var entry = this.Entries[i];
+                long expectedPos = dataStartPos + entry.StartPos * 1024;
+                long currentPos = this.BaseStream.Position;
+                if (currentPos < expectedPos)
+                {
+                    int padLen = (int)(expectedPos - currentPos);
+                    byte[] fillPad = new byte[padLen];
+                    rng.NextBytes(fillPad);
+                    this.BaseStream.Write(fillPad, 0, padLen);
+                }
+
+                using (var dataCipher = new Snow2CryptoTransform(entry.EntryKey, null, true))
+                {
+                    using (var dataStream = new CryptoStream(this.BaseStream, dataCipher, CryptoStreamMode.Write))
+                    {
+                        dataStream.Write(entry.Data, 0, entry.Data.Length);
+                    }
+                }
+
+                int padBytes = entry.SizeAligned - entry.Size;
+                if (padBytes > 0)
+                {
+                    byte[] dataPad = new byte[padBytes];
+                    rng.NextBytes(dataPad);
+                    this.BaseStream.Write(dataPad, 0, padBytes);
+                }
+
+                // update StartPos to full
+                entry.StartPos = dataStartPos + entry.StartPos * 1024;
+            }
+
+            this.Header = new WzMsHeader(this.originalFileName, saltStr, fileNameWithSalt, hash, version, entryCount, headerStartPos, entryStartPos)
+            {
+                DataStartPosition = dataStartPos
+            };
+        }
+
         /// <summary>
         /// Loads a .ms file and returns a WzFile containing all WzImages from this .ms file.
         /// </summary>

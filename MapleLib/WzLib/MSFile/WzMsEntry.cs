@@ -37,5 +37,35 @@ namespace MapleLib.WzLib.MSFile
         public int Unk2 { get; }
         public byte[] EntryKey { get => _entryKey; }
         public int CalculatedCheckSum { get; private set; }
+
+        /// <summary>
+        /// Recalculates Size, SizeAligned, EntryKey (if null), and CheckSum/CalculatedCheckSum for this entry.
+        /// </summary>
+        /// <param name="flags">Flags value to use</param>
+        /// <param name="startPos">StartPos value to use</param>
+        /// <param name="unk1">Unk1 value to use</param>
+        /// <param name="rng">Optional Random instance for EntryKey generation</param>
+        public void RecalculateFields(int flags, int startPos, int unk1, Random rng = null)
+        {
+            if (Data == null)
+                throw new InvalidOperationException("Data must be set before recalculation.");
+
+            _size = Data.Length;
+            _sizeAligned = ((_size + 1023) / 1024) * 1024;
+            _flags = flags;
+            this.StartPos = startPos;
+            _unk1 = unk1;
+
+            if (_entryKey == null)
+            {
+                rng ??= new Random();
+                _entryKey = new byte[16];
+                rng.NextBytes(_entryKey);
+            }
+
+            int keySum = _entryKey.Sum(b => (int)b);
+            CalculatedCheckSum = _flags + (int)this.StartPos + _size + _sizeAligned + _unk1 + keySum;
+            _checkSum = CalculatedCheckSum;
+        }
     }
 }
