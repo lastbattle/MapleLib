@@ -1,7 +1,7 @@
 ﻿using MapleLib.Helpers;
 using MapleLib.WzLib;
-using MapleLib.WzLib.WzProperties;
 using MapleLib.WzLib.MSFile;
+using MapleLib.WzLib.WzProperties;
 using Microsoft.Xna.Framework;
 using NAudio.Midi;
 using System;
@@ -16,6 +16,7 @@ using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
+
 using System.Xml.Linq;
 
 namespace MapleLib {
@@ -246,14 +247,16 @@ namespace MapleLib {
             throw new Exception(".ini file does not contain LastWzIndex information.");
         }
 
+        private bool _builtWzFileDirectoryList = false;
         /// <summary>
         /// Builds the list of WZ files in the MapleStory directory (for HaCreator only, not used for HaRepacker)
         /// </summary>
         /// <returns></returns>
         /// <exception cref="Exception"></exception>
         public void BuildWzFileList() {
-            if (_wzFilesDirectoryList.Count != 0) // dont load again
+            if (_builtWzFileDirectoryList) // dont load again
                 return;
+            this._builtWzFileDirectoryList = true;
 
             bool b64BitClient = this._bInitAs64Bit;
             string baseDir = WzBaseDirectory;
@@ -272,66 +275,7 @@ namespace MapleLib {
                     string directoryName = new DirectoryInfo(path).Name;
                     if (directoryName == "Packs")
                     {
-                        // Handle .ms files in Packs folder
-                        var msFiles = Directory.GetFiles(path, "*.ms", SearchOption.TopDirectoryOnly);
-                        foreach (var msFilePath in msFiles)
-                        {
-                            string msFileName = Path.GetFileName(msFilePath); // e.g. Mob_00000.ms
-                            string msFileName_ = Path.GetFileNameWithoutExtension(msFilePath); // e.g. mob_00000
-                            string msFileNameLower = msFileName_.ToLower(); // e.g. mob_00000
-                            // Use the prefix before '_' as the base key (e.g. "mob" for Mob_00000.ms)
-
-                            if (!_msFiles.ContainsKey(msFileNameLower))
-                            {
-                                try
-                                {
-                                    // Also keep the msFile instance for reference (optional, as before)
-                                    var fileStream = File.OpenRead(msFilePath);
-                                    var memoryStream = new MemoryStream(); // leave open
-                                    fileStream.CopyTo(memoryStream);
-                                    memoryStream.Position = 0;
-
-                                    var msFile = new MapleLib.WzLib.MSFile.WzMsFile(memoryStream, msFileName, msFilePath, true);
-                                    msFile.ReadEntries();
-                                    string msBaseKey = msFileNameLower.Split('_')[0];
-                                    _msFiles.Add(msFileNameLower, msFile);
-
-                                    // Use the new static method to load as WzFile
-                                    var wzFile = msFile.LoadAsWzFile();
-
-                                    this.LoadWzFile(wzFile.Name, wzFile, WzMapleVersion.BMS);
-
-                                    // Add the WzFile to _wzFiles using the ms file base name (without extension)
-                                    string wzFileKey = msFileNameLower;
-
-                                    // Add to _wzFilesList (key: ms base key, value: list containing ms file name without extension)
-                                    // mob -> Mob_000
-                                    if (!_wzFilesList.ContainsKey(msBaseKey))
-                                        _wzFilesList[msBaseKey] = new List<string> { wzFileKey };
-                                    else if (!_wzFilesList[msBaseKey].Contains(wzFileKey))
-                                        _wzFilesList[msBaseKey].Add(wzFileKey);
-
-                                    // Add to _wzFilesDirectoryList (key: Character_000, value: Packs directory path)
-                                    string msPrefix = msFileName_.Split('_')[0];
-                                    string msNum = msFileName_.Split('_').Length > 1 ? msFileName_.Split('_')[1] : "";
-                                    string msKey = msPrefix + (msNum.Length >= 3 ? "_" + msNum.Substring(0, 3) : "");
-                                    if (!_wzFilesDirectoryList.ContainsKey(msKey))
-                                        _wzFilesDirectoryList[msKey] = path;
-                                }
-                                catch (Exception ex)
-                                {
-                                    Debug.WriteLine($"Failed to load MS file '{msFilePath}': {ex.Message}");
-                                }
-                            }
-                        }
-                        // Handle .nm files in Packs folder
-                        // Used by MapleStoryN
-                        var nmFiles = Directory.GetFiles(path, "*.nm", SearchOption.TopDirectoryOnly);
-                        foreach (var nmFilePath in nmFiles)
-                        {
-                            string nmFileName = Path.GetFileNameWithoutExtension(nmFilePath).ToLower();
-                            // TODO
-                        }
+                        // skip, load it from LoadPacksFiles()
                         continue;
                     }
 
@@ -401,6 +345,89 @@ namespace MapleLib {
                     if (!_wzFilesDirectoryList.ContainsKey(fileName2))
                         _wzFilesDirectoryList.Add(fileName2, directory);
                 }
+            }
+        }
+
+        private bool _loadedPacksFiles = false;
+        public void LoadPacksFiles()
+        {
+            if (_loadedPacksFiles) // dont load again
+                return;
+            this._loadedPacksFiles = true; // flag
+
+            bool b64BitClient = this._bInitAs64Bit;
+            string baseDir = WzBaseDirectory;
+            if (b64BitClient)
+            {
+                // parse through "Data" directory and iterate through every folder where name == "Packs"
+                // Use Where() and Select() to filter and transform the directories
+                var directory = Directory.EnumerateDirectories(baseDir, "Packs", SearchOption.AllDirectories)
+                                           .Where(dir => !EXCLUDED_DIRECTORY_FROM_WZ_LIST.Any(x => dir.ToLower().Contains(x))).FirstOrDefault();
+
+                if (directory != null)
+                {
+                    // Handle .ms files in Packs folder
+                    var msFiles = Directory.GetFiles(directory, "*.ms", SearchOption.TopDirectoryOnly);
+                    foreach (var msFilePath in msFiles)
+                    {
+                        string msFileName = Path.GetFileName(msFilePath); // e.g. Mob_00000.ms
+                        string msFileName_ = Path.GetFileNameWithoutExtension(msFilePath); // e.g. mob_00000
+                        string msFileNameLower = msFileName_.ToLower(); // e.g. mob_00000
+                                                                        // Use the prefix before '_' as the base key (e.g. "mob" for Mob_00000.ms)
+
+                        if (!_msFiles.ContainsKey(msFileNameLower))
+                        {
+                            try
+                            {
+                                // Also keep the msFile instance for reference (optional, as before)
+                                var fileStream = File.OpenRead(msFilePath);
+                                var memoryStream = new MemoryStream(); // leave open
+                                fileStream.CopyTo(memoryStream);
+                                memoryStream.Position = 0;
+
+                                var msFile = new MapleLib.WzLib.MSFile.WzMsFile(memoryStream, msFileName, msFilePath, true);
+                                msFile.ReadEntries();
+                                string msBaseKey = msFileNameLower.Split('_')[0];
+                                _msFiles.Add(msFileNameLower, msFile);
+
+                                // Use the new static method to load as WzFile
+                                var wzFile = msFile.LoadAsWzFile();
+
+                                this.LoadWzFile(wzFile.Name, wzFile, WzMapleVersion.BMS);
+
+                                // Add the WzFile to _wzFiles using the ms file base name (without extension)
+                                string wzFileKey = msFileNameLower;
+
+                                // Add to _wzFilesList (key: ms base key, value: list containing ms file name without extension)
+                                // mob -> Mob_000
+                                if (!_wzFilesList.ContainsKey(msBaseKey))
+                                    _wzFilesList[msBaseKey] = new List<string> { wzFileKey };
+                                else if (!_wzFilesList[msBaseKey].Contains(wzFileKey))
+                                    _wzFilesList[msBaseKey].Add(wzFileKey);
+
+                                // Add to _wzFilesDirectoryList (key: Character_000, value: Packs directory path)
+                                string msPrefix = msFileName_.Split('_')[0];
+                                string msNum = msFileName_.Split('_').Length > 1 ? msFileName_.Split('_')[1] : "";
+                                string msKey = msPrefix + (msNum.Length >= 3 ? "_" + msNum.Substring(0, 3) : "");
+                                if (!_wzFilesDirectoryList.ContainsKey(msKey))
+                                    _wzFilesDirectoryList[msKey] = directory;
+                            }
+                            catch (Exception ex)
+                            {
+                                Debug.WriteLine($"Failed to load MS file '{msFilePath}': {ex.Message}");
+                            }
+                        }
+                    }
+                    // Handle .nm files in Packs folder
+                    // Used by MapleStoryN
+                    var nmFiles = Directory.GetFiles(directory, "*.nm", SearchOption.TopDirectoryOnly);
+                    foreach (var nmFilePath in nmFiles)
+                    {
+                        string nmFileName = Path.GetFileNameWithoutExtension(nmFilePath).ToLower();
+                        // TODO
+                    }
+                }
+
             }
         }
 
