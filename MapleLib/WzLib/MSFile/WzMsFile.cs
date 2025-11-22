@@ -1,11 +1,13 @@
+using MapleLib.WzLib;
+using MapleLib.WzLib.Util;
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Text;
-using MapleLib.WzLib;
 
 namespace MapleLib.WzLib.MSFile
 {
@@ -357,26 +359,93 @@ namespace MapleLib.WzLib.MSFile
         {
             this.ReadEntries();
 
-            var wzFile = new WzFile(-1, WzMapleVersion.BMS);
+            WzMapleVersion mapleVersion = WzMapleVersion.BMS; // .ms files are always from BMS
+
+            var wzFile = new WzFile(0, mapleVersion); // version is always 0 as a placeholder for .ms files
             wzFile.Name = Path.GetFileName(msFilePath.Replace(".ms", ".wz"));
             wzFile.path = msFilePath;
             var wzDir = wzFile.WzDirectory;
 
-            foreach (var entry in Entries)
+            wzDir.wzFile = wzFile;
+
+            foreach (WzMsEntry entry in Entries)
             {
                 if (entry.Data == null)
                 {
                     BaseStream.Position = entry.StartPos;
                     var buffer = new byte[entry.Size];
-                    BaseStream.Read(buffer, 0, entry.Size);
+                    BaseStream.ReadExactly(buffer);
                     entry.Data = buffer;
                 }
-                var dataStream = new MemoryStream(entry.Data, writable: false);
-                var wzImage = new WzImage(Path.GetFileName(entry.Name), dataStream, WzMapleVersion.BMS);
+                Stream decrypted = DecryptData(entry);
+                WzBinaryReader reader = new(decrypted, WzTool.GetIvByMapleVersion(mapleVersion));
+
+                int lastSlashIndex = entry.Name.LastIndexOf('/'); // Mob/0100000.img
+                string entryImgName = (lastSlashIndex >= 0) ? entry.Name.Substring(lastSlashIndex + 1) : entry.Name;
+    
+                var wzImage = new WzImage(entryImgName, reader);
                 wzImage.ParseImage();
+                //wzImage.Changed = true;
                 wzDir.AddImage(wzImage);
             }
             return wzFile;
+        }
+
+        /// <summary>
+        /// Decrypts this entry's data from the given stream using the provided salt string.
+        /// </summary>
+        /// <param name="entryData">The entry data of .img.</param>
+        /// <returns>Decrypted data as a byte array.</returns>
+        private Stream DecryptData(WzMsEntry entry)
+        {
+            using (Stream stream = new MemoryStream(entry.Data)) // dont close the stream, WzImage will handle it
+            {
+                // 1. Calculate keyHash from keySalt
+                uint keyHash = 0x811C9DC5;
+                foreach (var c in this.Header.Salt)
+                {
+                    keyHash = (keyHash ^ c) * 0x1000193;
+                }
+                byte[] keyHashDigits = keyHash.ToString().Select(v => (byte)(v - '0')).ToArray();
+
+                // 2. Build imgKey
+                byte[] imgKey = new byte[16];
+                string entryName = entry.Name;
+                byte[] entryKey = entry.EntryKey;
+                for (int i = 0; i < imgKey.Length; i++)
+                {
+                    imgKey[i] = (byte)(i + entryName[i % entryName.Length] * (
+                        keyHashDigits[i % keyHashDigits.Length] % 2
+                        + entryKey[(keyHashDigits[(i + 2) % keyHashDigits.Length] + i) % entryKey.Length]
+                        + (keyHashDigits[(i + 1) % keyHashDigits.Length] + i) % 5
+                    ));
+                }
+
+                // Read
+                using var ps = new PartialStream(this.BaseStream, entry.StartPos, entry.SizeAligned, true);
+                var buffer = new byte[entry.Size];
+                Span<byte> span = buffer;
+                ps.Position = 0;
+
+                var cs = new CryptoStream(ps, new Snow2CryptoTransform(imgKey, null, false), CryptoStreamMode.Read);
+
+                // decrypt initial 1024 bytes twice
+                {
+                    var cs2 = new CryptoStream(cs, new Snow2CryptoTransform(imgKey, null, false), CryptoStreamMode.Read);
+                    int dataLen = Math.Min(span.Length, 1024);
+                    cs2.ReadExactly(span.Slice(0, dataLen));
+                    span = span.Slice(dataLen);
+                }
+
+                // decrypt subsequent bytes
+                if (span.Length > 0)
+                {
+                    cs.ReadExactly(span);
+                }
+
+                var ms = new MemoryStream(buffer);
+                return ms;
+            }
         }
 
         public void Close()

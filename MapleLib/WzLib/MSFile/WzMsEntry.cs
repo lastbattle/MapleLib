@@ -1,5 +1,8 @@
-﻿using System;
+﻿using MapleLib.WzLib.Util;
+using System;
+using System.IO;
 using System.Linq;
+using System.Security.Cryptography;
 
 namespace MapleLib.WzLib.MSFile
 {

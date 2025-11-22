@@ -327,7 +327,7 @@ namespace MapleLib {
                         // Handle .nm files in Packs folder
                         // Used by MapleStoryN
                         var nmFiles = Directory.GetFiles(path, "*.nm", SearchOption.TopDirectoryOnly);
-                        foreach (var nmFilePath in msFiles)
+                        foreach (var nmFilePath in nmFiles)
                         {
                             string nmFileName = Path.GetFileNameWithoutExtension(nmFilePath).ToLower();
                             // TODO

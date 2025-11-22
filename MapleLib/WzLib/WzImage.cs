@@ -393,7 +393,6 @@ namespace MapleLib.WzLib
                 long originalPos = reader.BaseStream.Position;
                 reader.BaseStream.Position = offset;
 
-
                 byte b = reader.ReadByte();
                 switch (b)
                 {
@@ -425,7 +424,10 @@ namespace MapleLib.WzLib
                     default:
                         {
                             // todo: log this or warn.
-                            Helpers.ErrorLogger.Log(Helpers.ErrorLevel.MissingFeature, "[WzImage] New Wz image header found. b = " + b);
+                            string error = "[WzImage] New Wz image header found. b = " + b;
+
+                            Helpers.ErrorLogger.Log(Helpers.ErrorLevel.MissingFeature, error);
+                            Debug.WriteLine(error);
                             return false;
                         }
                 }
