@@ -53,8 +53,8 @@ namespace MapleLib.WzLib.MSFile
     /// 
     public class WzMsFile : IDisposable
     {
-        private string originalFileName;
-        private string msFilePath;
+        private readonly string originalFileName;
+        private readonly string msFilePath;
 
         /// <summary>
         /// Constructor
@@ -78,7 +78,7 @@ namespace MapleLib.WzLib.MSFile
             this.Entries = [];
 
             if (!isSavingFile)
-            this.ReadHeader(originalFileName);
+                this.ReadHeader(originalFileName);
         }
 
         public Stream BaseStream { get; private set; }
@@ -109,7 +109,7 @@ namespace MapleLib.WzLib.MSFile
             {
                 saltChars[i] = (char)(randBytes[i] ^ saltBytes[i * 2]);
             }
-            string saltStr = new string(saltChars);
+            string saltStr = new(saltChars);
 
             string fileNameWithSalt = fileName + saltStr;
             Span<byte> snowCipherKey = stackalloc byte[16];
@@ -201,7 +201,8 @@ namespace MapleLib.WzLib.MSFile
             {
                 dataStartPos = dataStartPos - (dataStartPos & 0x3ff) + 0x400;
             }
-            this.Header.DataStartPosition = dataStartPos;
+            this.Header.DataStartPosition = dataStartPos; // skip the random padding after entries
+
             foreach (var entry in this.Entries)
             {
                 entry.StartPos = dataStartPos + entry.StartPos * 1024;
@@ -350,11 +351,13 @@ namespace MapleLib.WzLib.MSFile
             using var bWriter = new BinaryWriter(this.BaseStream, Encoding.ASCII, true);
 
             string fileName = Path.GetFileName(this.originalFileName).ToLower();
+
+            Random rng = new();
             int randByteCount = fileName.Sum(c => (int)c) % 312 + 30;
             byte[] randBytes = new byte[randByteCount];
             for (int i = 0; i < randByteCount; i++)
             {
-                randBytes[i] = (byte)i; // Deterministic for reproducibility
+                randBytes[i] = (byte)rng.Next();
             }
 
             string saltStr = this.Header.Salt;
@@ -418,6 +421,8 @@ namespace MapleLib.WzLib.MSFile
             // Padding after header
             int padAmount = fileName.Select(v => (int)v * 3).Sum() % 212 + 33;
             byte[] padHeader = new byte[padAmount];
+            rng.NextBytes(padHeader); // randomize the pad header
+
             bWriter.Write(padHeader);
 
             // Entries encryption key
