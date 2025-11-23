@@ -393,7 +393,7 @@ namespace MapleLib {
                                 // Use the new static method to load as WzFile
                                 var wzFile = msFile.LoadAsWzFile();
 
-                                this.LoadWzFile(wzFile.Name, wzFile, WzMapleVersion.BMS);
+                                this.LoadWzFile(wzFile.Name, wzFile);
 
                                 // Add the WzFile to _wzFiles using the ms file base name (without extension)
                                 string wzFileKey = msFileNameLower;
@@ -493,7 +493,7 @@ namespace MapleLib {
                 throw new Exception("Error parsing " + baseName + ".wz (" + parseStatus.GetErrorDescription() + ")");
             }
 
-            LoadWzFile(baseName, wzf, encVersion);
+            LoadWzFile(baseName, wzf);
             return wzf;
         }
 
@@ -502,10 +502,9 @@ namespace MapleLib {
         /// </summary>
         /// <param name="baseName"></param>
         /// <param name="wzFile"></param>
-        /// <param name="encVersion"></param>
         /// <returns></returns>
         /// <exception cref="Exception"></exception>
-        public WzFile LoadWzFile(string baseName, WzFile wzf, WzMapleVersion encVersion)
+        public WzFile LoadWzFile(string baseName, WzFile wzf)
         {
             string fileName_ = baseName.ToLower().Replace(".wz", "");
 

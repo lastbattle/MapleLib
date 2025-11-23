@@ -9,7 +9,6 @@ namespace MapleLib.WzLib.MSFile
     public class WzMsEntry
     {
         public byte[] Data { get; set; }
-
         private int _checkSum;
         private int _flags;
         private int _size;
@@ -30,12 +29,13 @@ namespace MapleLib.WzLib.MSFile
             this.Unk2 = unk2;
             _entryKey = entryKey;
         }
+
         public string Name { get; }
-        public int CheckSum { get => _checkSum; }
+        public int CheckSum { get => _checkSum; set => _checkSum = value; }
         public int Flags { get => _flags; }
         public long StartPos { get; set; }
-        public int Size { get => _size; }
-        public int SizeAligned { get => _sizeAligned; }
+        public int Size { get => _size; set => _size = value; }
+        public int SizeAligned { get => _sizeAligned; set => _sizeAligned = value; }
         public int Unk1 { get => _unk1; }
         public int Unk2 { get; }
         public byte[] EntryKey { get => _entryKey; }
@@ -52,20 +52,17 @@ namespace MapleLib.WzLib.MSFile
         {
             if (Data == null)
                 throw new InvalidOperationException("Data must be set before recalculation.");
-
             _size = Data.Length;
             _sizeAligned = ((_size + 1023) / 1024) * 1024;
             _flags = flags;
             this.StartPos = startPos;
             _unk1 = unk1;
-
             if (_entryKey == null)
             {
                 rng ??= new Random();
                 _entryKey = new byte[16];
                 rng.NextBytes(_entryKey);
             }
-
             int keySum = _entryKey.Sum(b => (int)b);
             CalculatedCheckSum = _flags + (int)this.StartPos + _size + _sizeAligned + _unk1 + keySum;
             _checkSum = CalculatedCheckSum;
