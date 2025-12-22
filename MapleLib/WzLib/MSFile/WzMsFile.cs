@@ -172,7 +172,7 @@ namespace MapleLib.WzLib.MSFile
         /// <param name="saltLen">Actual salt length.</param>
         /// <returns>A tuple containing (EntryCount, CalculatedHash).</returns>
         /// <exception cref="Exception">Thrown on version or hash mismatch.</exception>
-        private (int EntryCount, int CalculatedHash) ReadAndValidateHeader(BinaryReader snowReader, int hashedSaltLen, byte[] saltBytes, int saltLen)
+        private static (int EntryCount, int CalculatedHash) ReadAndValidateHeader(BinaryReader snowReader, int hashedSaltLen, byte[] saltBytes, int saltLen)
         {
             int hash = snowReader.ReadInt32();
             byte version = snowReader.ReadByte();

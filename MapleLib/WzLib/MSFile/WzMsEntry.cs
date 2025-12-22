@@ -53,14 +53,14 @@ namespace MapleLib.WzLib.MSFile
             if (Data == null)
                 throw new InvalidOperationException("Data must be set before recalculation.");
             _size = Data.Length;
-            _sizeAligned = ((_size + 1023) / 1024) * 1024;
+            _sizeAligned = ((_size + (WzMsConstants.EntrySizeAligned - 1)) / WzMsConstants.EntrySizeAligned) * WzMsConstants.EntrySizeAligned;
             _flags = flags;
             this.StartPos = startPos;
             _unk1 = unk1;
             if (_entryKey == null)
             {
                 rng ??= new Random();
-                _entryKey = new byte[16];
+                _entryKey = new byte[WzMsConstants.EntryKeySize];
                 rng.NextBytes(_entryKey);
             }
             int keySum = _entryKey.Sum(b => (int)b);

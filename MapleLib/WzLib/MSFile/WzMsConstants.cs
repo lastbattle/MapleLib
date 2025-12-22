@@ -1,8 +1,4 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Text;
-
-namespace MapleLib.WzLib.MSFile
+﻿namespace MapleLib.WzLib.MSFile
 {
     public class WzMsConstants
     {
@@ -22,5 +18,8 @@ namespace MapleLib.WzLib.MSFile
         public const int DoubleEncryptInitialBytes = 1024;
         public const int AsciiPrintableMin = 33;
         public const int AsciiPrintableMax = 127;
+
+        public const int EntrySizeAligned = 1024;
+        public const int EntryKeySize = 16;
     }
 }
