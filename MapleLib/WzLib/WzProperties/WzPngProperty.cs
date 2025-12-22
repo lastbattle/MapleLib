@@ -21,6 +21,7 @@ using System.Drawing;
 using System.Drawing.Imaging;
 using System.IO;
 using System.IO.Compression;
+using System.Linq;
 using System.Runtime.InteropServices;
 using MapleLib.Helpers;
 using MapleLib.WzLib.Util;
@@ -59,8 +60,10 @@ namespace MapleLib.WzLib.WzProperties
 
         public override WzImageProperty DeepClone()
         {
-            WzPngProperty clone = new WzPngProperty();
-            clone.PNG = GetImage(false);
+            WzPngProperty clone = new()
+            {
+                PNG = GetImage(false)
+            };
             return clone;
         }
 
@@ -218,7 +221,7 @@ namespace MapleLib.WzLib.WzProperties
 
                 if (!saveInMemory)
                 {
-                    //were removing the referance to compressedBytes, so a backup for the ret value is needed
+                    //were removing the reference to compressedBytes, so a backup for the ret value is needed
                     byte[] returnBytes = compressedImageBytes;
                     compressedImageBytes = null;
                     return returnBytes;
@@ -238,13 +241,13 @@ namespace MapleLib.WzLib.WzProperties
 
         internal static byte[] Decompress(byte[] compressedBuffer, int decompressedSize)
         {
-            using (MemoryStream memStream = new MemoryStream())
+            using (MemoryStream memStream = new())
             {
                 memStream.Write(compressedBuffer, 2, compressedBuffer.Length - 2);
                 byte[] buffer = new byte[decompressedSize];
                 memStream.Position = 0;
 
-                using (DeflateStream zip = new DeflateStream(memStream, CompressionMode.Decompress))
+                using (DeflateStream zip = new(memStream, CompressionMode.Decompress))
                 {
                     zip.Read(buffer, 0, buffer.Length);
                     return buffer;
@@ -254,9 +257,9 @@ namespace MapleLib.WzLib.WzProperties
 
         internal static byte[] Compress(byte[] decompressedBuffer)
         {
-            using (MemoryStream memStream = new MemoryStream())
+            using (MemoryStream memStream = new())
             {
-                using (DeflateStream zip = new DeflateStream(memStream, CompressionMode.Compress, true))
+                using (DeflateStream zip = new(memStream, CompressionMode.Compress, true))
                 {
                     zip.Write(decompressedBuffer, 0, decompressedBuffer.Length);
                 }
@@ -280,8 +283,8 @@ namespace MapleLib.WzLib.WzProperties
             }
             try
             {
-                Bitmap bmp = new Bitmap(width, height, Format.GetPixelFormat());
-                Rectangle rect_ = new Rectangle(0, 0, width, height);
+                Bitmap bmp = new(width, height, Format.GetPixelFormat());
+                Rectangle rect_ = new(0, 0, width, height);
 
                 switch (Format)
                 {
@@ -509,10 +512,25 @@ namespace MapleLib.WzLib.WzProperties
             byte[] pixels;
             try
             {
-                int byteCount = bmpData.Stride * bmpData.Height;
-                pixels = new byte[byteCount];
-                // Copy the data from the bitmap to the byte array
-                Marshal.Copy(bmpData.Scan0, pixels, 0, byteCount);
+                int expectedSize = bmp.Width * bmp.Height * 4;
+                pixels = new byte[expectedSize];
+
+                // Handle stride properly - copy row by row if stride doesn't match expected width
+                if (bmpData.Stride == bmp.Width * 4)
+                {
+                    // No padding, direct copy
+                    Marshal.Copy(bmpData.Scan0, pixels, 0, expectedSize);
+                }
+                else
+                {
+                    // Copy row by row to remove stride padding
+                    int rowSize = bmp.Width * 4;
+                    for (int y = 0; y < bmp.Height; y++)
+                    {
+                        IntPtr rowPtr = bmpData.Scan0 + y * bmpData.Stride;
+                        Marshal.Copy(rowPtr, pixels, y * rowSize, rowSize);
+                    }
+                }
             }
             finally
             {
@@ -520,14 +538,29 @@ namespace MapleLib.WzLib.WzProperties
                 bmp.UnlockBits(bmpData);
             }
 
-            // Automatically detect the suitable format for each image. See UnitTest_WzFile/UnitTest_MapleLib.cs/TestImageSurfaceFormatDetection
+            ////// Automatically detect the suitable format for each image. See UnitTest_WzFile/UnitTest_MapleLib.cs/TestImageSurfaceFormatDetection
             SurfaceFormat suggested_surfaceFormat = ImageFormatDetector.DetermineTextureFormat(pixels, bmp.Width, bmp.Height);
             //Debug.WriteLine(string.Format("Suggested SurfaceFormat: {0}", suggested_surfaceFormat.ToString()));
-            
+
+            ////// Optimise the image size
+            // Create an EncoderParameters object to specify the PNG encoder and the desired compression level
+            //EncoderParameters encoderParameters = new(1);
+            //encoderParameters.Param[0] = new EncoderParameter(Encoder.Compression, (byte) CompressionLevel.Optimal);
+            // Get the PNG codec information
+            //ImageCodecInfo pngCodec = ImageCodecInfo.GetImageEncoders().First(codec => codec.FormatID == ImageFormat.Png.Guid);
+            // Save the compressed image
+            /*Bitmap newBitmap;
+            using (MemoryStream stream = new MemoryStream())
+            {
+                bmp.Save(stream, pngCodec, encoderParameters);
+
+                newBitmap = new Bitmap(stream);
+            }*/
+
             (WzPngFormat format, byte[] compressedBytes) = PngUtility.CompressImageToPngFormat(bmp, suggested_surfaceFormat);
-            
-            Format = format; 
-            compressedImageBytes = Compress(compressedBytes);
+
+            this.Format = format;
+            this.compressedImageBytes = Compress(compressedBytes);
 
             if (listWzUsed)
             {
