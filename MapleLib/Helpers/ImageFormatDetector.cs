@@ -54,9 +54,17 @@ namespace MapleLib.Helpers
             if (argbData.Length != width * height * 4)
                 throw new ArgumentException("Data length does not match dimensions");
 
-            var (uniqueRgbColors, uniqueAlphaValues, hasAlpha, hasPartialAlpha, maxAlpha, avgAlphaGradient, alphaVariance) =
+            var (uniqueRgbColors, uniqueAlphaValues, hasAlpha, hasPartialAlpha, maxAlpha, avgAlphaGradient, alphaVariance, isGrayscale) =
                 AnalyzeImageData(argbData, width, height);
             bool isSmallImage = width * height < 256 * 256; // Favor 16-bit formats for small images
+            bool isDxtCandidate = IsDxtCompressionCandidate(width, height);
+
+            // Grayscale images with alpha can use DXT3 (Format3) for efficient compression
+            // This is commonly used for black/white thumbnails in MapleStory
+            if (isGrayscale && hasAlpha && isDxtCandidate)
+            {
+                return SurfaceFormat.Dxt3;
+            }
 
             if (!hasAlpha)
             {
@@ -66,7 +74,6 @@ namespace MapleLib.Helpers
             }
             else
             {
-                bool isDxtCandidate = IsDxtCompressionCandidate(width, height);
                 if (uniqueRgbColors > 4096 || uniqueAlphaValues > 16) // Beyond BGRA4444's capacity
                 {
                     if (isDxtCandidate)
@@ -105,11 +112,13 @@ namespace MapleLib.Helpers
         /// Analyzes raw ARGB data to extract metrics for format selection.
         /// </summary>
         public static (int uniqueRgbColors, int uniqueAlphaValues, bool hasAlpha, bool hasPartialAlpha, byte maxAlpha,
-            double avgAlphaGradient, double alphaVariance) AnalyzeImageData(byte[] argbData, int width, int height)
+            double avgAlphaGradient, double alphaVariance, bool isGrayscale) AnalyzeImageData(byte[] argbData, int width, int height)
         {
             bool hasAlpha = false;
             bool hasPartialAlpha = false;
             byte maxAlpha = 0;
+            bool isGrayscale = true;
+            const int grayscaleTolerance = 8; // Allow small deviation for near-grayscale images
             HashSet<uint> rgbSet = []; // Unique RGB colors
             HashSet<byte> alphaSet = []; // Unique alpha values
             long alphaSum = 0;
@@ -139,6 +148,14 @@ namespace MapleLib.Helpers
                     uint rgbColor = (uint)((r << 16) | (g << 8) | b);
                     rgbSet.Add(rgbColor);
 
+                    // Grayscale detection: R, G, B should be approximately equal
+                    if (isGrayscale && (Math.Abs(r - g) > grayscaleTolerance || 
+   Math.Abs(g - b) > grayscaleTolerance || 
+      Math.Abs(r - b) > grayscaleTolerance))
+                    {
+                        isGrayscale = false;
+                    }
+
                     // Alpha gradient (horizontal and vertical)
                     if (x > 0)
                     {
@@ -160,7 +177,7 @@ namespace MapleLib.Helpers
             double alphaVariance = ((double)alphaSumSquares / pixelCount) - (meanAlpha * meanAlpha);
             double avgAlphaGradient = gradientCount > 0 ? (double)alphaGradientSum / gradientCount : 0;
 
-            return (rgbSet.Count, alphaSet.Count, hasAlpha, hasPartialAlpha, maxAlpha, avgAlphaGradient, alphaVariance);
+            return (rgbSet.Count, alphaSet.Count, hasAlpha, hasPartialAlpha, maxAlpha, avgAlphaGradient, alphaVariance, isGrayscale);
         }
 
         /// <summary>

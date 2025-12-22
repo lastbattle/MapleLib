@@ -147,6 +147,12 @@ namespace MapleLib.Helpers
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static unsafe void DecompressImageDXT3(byte[] rawData, int width, int height, BitmapData bmpData)
         {
+            int blockCountX = (width + 3) / 4;
+            int blockCountY = (height + 3) / 4;
+            int expectedSize = blockCountX * blockCountY * 16;
+            if (rawData.Length < expectedSize)
+                throw new ArgumentException($"Raw data length ({rawData.Length}) is insufficient for the specified dimensions ({width}x{height}).");
+
             if (Sse2.IsSupported && Ssse3.IsSupported)
             {
                 byte[] decoded = new byte[width * height * 4];
@@ -226,45 +232,45 @@ namespace MapleLib.Helpers
             }
             else
             {
+
                 byte[] decoded = new byte[width * height * 4];
 
-                Color[] colorTable = new Color[4];
-                int[] colorIdxTable = new int[16];
-                byte[] alphaTable = new byte[16];
-
-                for (int y = 0; y < height; y += 4)
+                // Use thread-local buffers for parallel loop
+                Parallel.For(0, blockCountY, () => (
+                    new Color[4], new int[16], new byte[16]
+                ), (blockY, _, buffers) =>
                 {
-                    for (int x = 0; x < width; x += 4)
+                    var colorTable = buffers.Item1;
+                    var colorIdxTable = buffers.Item2;
+                    var alphaTable = buffers.Item3;
+                    for (int blockX = 0; blockX < blockCountX; blockX++)
                     {
-                        int off = x * 4 + y * width;
+                        int x = blockX * 4;
+                        int y = blockY * 4;
+                        int blockIndex = blockY * blockCountX + blockX;
+                        int off = blockIndex * 16;
                         ExpandAlphaTableDXT3(alphaTable, rawData, off);
                         ushort u0 = BitConverter.ToUInt16(rawData, off + 8);
                         ushort u1 = BitConverter.ToUInt16(rawData, off + 10);
                         ExpandColorTable(colorTable, u0, u1);
                         ExpandColorIndexTable(colorIdxTable, rawData, off + 12);
-
                         for (int j = 0; j < 4; j++)
                         {
+                            int pixelY = y + j;
+                            if (pixelY >= height) continue;
                             for (int i = 0; i < 4; i++)
                             {
+                                int pixelX = x + i;
+                                if (pixelX >= width) continue;
                                 Color color = colorTable[colorIdxTable[j * 4 + i]];
                                 byte alpha = alphaTable[j * 4 + i];
-
-                                SetPixel(decoded,
-                                    x + i,
-                                    y + j,
-                                    width,
-                                    color,
-                                    alpha);
-
-                                /*if (x == 4 && y == 0 && j == 0 && i == 0)
-                                {
-                                    Debug.WriteLine($"Scalar BGRA: [{color.B}, {color.G}, {color.R}, {alpha}]");
-                                }*/
+                                SetPixel(decoded, pixelX, pixelY, width, color, alpha);
                             }
                         }
                     }
-                }
+                    return buffers;
+                }, _ => { });
+
                 Marshal.Copy(decoded, 0, bmpData.Scan0, decoded.Length);
             }
         }
@@ -312,14 +318,23 @@ namespace MapleLib.Helpers
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static unsafe void DecompressImageDXT5(byte[] rawData, int width, int height, BitmapData bmpData)
         {
-            byte* pRawData = (byte*)rawData.AsSpan().GetPinnableReference();
-            byte* pDecoded = (byte*)bmpData.Scan0;
             int blockCountX = (width + 3) / 4;  // Round up to cover partial blocks
             int blockCountY = (height + 3) / 4; // Round up to cover partial blocks
+
+            if (width <= 0 || height <= 0)
+                throw new ArgumentException("Width and height must be positive.");
+
+            int expectedSize = blockCountX * blockCountY * 16;
+            if (rawData.Length < expectedSize)
+                throw new ArgumentException($"Raw data length ({rawData.Length}) is insufficient for the specified dimensions ({width}x{height}).");
+
             int stride = bmpData.Stride;        // Use actual stride for offset calculation
 
             if (Sse2.IsSupported)
             {
+                byte* pRawData = (byte*)rawData.AsSpan().GetPinnableReference();
+                byte* pDecoded = (byte*)bmpData.Scan0;
+
                 // Parallelize across rows of blocks to leverage multiple CPU cores
                 Parallel.For(0, blockCountY, y =>
                 {
@@ -404,40 +419,49 @@ namespace MapleLib.Helpers
             }
             else
             {
-                // Scalar fallback
-                byte[] decoded = new byte[width * height * 4];
+                byte* pDecoded = (byte*)bmpData.Scan0;
 
-                Color[] colorTable = new Color[4];
-                int[] colorIdxTable = new int[16];
-                byte[] alphaTable = new byte[8];
-                int[] alphaIdxTable = new int[16];
-                for (int y = 0; y < height; y += 4)
+                // Use thread-local buffers for parallel loop
+                Parallel.For(0, blockCountY, () => (
+                    new Color[4], new int[16], new byte[8], new int[16]
+                ), (blockY, _, buffers) =>
                 {
-                    for (int x = 0; x < width; x += 4)
+                    var colorTable = buffers.Item1;
+                    var colorIdxTable = buffers.Item2;
+                    var alphaTable = buffers.Item3;
+                    var alphaIdxTable = buffers.Item4;
+                    for (int blockX = 0; blockX < blockCountX; blockX++)
                     {
-                        int off = x * 4 + y * width;
+                        int x = blockX * 4;
+                        int y = blockY * 4;
+                        int blockIndex = blockY * blockCountX + blockX;
+                        int off = blockIndex * 16;
                         ExpandAlphaTableDXT5(alphaTable, rawData[off + 0], rawData[off + 1]);
                         ExpandAlphaIndexTableDXT5(alphaIdxTable, rawData, off + 2);
                         ushort u0 = BitConverter.ToUInt16(rawData, off + 8);
                         ushort u1 = BitConverter.ToUInt16(rawData, off + 10);
                         ExpandColorTable(colorTable, u0, u1);
                         ExpandColorIndexTable(colorIdxTable, rawData, off + 12);
-
                         for (int j = 0; j < 4; j++)
                         {
+                            int pixelY = y + j;
+                            if (pixelY >= height) continue;
                             for (int i = 0; i < 4; i++)
                             {
-                                SetPixel(decoded,
-                                    x + i,
-                                    y + j,
-                                    width,
-                                    colorTable[colorIdxTable[j * 4 + i]],
-                                    alphaTable[alphaIdxTable[j * 4 + i]]);
+                                int pixelX = x + i;
+                                if (pixelX >= width) continue;
+                                int pixelOffset = pixelY * stride + pixelX * 4;
+                                Color c = colorTable[colorIdxTable[j * 4 + i]];
+                                byte alpha = alphaTable[alphaIdxTable[j * 4 + i]];
+                                pDecoded[pixelOffset] = c.B;
+                                pDecoded[pixelOffset + 1] = c.G;
+                                pDecoded[pixelOffset + 2] = c.R;
+                                pDecoded[pixelOffset + 3] = alpha;
                             }
                         }
                     }
-                }
-                Marshal.Copy(decoded, 0, bmpData.Scan0, decoded.Length);
+                    return buffers;
+                }, _ => { });
             }
         }
 
@@ -564,14 +588,30 @@ namespace MapleLib.Helpers
         #region Encode
         /// <summary>
         /// Compresses the bmp to the selected SurfaceFormat byte[].
-        /// TODO: Other WzPngFormat.
         /// </summary>
-        /// <param name="bmp"></param>
-        /// <param name="format"></param>
-        /// <returns></returns>
+        /// <param name="bmp">The bitmap to compress</param>
+        /// <param name="format">The target surface format</param>
+        /// <returns>Tuple of WzPngFormat and compressed byte array</returns>
         public static (WzPngFormat, byte[]) CompressImageToPngFormat(Bitmap bmp, SurfaceFormat format)
         {
-            // TODO: Format2, Format513, Format517
+            // For DXT3, we need to detect if it's a grayscale image to choose between Format3 and Format1026
+            bool isGrayscale = false;
+            if (format == SurfaceFormat.Dxt3)
+            {
+                isGrayscale = IsGrayscaleBitmap(bmp);
+            }
+            return CompressImageToPngFormat(bmp, format, isGrayscale);
+        }
+
+        /// <summary>
+        /// Compresses the bmp to the selected SurfaceFormat byte[].
+        /// </summary>
+        /// <param name="bmp">The bitmap to compress</param>
+        /// <param name="format">The target surface format</param>
+        /// <param name="isGrayscale">Whether the image is grayscale (affects DXT3 format selection)</param>
+        /// <returns>Tuple of WzPngFormat and compressed byte array</returns>
+        public static (WzPngFormat, byte[]) CompressImageToPngFormat(Bitmap bmp, SurfaceFormat format, bool isGrayscale)
+        {
             byte[] retPixelData;
             WzPngFormat retFormat;
             switch (format)
@@ -581,18 +621,36 @@ namespace MapleLib.Helpers
                     retFormat = WzPngFormat.Format1;
                     break;
 
+                case SurfaceFormat.Bgra32:
+                case SurfaceFormat.Color:
+                    retPixelData = GetPixelDataFormat2(bmp);
+                    retFormat = WzPngFormat.Format2;
+                    break;
+
+                case SurfaceFormat.Bgr565:
+                    // Check if we can use the ultra-compressed 517 format (16x16 blocks)
+                    // This is a heuristic; usually used for specific background types
+                    if (bmp.Width % 16 == 0 && bmp.Height % 16 == 0)
+                    {
+                        retPixelData = GetPixelDataFormat517(bmp);
+                        retFormat = WzPngFormat.Format517;
+                    }
+                    else
+                    {
+                        retPixelData = GetPixelDataFormat513(bmp);
+                        retFormat = WzPngFormat.Format513;
+                    }
+                    break;
+
                 case SurfaceFormat.Bgra5551:
                     retPixelData = GetPixelDataFormat257(bmp);
                     retFormat = WzPngFormat.Format257;
                     break;
 
-                case SurfaceFormat.Dxt3 when bmp.PixelFormat == PixelFormat.Format8bppIndexed:
-                    retPixelData = CompressDXT3(bmp); // Could add grayscale conversion if needed
-                    retFormat = WzPngFormat.Format3;
-                    break;
                 case SurfaceFormat.Dxt3:
                     retPixelData = CompressDXT3(bmp);
-                    retFormat = WzPngFormat.Format1026;
+                    // Use Format3 for grayscale images (black/white thumbnails), Format1026 for regular DXT3
+                    retFormat = isGrayscale ? WzPngFormat.Format3 : WzPngFormat.Format1026;
                     break;
 
                 case SurfaceFormat.Dxt5:
@@ -600,32 +658,53 @@ namespace MapleLib.Helpers
                     retFormat = WzPngFormat.Format2050;
                     break;
 
-                /*
-                case WzPngFormat.Format2:
-                    pixelData = GetPixelDataFormat2(bmp);
-                    break;
-                case WzPngFormat.Format3:
-                    pixelData = GetPixelDataFormat3(bmp);
-                    break;
-                case WzPngFormat.Format257:
-                    pixelData = GetPixelDataFormat257(bmp);
-                    break;
-                case WzPngFormat.Format513:
-                    pixelData = GetPixelDataFormat513(bmp);
-                    break;
-                case WzPngFormat.Format517:
-                    pixelData = GetPixelDataFormat517(bmp);
-                    break;
-                */
-
                 default: // compress as standard, default to BGRA8888 for now
                     retPixelData = GetPixelDataFormat2(bmp);
                     retFormat = WzPngFormat.Format2;
                     break;
-
-                    //throw new NotImplementedException($"Compression for SurfaceFormat {format} is not supported.");
             }
             return (retFormat, retPixelData);
+        }
+
+        /// <summary>
+        /// Checks if the bitmap is a grayscale image (R ≈ G ≈ B for all pixels).
+        /// Used to determine Format3 vs Format1026 for DXT3 compression.
+        /// </summary>
+        /// <param name="bmp">The bitmap to check</param>
+        /// <returns>True if the image is grayscale</returns>
+        private static bool IsGrayscaleBitmap(Bitmap bmp)
+        {
+            const int tolerance = 8;
+            BitmapData bmpData = bmp.LockBits(new Rectangle(0, 0, bmp.Width, bmp.Height), ImageLockMode.ReadOnly, PixelFormat.Format32bppArgb);
+            try
+            {
+                unsafe
+                {
+                    byte* scan0 = (byte*)bmpData.Scan0;
+                    // Sample pixels to check for grayscale (checking every pixel would be slow for large images)
+                    int step = Math.Max(1, (bmp.Width * bmp.Height) / 1000); // Sample up to ~1000 pixels
+                    for (int i = 0; i < bmp.Width * bmp.Height; i += step)
+                    {
+                        int y = i / bmp.Width;
+                        int x = i % bmp.Width;
+                        byte* row = scan0 + y * bmpData.Stride;
+                        int pixel = *(int*)(row + x * 4);
+                        byte b = (byte)(pixel & 0xFF);
+                        byte g = (byte)((pixel >> 8) & 0xFF);
+                        byte r = (byte)((pixel >> 16) & 0xFF);
+
+                        if (Math.Abs(r - g) > tolerance || Math.Abs(g - b) > tolerance || Math.Abs(r - b) > tolerance)
+                        {
+                            return false;
+                        }
+                    }
+                }
+                return true;
+            }
+            finally
+            {
+                bmp.UnlockBits(bmpData);
+            }
         }
 
         /// <summary>
