@@ -37,7 +37,8 @@ namespace MapleLib.WzLib.WzProperties
             {
                 WzPngFormat.Format1 => SurfaceFormat.Bgra4444,
                 WzPngFormat.Format2 => SurfaceFormat.Bgra32,
-                WzPngFormat.Format3 => SurfaceFormat.Bgra32,
+                WzPngFormat.Format3 => SurfaceFormat.Dxt3, // DXT3 grayscale/thumbnail
+                WzPngFormat.Format257 => SurfaceFormat.Bgra5551,
                 WzPngFormat.Format513 => SurfaceFormat.Bgr565,
                 WzPngFormat.Format517 => SurfaceFormat.Bgr565,
                 WzPngFormat.Format1026 => SurfaceFormat.Dxt3,
