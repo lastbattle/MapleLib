@@ -298,6 +298,7 @@ namespace MapleLib.WzLib
                 ParseImage();
             }
             properties.Add(prop); // parent is set to 'prop' here
+            Changed = true; // Mark image as changed when property is added
         }
         /// <summary>
         /// Add a list of properties to the WzImage
@@ -319,10 +320,11 @@ namespace MapleLib.WzLib
             if (!properties.Contains(prop))
                 return;
 
-            if (reader != null && !parsed) 
+            if (reader != null && !parsed)
                 ParseImage();
             prop.Parent = null;
             properties.Remove(prop);
+            Changed = true; // Mark image as changed when property is removed
         }
 
         /// <summary>
@@ -340,9 +342,10 @@ namespace MapleLib.WzLib
 
         public void ClearProperties()
         {
-            foreach (WzImageProperty prop in properties) 
+            foreach (WzImageProperty prop in properties)
                 prop.Parent = null;
             properties.Clear();
+            Changed = true; // Mark image as changed when properties are cleared
         }
 
         public override void Remove()
