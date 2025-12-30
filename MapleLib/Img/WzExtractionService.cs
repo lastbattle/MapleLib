@@ -2,6 +2,7 @@ using MapleLib.WzLib;
 using MapleLib.WzLib.Serializer;
 using Newtonsoft.Json;
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
@@ -36,6 +37,12 @@ namespace MapleLib.Img
         };
 
         private const string MANIFEST_FILENAME = "manifest.json";
+
+        /// <summary>
+        /// Maximum degree of parallelism for concurrent WZ file extraction.
+        /// Each WZ category (Map.wz, Mob.wz, etc.) can be extracted independently.
+        /// </summary>
+        private static readonly int MAX_EXTRACTION_PARALLELISM = Math.Max(1, Environment.ProcessorCount - 1);
         #endregion
 
         #region Events
@@ -81,6 +88,44 @@ namespace MapleLib.Img
             CancellationToken cancellationToken = default,
             IProgress<ExtractionProgress> progress = null)
         {
+            // Discover all WZ files and extract them
+            bool is64Bit = WzFileManager.Detect64BitDirectoryWzFileFormat(mapleStoryPath);
+            bool isPreBB = WzFileManager.DetectIsPreBBDataWZFileFormat(mapleStoryPath);
+            var allCategories = DiscoverWzFiles(mapleStoryPath, is64Bit, isPreBB);
+
+            return await ExtractAsync(
+                mapleStoryPath,
+                outputVersionPath,
+                versionId,
+                displayName,
+                encryption,
+                allCategories,
+                cancellationToken,
+                progress);
+        }
+
+        /// <summary>
+        /// Extracts specified WZ file categories to an IMG filesystem structure
+        /// </summary>
+        /// <param name="mapleStoryPath">Path to MapleStory installation</param>
+        /// <param name="outputVersionPath">Output path for the version</param>
+        /// <param name="versionId">Version identifier</param>
+        /// <param name="displayName">Display name for the version</param>
+        /// <param name="encryption">WZ encryption version</param>
+        /// <param name="categoriesToExtract">List of category names to extract (e.g., "Map", "Mob", "String")</param>
+        /// <param name="cancellationToken">Cancellation token</param>
+        /// <param name="progress">Progress reporter</param>
+        /// <returns>Extraction result with statistics</returns>
+        public async Task<ExtractionResult> ExtractAsync(
+            string mapleStoryPath,
+            string outputVersionPath,
+            string versionId,
+            string displayName,
+            WzMapleVersion encryption,
+            IEnumerable<string> categoriesToExtract,
+            CancellationToken cancellationToken = default,
+            IProgress<ExtractionProgress> progress = null)
+        {
             var result = new ExtractionResult
             {
                 VersionId = versionId,
@@ -107,21 +152,34 @@ namespace MapleLib.Img
                     Directory.CreateDirectory(outputVersionPath);
                 }
 
-                // Find all WZ files to extract
-                var wzFilesToExtract = DiscoverWzFiles(mapleStoryPath, is64Bit, isPreBB);
+                // Use the provided categories
+                var wzFilesToExtract = categoriesToExtract.ToList();
                 progressData.TotalFiles = CountTotalImages(wzFilesToExtract, mapleStoryPath, encryption, is64Bit);
 
                 progress?.Report(progressData);
 
-                // Extract each WZ file
-                foreach (var wzCategory in wzFilesToExtract)
+                // Extract WZ files concurrently - each category is independent
+                Debug.WriteLine($"[WzExtraction] Starting concurrent extraction of {wzFilesToExtract.Count} categories with parallelism {MAX_EXTRACTION_PARALLELISM}");
+
+                var extractionResults = new ConcurrentDictionary<string, CategoryExtractionResult>();
+                var activeCategories = new ConcurrentDictionary<string, byte>(); // Track active categories
+                int processedFiles = 0;
+                int completedCategories = 0;
+                int totalCategories = wzFilesToExtract.Count;
+
+                var parallelOptions = new ParallelOptions
                 {
-                    cancellationToken.ThrowIfCancellationRequested();
+                    MaxDegreeOfParallelism = MAX_EXTRACTION_PARALLELISM,
+                    CancellationToken = cancellationToken
+                };
 
-                    progressData.CurrentPhase = $"Extracting {wzCategory}";
-                    progressData.CurrentFile = $"{wzCategory}.wz";
-                    progress?.Report(progressData);
+                await Parallel.ForEachAsync(wzFilesToExtract, parallelOptions, async (wzCategory, ct) =>
+                {
+                    ct.ThrowIfCancellationRequested();
 
+                    // Track this category as active
+                    activeCategories.TryAdd(wzCategory, 0);
+                    Debug.WriteLine($"[WzExtraction] Starting extraction of {wzCategory}");
                     OnCategoryStarted(wzCategory);
 
                     var categoryResult = await ExtractCategoryAsync(
@@ -131,17 +189,36 @@ namespace MapleLib.Img
                         encryption,
                         is64Bit,
                         isPreBB,
-                        cancellationToken,
+                        ct,
                         (current, total, fileName) =>
                         {
-                            progressData.CurrentFile = fileName;
-                            progressData.ProcessedFiles++;
+                            // Thread-safe progress update
+                            int currentTotal = Interlocked.Increment(ref processedFiles);
+                            progressData.ProcessedFiles = currentTotal;
+
+                            // Show aggregate status instead of jumping file names
+                            int activeCount = activeCategories.Count;
+                            int completed = completedCategories;
+                            progressData.CurrentPhase = $"Extracting ({activeCount} active, {completed}/{totalCategories} complete)";
+                            progressData.CurrentFile = string.Join(", ", activeCategories.Keys.Take(4)) + (activeCount > 4 ? $" +{activeCount - 4} more" : "");
+
                             progress?.Report(progressData);
                             OnProgressChanged(progressData);
                         });
 
-                    result.CategoriesExtracted.Add(wzCategory, categoryResult);
+                    // Mark category as completed
+                    activeCategories.TryRemove(wzCategory, out _);
+                    Interlocked.Increment(ref completedCategories);
+
+                    extractionResults.TryAdd(wzCategory, categoryResult);
                     OnCategoryCompleted(wzCategory, categoryResult);
+                    Debug.WriteLine($"[WzExtraction] Completed extraction of {wzCategory}: {categoryResult.ImagesExtracted} images");
+                });
+
+                // Copy results to the result dictionary
+                foreach (var kvp in extractionResults)
+                {
+                    result.CategoriesExtracted.Add(kvp.Key, kvp.Value);
                 }
 
                 // Generate manifest
