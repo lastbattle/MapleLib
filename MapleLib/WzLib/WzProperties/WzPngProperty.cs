@@ -62,8 +62,54 @@ namespace MapleLib.WzLib.WzProperties
         {
             WzPngProperty clone = new()
             {
-                PNG = GetImage(false)
+                width = this.width,
+                height = this.height,
+                format = this.format,
+                listWzUsed = this.listWzUsed
             };
+
+            // Try to copy compressed bytes directly (most efficient)
+            if (compressedImageBytes != null)
+            {
+                clone.compressedImageBytes = (byte[])compressedImageBytes.Clone();
+            }
+            else if (wzReader != null)
+            {
+                // Try to get compressed bytes from reader
+                try
+                {
+                    byte[] bytes = GetCompressedBytes(true);
+                    if (bytes != null)
+                    {
+                        clone.compressedImageBytes = (byte[])bytes.Clone();
+                    }
+                    else
+                    {
+                        Debug.WriteLine($"[WzPngProperty.DeepClone] GetCompressedBytes returned null for {width}x{height} {format}");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    // Fall back to bitmap copy if reader fails
+                    Debug.WriteLine($"[WzPngProperty.DeepClone] Reader failed, falling back to bitmap: {ex.Message}");
+                    var bmp = GetImage(false);
+                    if (bmp != null)
+                    {
+                        clone.PNG = (Bitmap)bmp.Clone();
+                    }
+                }
+            }
+            else if (png != null)
+            {
+                // Copy existing bitmap - this will re-compress!
+                Debug.WriteLine($"[WzPngProperty.DeepClone] No compressed bytes or reader, using bitmap copy for {width}x{height}");
+                clone.PNG = (Bitmap)png.Clone();
+            }
+            else
+            {
+                Debug.WriteLine($"[WzPngProperty.DeepClone] WARNING: No data available for {width}x{height} {format}");
+            }
+
             return clone;
         }
 

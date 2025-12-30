@@ -83,7 +83,7 @@ namespace MapleLib.WzLib
 
         public override WzFile WzFileParent
         {
-            get { return ParentImage.WzFileParent; }
+            get { return ParentImage?.WzFileParent; }
         }
         #endregion
 

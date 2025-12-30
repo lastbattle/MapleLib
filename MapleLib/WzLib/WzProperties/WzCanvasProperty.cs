@@ -270,37 +270,52 @@ namespace MapleLib.WzLib.WzProperties {
         }
 
         /// <summary>
-        /// Gets the '_inlink' WzCanvasProperty of this.
+        /// Gets the '_inlink' or '_outlink' WzImageProperty of this.
         /// 
-        /// '_inlink' is not implemented as part of WzCanvasProperty as I dont want to override existing Wz structure. 
+        /// '_inlink' is not implemented as part of WzCanvasProperty so as to not override existing Wz structure. 
         /// It will be handled via HaRepackerMainPanel instead.
         /// </summary>
         /// <returns></returns>
-        public WzImageProperty GetLinkedWzImageProperty() {
+        public WzImageProperty GetLinkedWzImageProperty()
+        {
             string _inlink = ((WzStringProperty)this[InlinkPropertyName])?.Value; // could get nexon'd here. In case they place an _inlink that's not WzStringProperty
             string _outlink = ((WzStringProperty)this[OutlinkPropertyName])?.Value; // could get nexon'd here. In case they place an _outlink that's not WzStringProperty
 
-            if (_inlink != null) {
-                WzObject currentWzObj = this; // first object to work with
-                while ((currentWzObj = currentWzObj.Parent) != null) {
-                    if (!(currentWzObj is WzImage))  // keep looping if its not a WzImage
-                        continue;
-
-                    WzImage wzImageParent = (WzImage)currentWzObj;
-                    WzImageProperty foundProperty = wzImageParent.GetFromPath(_inlink);
-                    if (foundProperty != null && foundProperty is WzImageProperty property) {
-                        return property;
+            if (!string.IsNullOrEmpty(_inlink))
+            {
+                var current = this.Parent; // first object to work with
+                while (current != null)
+                {
+                    if (current is WzImage wzImageParent) // keep looping if its not a WzImage
+                    {
+                        if (wzImageParent.GetFromPath(_inlink) is WzImageProperty property)
+                        {
+                            return property;
+                        }
+                        // No need to continue; assuming only the nearest WzImage is relevant.
+                        break;
                     }
+                    current = current.Parent;
                 }
                 Debug.WriteLine("Could not resolve _inlink path: " + _inlink);
             }
-            else if (_outlink != null) {
-                WzObject currentWzObj = this; // first object to work with
-                while ((currentWzObj = currentWzObj.Parent) != null) {
-                    if (!(currentWzObj is WzDirectory))  // keep looping if its not a WzImage
-                        continue;
-                    WzFile wzFileParent = ((WzDirectory)currentWzObj).wzFile;
+            else if (!string.IsNullOrEmpty(_outlink)) 
+            {
+                var current = this.Parent;
+                WzFile wzFileParent = null;
+                while (current != null)
+                {
+                    if (current is WzDirectory dir)
+                    {
+                        wzFileParent = dir.wzFile;
+                        // No need to continue; wzFile is shared.
+                        break;
+                    }
+                    current = current.Parent;
+                }
 
+                if (wzFileParent != null)
+                {
                     // TODO
                     // Given the way it is structured, it might possibility also point to a different WZ file (i.e NPC.wz instead of Mob.wz).
                     // Mob001.wz/8800103.img/8800103.png has an outlink to "Mob/8800141.img/8800141.png"
@@ -321,16 +336,15 @@ namespace MapleLib.WzLib.WzProperties {
                         // parse that instead, the canvas will never be in the data wz directory.
                         // TODO: Move this into the loader instead.
                         if (WzFileManager.fileManager != null && WzFileManager.fileManager.Is64Bit) {
+                            // _outlink = 'Map/Back/_Canvas/snowyDarkrock.img/back/0'
+                            bool bIsCanvasDir = WzFileManager.ContainsCanvasDirectory(_outlink);
+                            if (bIsCanvasDir)
+                            {
+                                string canvasFolderBase = WzFileManager.NormaliseWzCanvasDirectory(_outlink);  // "map", "map/back"
 
-                            if (_outlink.Contains(WzFileManager.CANVAS_DIRECTORY_NAME)) {
-                                // _outlink = 'Map/Back/_Canvas/snowyDarkrock.img/back/0'
-                                bool bIsCanvasDir = WzFileManager.ContainsCanvasDirectory(_outlink);
-                                if (bIsCanvasDir) {
-                                    string canvasFolderBase = WzFileManager.NormaliseWzCanvasDirectory(_outlink);  // "map", "map/back"
-
-                                    WzFileManager.fileManager.LoadCanvasSection(canvasFolderBase, wzFileParent.MapleVersion);
-                                }
-                            } else
+                                WzFileManager.fileManager.LoadCanvasSection(canvasFolderBase, wzFileParent.MapleVersion);
+                            }
+                            else
                             {
                                 Debug.WriteLine(GetLinkedWzImageProperty().Name + " has an _outlink that does not contain '" + WzFileManager.CANVAS_DIRECTORY_NAME);
                             }
