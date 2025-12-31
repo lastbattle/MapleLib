@@ -28,6 +28,15 @@ namespace MapleLib.Helpers
     public class ImageFormatDetector
     {
         /// <summary>
+        /// When true, DXT formats (DXT3, DXT5) will not be suggested.
+        /// This is necessary for pre-Big Bang MapleStory clients that don't support these formats.
+        /// Format3 (DXT3 grayscale), Format1026 (DXT3 colored), and Format2050 (DXT5)
+        /// are not supported by pre-BB clients.
+        /// Set this based on the target MapleStory version when loading WZ files.
+        /// </summary>
+        public static bool UsePreBigBangImageFormats { get; set; } = false;
+
+        /// <summary>
         /// Determines the recommended SurfaceFormat for raw ARGB data given its width and height.
         /// </summary>
         public static SurfaceFormat DetermineTextureFormat(byte[] argbData, int width, int height)
@@ -41,7 +50,8 @@ namespace MapleLib.Helpers
             var (uniqueRgbColors, uniqueAlphaValues, hasAlpha, hasPartialAlpha, maxAlpha, avgAlphaGradient, alphaVariance, isGrayscale) =
                 AnalyzeImageData(argbData, width, height);
             bool isSmallImage = width * height < 256 * 256; // Favor 16-bit formats for small images
-            bool isDxtCandidate = IsDxtCompressionCandidate(width, height);
+            // Don't suggest DXT formats when UsePreBigBangImageFormats is true (pre-Big Bang compatibility)
+            bool isDxtCandidate = !UsePreBigBangImageFormats && IsDxtCompressionCandidate(width, height);
 
             // Grayscale images with alpha can use DXT3 (Format3) for efficient compression
             // This is commonly used for black/white thumbnails in MapleStory
