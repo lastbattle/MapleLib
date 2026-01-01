@@ -143,33 +143,10 @@ namespace MapleLib.Img
     }
 
     /// <summary>
-    /// Feature flags for a version
+    /// Feature flags for a version (reserved for future use)
     /// </summary>
     public class VersionFeatures
     {
-        [JsonProperty("hasPets")]
-        public bool HasPets { get; set; }
-
-        [JsonProperty("hasMount")]
-        public bool HasMount { get; set; }
-
-        [JsonProperty("hasAndroid")]
-        public bool HasAndroid { get; set; }
-
-        [JsonProperty("hasFamiliar")]
-        public bool HasFamiliar { get; set; }
-
-        [JsonProperty("hasMonsterLife")]
-        public bool HasMonsterLife { get; set; }
-
-        [JsonProperty("maxLevel")]
-        public int MaxLevel { get; set; } = 200;
-
-        [JsonProperty("hasV5thJob")]
-        public bool HasV5thJob { get; set; }
-
-        [JsonProperty("hasArcaneRiver")]
-        public bool HasArcaneRiver { get; set; }
     }
 
     /// <summary>

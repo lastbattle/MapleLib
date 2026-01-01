@@ -662,49 +662,7 @@ namespace MapleLib.Img
                 }
             }
 
-            // Detect features based on available content
-            DetectFeatures(versionInfo, outputPath);
-
             return versionInfo;
-        }
-
-        /// <summary>
-        /// Detects version features based on extracted content
-        /// </summary>
-        private void DetectFeatures(VersionInfo versionInfo, string outputPath)
-        {
-            // Check for pets
-            string petPath = Path.Combine(outputPath, "Item", "Pet");
-            versionInfo.Features.HasPets = Directory.Exists(petPath) &&
-                Directory.EnumerateFiles(petPath, "*.img").Any();
-
-            // Check for mounts
-            string tamingMobPath = Path.Combine(outputPath, "TamingMob");
-            versionInfo.Features.HasMount = Directory.Exists(tamingMobPath) &&
-                Directory.EnumerateFiles(tamingMobPath, "*.img", SearchOption.AllDirectories).Any();
-
-            // Check for androids
-            string androidPath = Path.Combine(outputPath, "Character", "Android");
-            versionInfo.Features.HasAndroid = Directory.Exists(androidPath) &&
-                Directory.EnumerateFiles(androidPath, "*.img").Any();
-
-            // Check for familiars (mob familiar folder)
-            string familiarPath = Path.Combine(outputPath, "Etc", "Familiar");
-            versionInfo.Features.HasFamiliar = Directory.Exists(familiarPath);
-
-            // Infer max level from skill structure (5th job skills start at ID 400000000+)
-            string skillPath = Path.Combine(outputPath, "Skill");
-            if (Directory.Exists(skillPath))
-            {
-                var skillFiles = Directory.EnumerateFiles(skillPath, "*.img");
-                bool has5thJob = skillFiles.Any(f =>
-                {
-                    string name = Path.GetFileNameWithoutExtension(f);
-                    return int.TryParse(name, out int id) && id >= 400;
-                });
-                versionInfo.Features.HasV5thJob = has5thJob;
-                versionInfo.Features.MaxLevel = has5thJob ? 300 : 250;
-            }
         }
 
         /// <summary>
