@@ -146,7 +146,7 @@ namespace MapleLib.Img
         /// <summary>
         /// Gets the list of WzImages in this directory
         /// </summary>
-        public new List<WzImage> WzImages
+        public override List<WzImage> WzImages
         {
             get
             {
@@ -158,7 +158,7 @@ namespace MapleLib.Img
         /// <summary>
         /// Gets the list of subdirectories
         /// </summary>
-        public new List<WzDirectory> WzDirectories
+        public override List<WzDirectory> WzDirectories
         {
             get
             {
@@ -170,7 +170,7 @@ namespace MapleLib.Img
         /// <summary>
         /// Gets a WzImage or WzDirectory by name
         /// </summary>
-        public new WzObject this[string name]
+        public override WzObject this[string name]
         {
             get
             {
@@ -199,7 +199,7 @@ namespace MapleLib.Img
         /// <summary>
         /// Gets an image by name
         /// </summary>
-        public new WzImage GetImageByName(string name)
+        public override WzImage GetImageByName(string name)
         {
             EnsurePopulated();
             string nameLower = name.ToLower();
@@ -209,7 +209,7 @@ namespace MapleLib.Img
         /// <summary>
         /// Gets a subdirectory by name
         /// </summary>
-        public new WzDirectory GetDirectoryByName(string name)
+        public override WzDirectory GetDirectoryByName(string name)
         {
             EnsurePopulated();
             string nameLower = name.ToLower();
@@ -219,7 +219,7 @@ namespace MapleLib.Img
         /// <summary>
         /// Counts total images including subdirectories
         /// </summary>
-        public new int CountImages()
+        public override int CountImages()
         {
             EnsurePopulated();
 

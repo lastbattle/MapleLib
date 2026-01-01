@@ -77,11 +77,11 @@ namespace MapleLib.WzLib
         /// <summary>
         /// The wz images contained in the directory
         /// </summary>
-        public List<WzImage> WzImages { get { return images; } private set { } }
+        public virtual List<WzImage> WzImages { get { return images; } private set { } }
         /// <summary>
         /// The sub directories contained in the directory
         /// </summary>
-        public List<WzDirectory> WzDirectories { get { return subDirs; } }
+        public virtual List<WzDirectory> WzDirectories { get { return subDirs; } }
         /// <summary>
         /// Offset of the folder
         /// </summary>
@@ -91,7 +91,7 @@ namespace MapleLib.WzLib
         /// </summary>
         /// <param name="name">The name of the img or dir to find</param>
         /// <returns>A WzImage or WzDirectory</returns>
-        public new WzObject this[string name]
+        public virtual new WzObject this[string name]
         {
             get
             {
@@ -550,7 +550,7 @@ namespace MapleLib.WzLib
         /// </summary>
         /// <param name="name">The name of the image</param>
         /// <returns>The wz image that has the specified name or null if none was found</returns>
-        public WzImage GetImageByName(string name)
+        public virtual WzImage GetImageByName(string name)
         {
             // Find the first WzImage with a matching name (case-insensitive)
             return images.FirstOrDefault(wzI => wzI.Name.ToLower() == name.ToLower());
@@ -561,7 +561,7 @@ namespace MapleLib.WzLib
         /// </summary>
         /// <param name="name">The name of the directory</param>
         /// <returns>The wz directory that has the specified name or null if none was found</returns>
-        public WzDirectory GetDirectoryByName(string name)
+        public virtual WzDirectory GetDirectoryByName(string name)
         {
             // Find the first WzDirectory with a matching name (case-insensitive)
             return subDirs.FirstOrDefault(dir => dir.Name.ToLower() == name.ToLower());
@@ -598,7 +598,7 @@ namespace MapleLib.WzLib
             return result;
         }
 
-        public int CountImages()
+        public virtual int CountImages()
         {
             int result = images.Count;
             foreach (WzDirectory subdir in WzDirectories)
