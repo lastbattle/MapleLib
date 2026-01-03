@@ -617,7 +617,7 @@ namespace MapleLib {
                 throw new Exception(string.Format("File '{0}' does not exist", basePath));
             }
 
-            FileStream fs = File.Open(filePath, FileMode.Open); // dont close this file stream until it is unloaded from memory
+            FileStream fs = File.Open(filePath, FileMode.Open, FileAccess.Read, FileShare.Read); // dont close this file stream until it is unloaded from memory
 
             WzImage img = new WzImage(Path.GetFileName(filePath), fs, encVersion);
             img.ParseImage(true);

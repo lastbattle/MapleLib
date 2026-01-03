@@ -38,6 +38,18 @@ namespace MapleLib.Img
         private readonly string _rootPath;
         private readonly List<VersionInfo> _availableVersions = new();
         private bool _scanned;
+
+        // Hot swap
+        private FileSystemWatcherService _watcherService;
+        private bool _hotSwapEnabled;
+        private readonly List<string> _additionalWatchPaths = new();
+        #endregion
+
+        #region Events
+        /// <summary>
+        /// Raised when the list of available versions changes
+        /// </summary>
+        public event EventHandler<VersionsChangedEventArgs> VersionsChanged;
         #endregion
 
         #region Properties
@@ -63,6 +75,11 @@ namespace MapleLib.Img
         /// Gets the count of available versions
         /// </summary>
         public int VersionCount => AvailableVersions.Count;
+
+        /// <summary>
+        /// Gets whether hot swap (file system watching) is enabled
+        /// </summary>
+        public bool HotSwapEnabled => _hotSwapEnabled;
         #endregion
 
         #region Constructor
@@ -472,6 +489,195 @@ namespace MapleLib.Img
             return new ImgFileSystemManager(version.DirectoryPath, config);
         }
         #endregion
+
+        #region Hot Swap
+        /// <summary>
+        /// Enables or disables hot swap (file system watching) for version directories
+        /// </summary>
+        /// <param name="enable">True to enable, false to disable</param>
+        /// <param name="debounceMs">Debounce delay in milliseconds (default 500)</param>
+        /// <param name="additionalPaths">Additional paths to watch (e.g., from config.AdditionalVersionPaths)</param>
+        public void EnableHotSwap(bool enable, int debounceMs = 500, IEnumerable<string> additionalPaths = null)
+        {
+            if (enable && !_hotSwapEnabled)
+            {
+                InitializeFileWatchers(debounceMs, additionalPaths);
+                _hotSwapEnabled = true;
+            }
+            else if (!enable && _hotSwapEnabled)
+            {
+                DisposeFileWatchers();
+                _hotSwapEnabled = false;
+            }
+        }
+
+        /// <summary>
+        /// Adds an additional path to watch for version directories
+        /// </summary>
+        /// <param name="path">The path to watch</param>
+        public void AddWatchPath(string path)
+        {
+            if (!_hotSwapEnabled || _watcherService == null || string.IsNullOrEmpty(path))
+                return;
+
+            if (!Directory.Exists(path))
+                return;
+
+            if (!_additionalWatchPaths.Contains(path, StringComparer.OrdinalIgnoreCase))
+            {
+                _additionalWatchPaths.Add(path);
+                _watcherService.WatchPath(path, WatchType.VersionRoot);
+            }
+        }
+
+        /// <summary>
+        /// Removes a path from watching
+        /// </summary>
+        /// <param name="path">The path to stop watching</param>
+        public void RemoveWatchPath(string path)
+        {
+            if (!_hotSwapEnabled || _watcherService == null || string.IsNullOrEmpty(path))
+                return;
+
+            _additionalWatchPaths.Remove(path);
+            _watcherService.UnwatchPath(path);
+        }
+
+        /// <summary>
+        /// Initializes file system watchers
+        /// </summary>
+        private void InitializeFileWatchers(int debounceMs, IEnumerable<string> additionalPaths)
+        {
+            _watcherService = new FileSystemWatcherService(debounceMs);
+            _watcherService.VersionDirectoryChanged += OnVersionDirectoryChanged;
+            _watcherService.WatcherError += OnWatcherError;
+
+            // Watch the root versions path
+            if (Directory.Exists(_rootPath))
+            {
+                _watcherService.WatchPath(_rootPath, WatchType.VersionRoot);
+            }
+
+            // Watch additional paths
+            if (additionalPaths != null)
+            {
+                foreach (var path in additionalPaths)
+                {
+                    if (Directory.Exists(path))
+                    {
+                        _additionalWatchPaths.Add(path);
+                        // Watch the parent directory of each additional version path
+                        string parentPath = Path.GetDirectoryName(path);
+                        if (!string.IsNullOrEmpty(parentPath) && Directory.Exists(parentPath))
+                        {
+                            _watcherService.WatchPath(parentPath, WatchType.VersionRoot);
+                        }
+                    }
+                }
+            }
+
+            System.Diagnostics.Debug.WriteLine($"VersionManager hot swap enabled for {_watcherService.WatchedPaths.Count} paths");
+        }
+
+        /// <summary>
+        /// Disposes file system watchers
+        /// </summary>
+        private void DisposeFileWatchers()
+        {
+            if (_watcherService != null)
+            {
+                _watcherService.VersionDirectoryChanged -= OnVersionDirectoryChanged;
+                _watcherService.WatcherError -= OnWatcherError;
+                _watcherService.Dispose();
+                _watcherService = null;
+            }
+
+            _additionalWatchPaths.Clear();
+            System.Diagnostics.Debug.WriteLine("VersionManager hot swap disabled");
+        }
+
+        /// <summary>
+        /// Handles version directory change events
+        /// </summary>
+        private void OnVersionDirectoryChanged(object sender, VersionDirectoryChangedEventArgs e)
+        {
+            try
+            {
+                VersionChangeType changeType;
+                VersionInfo affectedVersion = null;
+
+                switch (e.ChangeType)
+                {
+                    case WatcherChangeTypes.Created:
+                        // A new directory was created - check if it's a valid version
+                        if (Directory.Exists(e.VersionPath))
+                        {
+                            // Wait a moment for files to be copied (for drag-drop scenarios)
+                            System.Threading.Thread.Sleep(100);
+
+                            // Try to load as a version
+                            var newVersion = LoadVersionManifest(e.VersionPath);
+                            if (newVersion != null && newVersion.IsValid)
+                            {
+                                if (!_availableVersions.Any(v =>
+                                    v.DirectoryPath.Equals(e.VersionPath, StringComparison.OrdinalIgnoreCase)))
+                                {
+                                    _availableVersions.Add(newVersion);
+                                    _availableVersions.Sort((a, b) =>
+                                        string.Compare(a.Version, b.Version, StringComparison.OrdinalIgnoreCase));
+
+                                    affectedVersion = newVersion;
+                                    changeType = VersionChangeType.Added;
+                                    OnVersionsChanged(changeType, affectedVersion);
+                                }
+                            }
+                        }
+                        break;
+
+                    case WatcherChangeTypes.Deleted:
+                        // A directory was deleted - remove from list
+                        affectedVersion = _availableVersions.FirstOrDefault(v =>
+                            v.DirectoryPath.Equals(e.VersionPath, StringComparison.OrdinalIgnoreCase));
+
+                        if (affectedVersion != null)
+                        {
+                            _availableVersions.Remove(affectedVersion);
+                            changeType = VersionChangeType.Removed;
+                            OnVersionsChanged(changeType, affectedVersion);
+                        }
+                        break;
+
+                    case WatcherChangeTypes.Renamed:
+                        // Directory was renamed - refresh the list
+                        Refresh();
+                        OnVersionsChanged(VersionChangeType.Refreshed, null);
+                        break;
+                }
+
+                System.Diagnostics.Debug.WriteLine($"VersionManager hot swap: {e.ChangeType} - {e.VersionPath}");
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Error handling version directory change: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Handles watcher errors
+        /// </summary>
+        private void OnWatcherError(object sender, ErrorEventArgs e)
+        {
+            System.Diagnostics.Debug.WriteLine($"VersionManager watcher error: {e.GetException()?.Message}");
+        }
+
+        /// <summary>
+        /// Raises the VersionsChanged event
+        /// </summary>
+        protected void OnVersionsChanged(VersionChangeType changeType, VersionInfo affectedVersion)
+        {
+            VersionsChanged?.Invoke(this, new VersionsChangedEventArgs(changeType, affectedVersion));
+        }
+        #endregion
     }
 
     #region Validation Report Classes
@@ -497,6 +703,56 @@ namespace MapleLib.Img
         public bool Exists { get; set; }
         public int FileCount { get; set; }
         public long TotalSize { get; set; }
+    }
+    #endregion
+
+    #region Hot Swap Event Classes
+    /// <summary>
+    /// Specifies the type of version change
+    /// </summary>
+    public enum VersionChangeType
+    {
+        /// <summary>
+        /// A new version was added
+        /// </summary>
+        Added,
+
+        /// <summary>
+        /// A version was removed
+        /// </summary>
+        Removed,
+
+        /// <summary>
+        /// A version was modified
+        /// </summary>
+        Modified,
+
+        /// <summary>
+        /// The version list was refreshed
+        /// </summary>
+        Refreshed
+    }
+
+    /// <summary>
+    /// Event arguments for version list changes
+    /// </summary>
+    public class VersionsChangedEventArgs : EventArgs
+    {
+        /// <summary>
+        /// The type of change that occurred
+        /// </summary>
+        public VersionChangeType ChangeType { get; }
+
+        /// <summary>
+        /// The version that was affected, or null for refresh events
+        /// </summary>
+        public VersionInfo AffectedVersion { get; }
+
+        public VersionsChangedEventArgs(VersionChangeType changeType, VersionInfo affectedVersion)
+        {
+            ChangeType = changeType;
+            AffectedVersion = affectedVersion;
+        }
     }
     #endregion
 }

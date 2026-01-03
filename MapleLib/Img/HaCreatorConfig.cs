@@ -31,13 +31,6 @@ namespace MapleLib.Img
     /// </summary>
     public class HaCreatorConfig
     {
-        private static readonly string DefaultConfigPath = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-            "HaCreator", "config.json");
-
-        private static readonly string DefaultDataPath = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-            "HaCreator", "Data");
 
         /// <summary>
         /// The data source mode to use
@@ -49,7 +42,7 @@ namespace MapleLib.Img
         /// Root path for IMG filesystem data
         /// </summary>
         [JsonProperty("imgRootPath")]
-        public string ImgRootPath { get; set; } = DefaultDataPath;
+        public string ImgRootPath { get; set; } = HaCreatorPaths.DefaultDataPath;
 
         /// <summary>
         /// Last used version identifier
@@ -76,6 +69,13 @@ namespace MapleLib.Img
         public LegacyConfig Legacy { get; set; } = new LegacyConfig();
 
         /// <summary>
+        /// Hot swap configuration for file system watching.
+        /// Not persisted to config.json - uses compile-time defaults from HotSwapConstants.
+        /// </summary>
+        [JsonIgnore]
+        public HotSwapConfig HotSwap { get; set; } = new HotSwapConfig();
+
+        /// <summary>
         /// Additional version folder paths added via Browse
         /// These are paths outside the default versions directory
         /// </summary>
@@ -87,7 +87,7 @@ namespace MapleLib.Img
         /// </summary>
         public static HaCreatorConfig Load()
         {
-            return Load(DefaultConfigPath);
+            return Load(HaCreatorPaths.DefaultConfigPath);
         }
 
         /// <summary>
@@ -115,7 +115,7 @@ namespace MapleLib.Img
         /// </summary>
         public void Save()
         {
-            Save(DefaultConfigPath);
+            Save(HaCreatorPaths.DefaultConfigPath);
         }
 
         /// <summary>
@@ -144,13 +144,13 @@ namespace MapleLib.Img
         /// Gets the versions directory path
         /// </summary>
         [JsonIgnore]
-        public string VersionsPath => Path.Combine(ImgRootPath, "versions");
+        public string VersionsPath => HaCreatorPaths.GetVersionsPath(ImgRootPath);
 
         /// <summary>
         /// Gets the custom content directory path
         /// </summary>
         [JsonIgnore]
-        public string CustomPath => Path.Combine(ImgRootPath, "custom");
+        public string CustomPath => HaCreatorPaths.GetCustomPath(ImgRootPath);
 
         /// <summary>
         /// Ensures all required directories exist
@@ -250,5 +250,78 @@ namespace MapleLib.Img
         /// </summary>
         [JsonProperty("autoConvertOnLoad")]
         public bool AutoConvertOnLoad { get; set; } = false;
+    }
+
+    /// <summary>
+    /// Hot swap configuration for automatic file system monitoring.
+    /// Values are defined in <see cref="HotSwapConstants"/> (not persisted to config.json).
+    /// </summary>
+    public class HotSwapConfig
+    {
+        /// <summary>
+        /// Whether hot swap is enabled (file system watching)
+        /// </summary>
+        public bool Enabled { get; set; } = HotSwapConstants.DefaultEnabled;
+
+        /// <summary>
+        /// Debounce delay in milliseconds before processing file changes
+        /// </summary>
+        public int DebounceMs { get; set; } = HotSwapConstants.DefaultDebounceMs;
+
+        /// <summary>
+        /// Whether to watch version directories for new/deleted versions
+        /// </summary>
+        public bool WatchVersions { get; set; } = HotSwapConstants.DefaultWatchVersions;
+
+        /// <summary>
+        /// Whether to watch category directories for .img file changes
+        /// </summary>
+        public bool WatchCategories { get; set; } = HotSwapConstants.DefaultWatchCategories;
+
+        /// <summary>
+        /// Whether to automatically invalidate cache when files change
+        /// </summary>
+        public bool AutoInvalidateCache { get; set; } = HotSwapConstants.DefaultAutoInvalidateCache;
+
+        /// <summary>
+        /// Whether to auto-refresh displayed panels when assets change
+        /// </summary>
+        public bool AutoRefreshDisplayedAssets { get; set; } = HotSwapConstants.DefaultAutoRefreshDisplayedAssets;
+
+        /// <summary>
+        /// Whether to show confirmation dialog before refreshing placed items on the board
+        /// </summary>
+        public bool ConfirmRefreshPlacedItems { get; set; } = HotSwapConstants.DefaultConfirmRefreshPlacedItems;
+
+        /// <summary>
+        /// Whether to pause MapSimulator when assets change
+        /// </summary>
+        public bool PauseSimulatorOnAssetChange { get; set; } = HotSwapConstants.DefaultPauseSimulatorOnAssetChange;
+
+        /// <summary>
+        /// How to handle deleted assets that are in use
+        /// </summary>
+        public DeletedAssetBehavior DeletedAssetBehavior { get; set; } = HotSwapConstants.DefaultDeletedAssetBehavior;
+    }
+
+    /// <summary>
+    /// Behavior when a deleted asset is still in use
+    /// </summary>
+    public enum DeletedAssetBehavior
+    {
+        /// <summary>
+        /// Show a placeholder texture for deleted assets
+        /// </summary>
+        ShowPlaceholder,
+
+        /// <summary>
+        /// Remove all items using the deleted asset
+        /// </summary>
+        RemoveItems,
+
+        /// <summary>
+        /// Prompt the user for action
+        /// </summary>
+        PromptUser
     }
 }

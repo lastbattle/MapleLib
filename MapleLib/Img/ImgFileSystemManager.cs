@@ -56,6 +56,17 @@ namespace MapleLib.Img
         private int _cacheHits;
         private int _cacheMisses;
         private int _diskReads;
+
+        // Hot swap
+        private FileSystemWatcherService _watcherService;
+        private bool _hotSwapEnabled;
+        #endregion
+
+        #region Events
+        /// <summary>
+        /// Raised when the category index changes due to file additions, deletions, or modifications
+        /// </summary>
+        public event EventHandler<CategoryIndexChangedEventArgs> CategoryIndexChanged;
         #endregion
 
         #region Properties
@@ -78,6 +89,11 @@ namespace MapleLib.Img
         /// Gets the MapleStory version used for encryption
         /// </summary>
         public WzMapleVersion MapleVersion => _mapleVersion;
+
+        /// <summary>
+        /// Gets whether hot swap (file system watching) is enabled
+        /// </summary>
+        public bool HotSwapEnabled => _hotSwapEnabled;
         #endregion
 
         #region Constructor
@@ -838,6 +854,291 @@ namespace MapleLib.Img
         }
         #endregion
 
+        #region Hot Swap
+        /// <summary>
+        /// Enables or disables hot swap (file system watching)
+        /// </summary>
+        /// <param name="enable">True to enable, false to disable</param>
+        /// <param name="debounceMs">Debounce delay in milliseconds (default 500)</param>
+        public void EnableHotSwap(bool enable, int debounceMs = 500)
+        {
+            if (enable && !_hotSwapEnabled)
+            {
+                InitializeFileWatchers(debounceMs);
+                _hotSwapEnabled = true;
+            }
+            else if (!enable && _hotSwapEnabled)
+            {
+                DisposeFileWatchers();
+                _hotSwapEnabled = false;
+            }
+        }
+
+        /// <summary>
+        /// Initializes file system watchers for all category directories
+        /// </summary>
+        private void InitializeFileWatchers(int debounceMs)
+        {
+            _watcherService = new FileSystemWatcherService(debounceMs);
+            _watcherService.ImgFileChanged += OnImgFileChanged;
+            _watcherService.WatcherError += OnWatcherError;
+
+            // Watch each category directory
+            foreach (var category in _categoryIndex.Keys)
+            {
+                string categoryPath = Path.Combine(_versionPath, category);
+                if (Directory.Exists(categoryPath))
+                {
+                    _watcherService.WatchPath(categoryPath, WatchType.Category, category);
+                }
+            }
+
+            Debug.WriteLine($"Hot swap enabled for {_categoryIndex.Count} categories");
+        }
+
+        /// <summary>
+        /// Disposes file system watchers
+        /// </summary>
+        private void DisposeFileWatchers()
+        {
+            if (_watcherService != null)
+            {
+                _watcherService.ImgFileChanged -= OnImgFileChanged;
+                _watcherService.WatcherError -= OnWatcherError;
+                _watcherService.Dispose();
+                _watcherService = null;
+            }
+
+            Debug.WriteLine("Hot swap disabled");
+        }
+
+        /// <summary>
+        /// Handles .img file change events from the file system watcher
+        /// </summary>
+        private void OnImgFileChanged(object sender, ImgFileChangedEventArgs e)
+        {
+            if (_disposed)
+                return;
+
+            try
+            {
+                switch (e.ChangeType)
+                {
+                    case WatcherChangeTypes.Created:
+                        AddToCategoryIndex(e.Category, e.RelativePath);
+                        OnCategoryIndexChanged(e.Category, CategoryChangeType.FileAdded, e.RelativePath);
+                        break;
+
+                    case WatcherChangeTypes.Deleted:
+                        RemoveFromCategoryIndex(e.Category, e.RelativePath);
+                        InvalidateCache(e.Category, e.RelativePath);
+                        OnCategoryIndexChanged(e.Category, CategoryChangeType.FileRemoved, e.RelativePath);
+                        break;
+
+                    case WatcherChangeTypes.Changed:
+                        // Windows sometimes reports new files as "Changed" instead of "Created"
+                        // Check if file exists in index; if not, treat as Added
+                        bool isNewFile = !ExistsInCategoryIndex(e.Category, e.RelativePath);
+                        if (isNewFile)
+                        {
+                            AddToCategoryIndex(e.Category, e.RelativePath);
+                            OnCategoryIndexChanged(e.Category, CategoryChangeType.FileAdded, e.RelativePath);
+                        }
+                        else
+                        {
+                            InvalidateCache(e.Category, e.RelativePath);
+                            OnCategoryIndexChanged(e.Category, CategoryChangeType.FileModified, e.RelativePath);
+                        }
+                        break;
+
+                    case WatcherChangeTypes.Renamed:
+                        // Handle rename as delete old + add new
+                        if (!string.IsNullOrEmpty(e.OldPath))
+                        {
+                            string oldRelativePath = Path.GetFileName(e.OldPath);
+                            RemoveFromCategoryIndex(e.Category, oldRelativePath);
+                            InvalidateCache(e.Category, oldRelativePath);
+                        }
+                        AddToCategoryIndex(e.Category, e.RelativePath);
+                        OnCategoryIndexChanged(e.Category, CategoryChangeType.FileRenamed, e.RelativePath);
+                        break;
+                }
+
+                Debug.WriteLine($"Hot swap: {e.ChangeType} - {e.Category}/{e.RelativePath}");
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"Error handling file change: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Handles watcher errors
+        /// </summary>
+        private void OnWatcherError(object sender, ErrorEventArgs e)
+        {
+            Debug.WriteLine($"File watcher error: {e.GetException()?.Message}");
+        }
+
+        /// <summary>
+        /// Adds a file to the category index
+        /// </summary>
+        /// <param name="category">The category name</param>
+        /// <param name="relativePath">The relative path within the category</param>
+        public void AddToCategoryIndex(string category, string relativePath)
+        {
+            if (string.IsNullOrEmpty(category) || string.IsNullOrEmpty(relativePath))
+                return;
+
+            // Ensure it ends with .img
+            if (!relativePath.EndsWith(".img", StringComparison.OrdinalIgnoreCase))
+                return;
+
+            string categoryLower = category.ToLower();
+
+            _cacheLock.EnterWriteLock();
+            try
+            {
+                if (_categoryIndex.TryGetValue(categoryLower, out var files))
+                {
+                    if (!files.Contains(relativePath, StringComparer.OrdinalIgnoreCase))
+                    {
+                        files.Add(relativePath);
+                    }
+                }
+                else
+                {
+                    _categoryIndex[categoryLower] = new List<string> { relativePath };
+                }
+            }
+            finally
+            {
+                _cacheLock.ExitWriteLock();
+            }
+        }
+
+        /// <summary>
+        /// Removes a file from the category index
+        /// </summary>
+        /// <param name="category">The category name</param>
+        /// <param name="relativePath">The relative path within the category</param>
+        public void RemoveFromCategoryIndex(string category, string relativePath)
+        {
+            if (string.IsNullOrEmpty(category) || string.IsNullOrEmpty(relativePath))
+                return;
+
+            string categoryLower = category.ToLower();
+
+            _cacheLock.EnterWriteLock();
+            try
+            {
+                if (_categoryIndex.TryGetValue(categoryLower, out var files))
+                {
+                    // Remove case-insensitive
+                    var toRemove = files.FirstOrDefault(f =>
+                        f.Equals(relativePath, StringComparison.OrdinalIgnoreCase));
+                    if (toRemove != null)
+                    {
+                        files.Remove(toRemove);
+                    }
+                }
+            }
+            finally
+            {
+                _cacheLock.ExitWriteLock();
+            }
+        }
+
+        /// <summary>
+        /// Checks if a file exists in the category index
+        /// </summary>
+        /// <param name="category">The category name</param>
+        /// <param name="relativePath">The relative path within the category</param>
+        /// <returns>True if the file exists in the index</returns>
+        public bool ExistsInCategoryIndex(string category, string relativePath)
+        {
+            if (string.IsNullOrEmpty(category) || string.IsNullOrEmpty(relativePath))
+                return false;
+
+            string categoryLower = category.ToLower();
+
+            _cacheLock.EnterReadLock();
+            try
+            {
+                if (_categoryIndex.TryGetValue(categoryLower, out var files))
+                {
+                    return files.Any(f => f.Equals(relativePath, StringComparison.OrdinalIgnoreCase));
+                }
+                return false;
+            }
+            finally
+            {
+                _cacheLock.ExitReadLock();
+            }
+        }
+
+        /// <summary>
+        /// Invalidates a cache entry for a specific file
+        /// </summary>
+        /// <param name="category">The category name</param>
+        /// <param name="relativePath">The relative path within the category</param>
+        public void InvalidateCache(string category, string relativePath)
+        {
+            string cacheKey = $"{category.ToLower()}/{relativePath.ToLower()}";
+            _imageCache.Remove(cacheKey);
+
+            // Also invalidate the directory cache for this category
+            string categoryLower = category.ToLower();
+            if (_directoryCache.TryGetValue(categoryLower, out var dir))
+            {
+                dir.Refresh();
+            }
+        }
+
+        /// <summary>
+        /// Raises the CategoryIndexChanged event
+        /// </summary>
+        protected void OnCategoryIndexChanged(string category, CategoryChangeType changeType, string relativePath)
+        {
+            CategoryIndexChanged?.Invoke(this, new CategoryIndexChangedEventArgs(category, changeType, relativePath));
+        }
+
+        /// <summary>
+        /// Refreshes the category index by rescanning the directory
+        /// </summary>
+        /// <param name="category">The category to refresh, or null to refresh all</param>
+        public void RefreshCategoryIndex(string category = null)
+        {
+            if (category != null)
+            {
+                string categoryPath = Path.Combine(_versionPath, category);
+                if (Directory.Exists(categoryPath))
+                {
+                    var imageFiles = new List<string>();
+                    ScanDirectoryForImages(categoryPath, categoryPath, imageFiles);
+
+                    _cacheLock.EnterWriteLock();
+                    try
+                    {
+                        _categoryIndex[category.ToLower()] = imageFiles;
+                    }
+                    finally
+                    {
+                        _cacheLock.ExitWriteLock();
+                    }
+
+                    OnCategoryIndexChanged(category, CategoryChangeType.IndexRefreshed, null);
+                }
+            }
+            else
+            {
+                // Refresh all categories
+                BuildCategoryIndex();
+                OnCategoryIndexChanged(null, CategoryChangeType.IndexRefreshed, null);
+            }
+        }
+        #endregion
+
         #region Helpers
         private void EnsureInitialized()
         {
@@ -940,6 +1241,13 @@ namespace MapleLib.Img
             if (_disposed)
                 return;
 
+            // Disable hot swap and dispose watchers
+            if (_hotSwapEnabled)
+            {
+                DisposeFileWatchers();
+                _hotSwapEnabled = false;
+            }
+
             _imageCache?.Dispose();  // LRU cache disposes all cached WzImage objects
             _directoryCache.Clear();
             _categoryIndex.Clear();
@@ -948,5 +1256,64 @@ namespace MapleLib.Img
             _disposed = true;
         }
         #endregion
+    }
+
+    /// <summary>
+    /// Specifies the type of change that occurred to the category index
+    /// </summary>
+    public enum CategoryChangeType
+    {
+        /// <summary>
+        /// A new .img file was added
+        /// </summary>
+        FileAdded,
+
+        /// <summary>
+        /// An .img file was removed
+        /// </summary>
+        FileRemoved,
+
+        /// <summary>
+        /// An .img file was modified
+        /// </summary>
+        FileModified,
+
+        /// <summary>
+        /// An .img file was renamed
+        /// </summary>
+        FileRenamed,
+
+        /// <summary>
+        /// The entire index was refreshed
+        /// </summary>
+        IndexRefreshed
+    }
+
+    /// <summary>
+    /// Event arguments for category index changes
+    /// </summary>
+    public class CategoryIndexChangedEventArgs : EventArgs
+    {
+        /// <summary>
+        /// The category that changed, or null if all categories changed
+        /// </summary>
+        public string Category { get; }
+
+        /// <summary>
+        /// The type of change that occurred
+        /// </summary>
+        public CategoryChangeType ChangeType { get; }
+
+        /// <summary>
+        /// The relative path of the file that changed, or null for index refresh
+        /// </summary>
+        public string RelativePath { get; }
+
+        public CategoryIndexChangedEventArgs(string category, CategoryChangeType changeType, string relativePath)
+        {
+            Category = category;
+            ChangeType = changeType;
+            RelativePath = relativePath;
+        }
     }
 }

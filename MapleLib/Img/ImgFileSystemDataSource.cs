@@ -128,6 +128,30 @@ namespace MapleLib.Img
         /// </summary>
         public ImgFileSystemManager Manager => _manager;
 
+        /// <summary>
+        /// Enables or disables hot swap (file system watching) for category directories
+        /// </summary>
+        /// <param name="enable">True to enable, false to disable</param>
+        /// <param name="debounceMs">Debounce delay in milliseconds (default 500)</param>
+        public void EnableHotSwap(bool enable, int debounceMs = 500)
+        {
+            _manager.EnableHotSwap(enable, debounceMs);
+        }
+
+        /// <summary>
+        /// Gets whether hot swap is enabled
+        /// </summary>
+        public bool HotSwapEnabled => _manager.HotSwapEnabled;
+
+        /// <summary>
+        /// Event raised when the category index changes due to file additions, deletions, or modifications
+        /// </summary>
+        public event EventHandler<CategoryIndexChangedEventArgs> CategoryIndexChanged
+        {
+            add => _manager.CategoryIndexChanged += value;
+            remove => _manager.CategoryIndexChanged -= value;
+        }
+
         public void Dispose()
         {
             if (_disposed) return;
