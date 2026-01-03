@@ -140,6 +140,44 @@ namespace MapleLib.Img
             _images?.Clear();
             _subDirectories?.Clear();
         }
+
+        /// <summary>
+        /// Removes an image from this directory by name.
+        /// Called when a file is deleted from the filesystem.
+        /// </summary>
+        /// <param name="imageName">The name of the image to remove</param>
+        /// <returns>True if the image was found and removed</returns>
+        public bool RemoveImage(string imageName)
+        {
+            if (_images == null || string.IsNullOrEmpty(imageName))
+                return false;
+
+            var image = _images.FirstOrDefault(img =>
+                img.Name?.Equals(imageName, StringComparison.OrdinalIgnoreCase) == true);
+
+            if (image != null)
+            {
+                _images.Remove(image);
+                image.Dispose();
+                return true;
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// Removes an image from this directory by file path.
+        /// Called when a file is deleted from the filesystem.
+        /// </summary>
+        /// <param name="filePath">The full file path of the image to remove</param>
+        /// <returns>True if the image was found and removed</returns>
+        public bool RemoveImageByPath(string filePath)
+        {
+            if (string.IsNullOrEmpty(filePath))
+                return false;
+
+            string imageName = Path.GetFileName(filePath);
+            return RemoveImage(imageName);
+        }
         #endregion
 
         #region WzDirectory Overrides
@@ -335,7 +373,7 @@ namespace MapleLib.Img
         /// <returns>True if saved successfully</returns>
         public bool SaveImage(WzImage image)
         {
-            if (image == null)
+            if (image == null || string.IsNullOrEmpty(image.Name))
                 return false;
 
             string filePath = Path.Combine(_filesystemPath, image.Name);
