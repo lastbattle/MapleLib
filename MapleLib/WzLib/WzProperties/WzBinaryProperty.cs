@@ -178,9 +178,9 @@ namespace MapleLib.WzLib.WzProperties
 
             header = soundHeaderBytes.Concat(unk1).Concat(waveFormatBytes).ToArray();
 
-            Debug.WriteLine(HexTool.ByteArrayToString(soundHeaderBytes));
-            Debug.WriteLine(HexTool.ByteArrayToString(unk1));
-            Debug.WriteLine(HexTool.ByteArrayToString(waveFormatBytes));
+            //Debug.WriteLine(HexTool.ByteArrayToString(soundHeaderBytes));
+            //Debug.WriteLine(HexTool.ByteArrayToString(unk1));
+            //Debug.WriteLine(HexTool.ByteArrayToString(waveFormatBytes));
 
             ParseWzSoundPropertyHeader();
 

@@ -420,8 +420,8 @@ namespace MapleLib.WzLib.Util
                     : (pooledArray = s_bytePool.Rent(numberOfBytes)).AsSpan(0, numberOfBytes);
 
                 BaseStream.Read(buffer);
-                string hex = HexTool.ToString(buffer.ToArray());
-                Debug.WriteLine(hex);
+                //string hex = HexTool.ToString(buffer.ToArray());
+                //Debug.WriteLine(hex);
 
                 BaseStream.Position -= numberOfBytes;
             }
