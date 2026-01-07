@@ -277,8 +277,9 @@ namespace MapleLib.WzLib.WzStructure.Data.MobStructure
                 else if (imgDirName == "jump")
                 {
                     data.CanJump = true;
+                    data.IsMobile = true;  // Jumping mobs can also walk
                 }
-                else if (imgDirName == "move")
+                else if (imgDirName == "move" || imgDirName == "walk")
                 {
                     data.IsMobile = true;
                 }
