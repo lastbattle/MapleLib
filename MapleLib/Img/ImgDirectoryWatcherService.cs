@@ -40,6 +40,7 @@ namespace MapleLib.Img
         Added,
 
         /// <summary>
+        /// File was renamed
         /// </summary>
         Renamed
     }

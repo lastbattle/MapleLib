@@ -156,6 +156,11 @@ namespace MapleLib.Img
                 var wzFilesToExtract = categoriesToExtract.ToList();
                 progressData.TotalFiles = CountTotalImages(wzFilesToExtract, mapleStoryPath, encryption, is64Bit);
 
+                // Force GC after counting to release any memory allocated during counting
+                // This ensures extraction starts with minimal memory footprint
+                GC.Collect();
+                GC.WaitForPendingFinalizers();
+
                 progress?.Report(progressData);
 
                 // Extract WZ files concurrently - each category is independent
@@ -329,6 +334,13 @@ namespace MapleLib.Img
                                 progressCallback,
                                 result);
                         }
+
+                        // Force garbage collection after each WZ file to release memory promptly
+                        // This is critical for systems with limited memory (8-16GB)
+                        // Without this, GC may not run frequently enough to keep up with
+                        // the rate of bitmap allocations during extraction
+                        GC.Collect();
+                        GC.WaitForPendingFinalizers();
                     }, cancellationToken);
                 }
 
@@ -613,6 +625,14 @@ namespace MapleLib.Img
                 catch (Exception ex)
                 {
                     result.Errors.Add($"Failed to extract {img.Name}: {ex.Message}");
+                }
+                finally
+                {
+                    // CRITICAL: Release parsed image data to prevent memory leak
+                    // After serialization, the image's properties (including bitmaps)
+                    // would otherwise stay in memory until WzFile.Dispose() is called.
+                    // This caused massive memory accumulation when extracting large WZ files.
+                    img.UnparseImage();
                 }
             }
         }
