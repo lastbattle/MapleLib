@@ -185,6 +185,32 @@ namespace MapleLib.WzLib.WzProperties
         public WzPngProperty() { }
 
         /// <summary>
+        /// Sets the compressed image bytes directly, along with dimensions and format.
+        /// This allows copying image data from one canvas to another without decompression/recompression.
+        /// </summary>
+        /// <param name="bytes">The compressed image bytes</param>
+        /// <param name="width">Image width</param>
+        /// <param name="height">Image height</param>
+        /// <param name="format">Image format</param>
+        public void SetCompressedBytes(byte[] bytes, int width, int height, WzPngFormat format)
+        {
+            this.compressedImageBytes = bytes;
+            this.width = width;
+            this.height = height;
+            this.format = format;
+
+            // Clear any cached bitmap since we're replacing the data
+            if (this.png != null)
+            {
+                this.png.Dispose();
+                this.png = null;
+            }
+
+            // Clear reader reference since we now have the data in memory
+            this.wzReader = null;
+        }
+
+        /// <summary>
         /// Creates a blank WzPngProperty 
         /// </summary>
         /// <param name="reader"></param>

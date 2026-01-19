@@ -1,5 +1,6 @@
 using MapleLib.WzLib;
 using MapleLib.WzLib.Serializer;
+using MapleLib.WzLib.WzProperties;
 using Newtonsoft.Json;
 using System;
 using System.Collections.Concurrent;
@@ -76,6 +77,7 @@ namespace MapleLib.Img
         /// <param name="versionId">Version identifier (e.g., "v83")</param>
         /// <param name="displayName">Human-readable display name</param>
         /// <param name="encryption">WZ encryption version</param>
+        /// <param name="resolveLinks">Whether to resolve _inlink/_outlink canvas references (default true)</param>
         /// <param name="cancellationToken">Cancellation token</param>
         /// <param name="progress">Progress reporter</param>
         /// <returns>Extraction result with statistics</returns>
@@ -85,6 +87,7 @@ namespace MapleLib.Img
             string versionId,
             string displayName,
             WzMapleVersion encryption,
+            bool resolveLinks = true,
             CancellationToken cancellationToken = default,
             IProgress<ExtractionProgress> progress = null)
         {
@@ -100,6 +103,7 @@ namespace MapleLib.Img
                 displayName,
                 encryption,
                 allCategories,
+                resolveLinks,
                 cancellationToken,
                 progress);
         }
@@ -113,6 +117,7 @@ namespace MapleLib.Img
         /// <param name="displayName">Display name for the version</param>
         /// <param name="encryption">WZ encryption version</param>
         /// <param name="categoriesToExtract">List of category names to extract (e.g., "Map", "Mob", "String")</param>
+        /// <param name="resolveLinks">Whether to resolve _inlink/_outlink canvas references (default true)</param>
         /// <param name="cancellationToken">Cancellation token</param>
         /// <param name="progress">Progress reporter</param>
         /// <returns>Extraction result with statistics</returns>
@@ -123,6 +128,7 @@ namespace MapleLib.Img
             string displayName,
             WzMapleVersion encryption,
             IEnumerable<string> categoriesToExtract,
+            bool resolveLinks = true,
             CancellationToken cancellationToken = default,
             IProgress<ExtractionProgress> progress = null)
         {
@@ -194,6 +200,7 @@ namespace MapleLib.Img
                         encryption,
                         is64Bit,
                         isPreBB,
+                        resolveLinks,
                         ct,
                         (current, total, fileName) =>
                         {
@@ -284,6 +291,7 @@ namespace MapleLib.Img
             WzMapleVersion encryption,
             bool is64Bit,
             bool isPreBB,
+            bool resolveLinks,
             CancellationToken cancellationToken,
             Action<int, int, string> progressCallback = null)
         {
@@ -299,53 +307,102 @@ namespace MapleLib.Img
                 Directory.CreateDirectory(categoryOutputPath);
             }
 
+            // Create link resolver if enabled
+            WzLinkResolver linkResolver = resolveLinks ? new WzLinkResolver() : null;
+
             try
             {
                 // Find WZ files for this category (could be multiple like Mob, Mob001, Mob2)
-                var wzFiles = FindCategoryWzFiles(mapleStoryPath, category, is64Bit);
+                var wzFilePaths = FindCategoryWzFiles(mapleStoryPath, category, is64Bit);
 
                 var serializer = new WzImgSerializer();
                 int processedCount = 0;
 
-                foreach (var wzFilePath in wzFiles)
+                // Load ALL WZ files for this category simultaneously so outlinks can resolve
+                // across split files (e.g., Mob001.wz referencing Mob/xxx.img in Mob.wz)
+                var loadedWzFiles = new List<WzFile>();
+
+                await Task.Run(() =>
                 {
-                    cancellationToken.ThrowIfCancellationRequested();
-
-                    if (!File.Exists(wzFilePath))
-                        continue;
-
-                    await Task.Run(() =>
+                    try
                     {
-                        using (var wzFile = new WzFile(wzFilePath, encryption))
+                        // First, load and parse all WZ files for this category
+                        foreach (var wzFilePath in wzFilePaths)
                         {
+                            cancellationToken.ThrowIfCancellationRequested();
+
+                            if (!File.Exists(wzFilePath))
+                                continue;
+
+                            var wzFile = new WzFile(wzFilePath, encryption);
                             var parseStatus = wzFile.ParseWzFile();
+
                             if (parseStatus != WzFileParseStatus.Success)
                             {
                                 result.Errors.Add($"Failed to parse {wzFilePath}: {parseStatus}");
-                                return;
+                                wzFile.Dispose();
+                                continue;
                             }
 
-                            // Extract directories and images
+                            loadedWzFiles.Add(wzFile);
+                        }
+
+                        // Set all loaded WZ files on the resolver for cross-file outlink resolution
+                        if (linkResolver != null && loadedWzFiles.Count > 0)
+                        {
+                            linkResolver.SetCategoryWzFiles(loadedWzFiles, category);
+                        }
+
+                        // Now extract from all loaded WZ files (outlinks can resolve across them)
+                        foreach (var wzFile in loadedWzFiles)
+                        {
+                            cancellationToken.ThrowIfCancellationRequested();
+
                             ExtractWzNode(
                                 wzFile.WzDirectory,
                                 categoryOutputPath,
                                 serializer,
+                                linkResolver,
                                 ref processedCount,
                                 progressCallback,
                                 result);
                         }
+                    }
+                    finally
+                    {
+                        // Dispose all WZ files
+                        foreach (var wzFile in loadedWzFiles)
+                        {
+                            wzFile.Dispose();
+                        }
+                        loadedWzFiles.Clear();
 
-                        // Force garbage collection after each WZ file to release memory promptly
-                        // This is critical for systems with limited memory (8-16GB)
-                        // Without this, GC may not run frequently enough to keep up with
-                        // the rate of bitmap allocations during extraction
+                        // Force garbage collection after category extraction
                         GC.Collect();
                         GC.WaitForPendingFinalizers();
-                    }, cancellationToken);
-                }
+                    }
+                }, cancellationToken);
 
                 result.Success = true;
                 result.ImagesExtracted = processedCount;
+
+                // Copy link resolution statistics
+                if (linkResolver != null)
+                {
+                    result.LinksResolved = linkResolver.LinksResolved;
+                    result.LinksFailed = linkResolver.LinksFailed;
+                    if (linkResolver.FailedLinks.Count > 0)
+                    {
+                        foreach (var failedLink in linkResolver.FailedLinks.Take(10))
+                        {
+                            result.Errors.Add($"Broken link (missing data in original WZ): {failedLink}");
+                        }
+                        if (linkResolver.FailedLinks.Count > 10)
+                        {
+                            result.Errors.Add($"... and {linkResolver.FailedLinks.Count - 10} more broken links (missing data in original WZ files)");
+                        }
+                    }
+                }
             }
             catch (Exception ex)
             {
@@ -593,6 +650,7 @@ namespace MapleLib.Img
             WzDirectory directory,
             string outputPath,
             WzImgSerializer serializer,
+            WzLinkResolver linkResolver,
             ref int processedCount,
             Action<int, int, string> progressCallback,
             CategoryExtractionResult result)
@@ -606,7 +664,7 @@ namespace MapleLib.Img
                     Directory.CreateDirectory(subDirPath);
                 }
 
-                ExtractWzNode(subDir, subDirPath, serializer, ref processedCount, progressCallback, result);
+                ExtractWzNode(subDir, subDirPath, serializer, linkResolver, ref processedCount, progressCallback, result);
             }
 
             // Extract images
@@ -614,6 +672,12 @@ namespace MapleLib.Img
             {
                 try
                 {
+                    // Resolve _inlink/_outlink references before serialization
+                    if (linkResolver != null)
+                    {
+                        linkResolver.ResolveLinksInImage(img);
+                    }
+
                     string imgPath = Path.Combine(outputPath, EscapeFileName(img.Name));
                     serializer.SerializeImage(img, imgPath);
 
@@ -750,6 +814,12 @@ namespace MapleLib.Img
 
         public long TotalSize =>
             CategoriesExtracted.Values.Sum(c => c.TotalSize);
+
+        public int TotalLinksResolved =>
+            CategoriesExtracted.Values.Sum(c => c.LinksResolved);
+
+        public int TotalLinksFailed =>
+            CategoriesExtracted.Values.Sum(c => c.LinksFailed);
     }
 
     /// <summary>
@@ -761,6 +831,8 @@ namespace MapleLib.Img
         public bool Success { get; set; }
         public int ImagesExtracted { get; set; }
         public long TotalSize { get; set; }
+        public int LinksResolved { get; set; }
+        public int LinksFailed { get; set; }
         public DateTime StartTime { get; set; }
         public DateTime EndTime { get; set; }
         public TimeSpan Duration => EndTime - StartTime;
