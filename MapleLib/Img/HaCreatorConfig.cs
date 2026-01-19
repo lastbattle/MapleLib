@@ -83,6 +83,44 @@ namespace MapleLib.Img
         public List<string> AdditionalVersionPaths { get; set; } = new List<string>();
 
         /// <summary>
+        /// History of recently selected version folder paths (most recent first).
+        /// No duplicates - selecting a path moves it to the front.
+        /// </summary>
+        [JsonProperty("recentVersionPaths")]
+        public List<string> RecentVersionPaths { get; set; } = new List<string>();
+
+        /// <summary>
+        /// Maximum number of recent version paths to keep in history
+        /// </summary>
+        private const int MaxRecentVersions = 20;
+
+        /// <summary>
+        /// Adds a version path to the recent history.
+        /// If the path already exists, it's moved to the front.
+        /// </summary>
+        /// <param name="path">The path to add</param>
+        public void AddToRecentVersionPaths(string path)
+        {
+            if (string.IsNullOrWhiteSpace(path))
+                return;
+
+            string normalizedPath = Path.GetFullPath(path);
+
+            // Remove existing entry if present (case-insensitive comparison)
+            RecentVersionPaths.RemoveAll(p =>
+                Path.GetFullPath(p).Equals(normalizedPath, StringComparison.OrdinalIgnoreCase));
+
+            // Insert at the front
+            RecentVersionPaths.Insert(0, path);
+
+            // Trim to max size
+            if (RecentVersionPaths.Count > MaxRecentVersions)
+            {
+                RecentVersionPaths.RemoveRange(MaxRecentVersions, RecentVersionPaths.Count - MaxRecentVersions);
+            }
+        }
+
+        /// <summary>
         /// Loads configuration from the default path
         /// </summary>
         public static HaCreatorConfig Load()
