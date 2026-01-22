@@ -1,5 +1,6 @@
 using MapleLib.WzLib;
 using MapleLib.WzLib.Serializer;
+using MapleLib.WzLib.Util;
 using MapleLib.WzLib.WzProperties;
 using Newtonsoft.Json;
 using System;
@@ -334,6 +335,43 @@ namespace MapleLib.Img
                             if (!File.Exists(wzFilePath))
                                 continue;
 
+                            // Handle List.wz files specially - they have a different format (pre-Big Bang)
+                            // containing encrypted path strings instead of WZ image data
+                            if (WzTool.IsListFile(wzFilePath))
+                            {
+                                try
+                                {
+                                    // Parse List.wz and save as JSON
+                                    var listEntries = ListFileParser.ParseListFile(wzFilePath, encryption);
+
+                                    // Save to List category folder as JSON (clearer than .img for a JSON file)
+                                    string listOutputPath = Path.Combine(categoryOutputPath, "List.json");
+                                    if (!Directory.Exists(categoryOutputPath))
+                                    {
+                                        Directory.CreateDirectory(categoryOutputPath);
+                                    }
+
+                                    // Create a simple structure with the list entries
+                                    var listData = new
+                                    {
+                                        Type = "ListWz",
+                                        Description = "Pre-Big Bang List.wz - contains paths of images with different encryption",
+                                        Entries = listEntries
+                                    };
+
+                                    string json = JsonConvert.SerializeObject(listData, Formatting.Indented);
+                                    File.WriteAllText(listOutputPath, json);
+
+                                    result.ImagesExtracted++;
+                                    result.TotalSize += json.Length;
+                                }
+                                catch (Exception ex)
+                                {
+                                    result.Errors.Add($"Failed to parse List.wz: {ex.Message}");
+                                }
+                                continue;
+                            }
+
                             var wzFile = new WzFile(wzFilePath, encryption);
                             var parseStatus = wzFile.ParseWzFile();
 
@@ -621,6 +659,13 @@ namespace MapleLib.Img
                 {
                     if (!File.Exists(wzFilePath))
                         continue;
+
+                    // Count List.wz as 1 image (it will be extracted as JSON)
+                    if (WzTool.IsListFile(wzFilePath))
+                    {
+                        total++;
+                        continue;
+                    }
 
                     try
                     {

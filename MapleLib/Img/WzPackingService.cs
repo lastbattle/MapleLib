@@ -271,6 +271,65 @@ namespace MapleLib.Img
                 // Get WZ IV for encryption
                 byte[] wzIv = WzTool.GetIvByMapleVersion(encryption);
 
+                // Special handling for List.wz files (pre-Big Bang format)
+                // These are stored as JSON during extraction and need to be converted back to List.wz format
+                if (category.Equals("List", StringComparison.OrdinalIgnoreCase))
+                {
+                    string listJsonPath = Path.Combine(categoryPath, "List.json");
+                    if (File.Exists(listJsonPath))
+                    {
+                        try
+                        {
+                            string jsonContent = File.ReadAllText(listJsonPath);
+
+                            // Check if this is our JSON format (extracted List.wz)
+                            if (jsonContent.TrimStart().StartsWith("{"))
+                            {
+                                var listData = JsonConvert.DeserializeObject<ListWzJsonFormat>(jsonContent);
+
+                                if (listData?.Entries != null && listData.Entries.Count > 0)
+                                {
+                                    // Determine output path for List.wz
+                                    string listWzPath;
+                                    if (saveAs64Bit)
+                                    {
+                                        string categoryOutputPath = Path.Combine(outputPath, "Data", category);
+                                        if (!Directory.Exists(categoryOutputPath))
+                                        {
+                                            Directory.CreateDirectory(categoryOutputPath);
+                                        }
+                                        listWzPath = Path.Combine(categoryOutputPath, "List_000.wz");
+                                    }
+                                    else
+                                    {
+                                        listWzPath = Path.Combine(outputPath, "List.wz");
+                                    }
+
+                                    // Use ListFileParser to save in proper List.wz format
+                                    ListFileParser.SaveToDisk(listWzPath, encryption, listData.Entries);
+
+                                    result.Success = true;
+                                    result.ImagesPacked = 1;
+                                    result.OutputFilePath = listWzPath;
+                                    if (File.Exists(listWzPath))
+                                    {
+                                        result.OutputFileSize = new FileInfo(listWzPath).Length;
+                                    }
+                                    result.EndTime = DateTime.Now;
+
+                                    Debug.WriteLine($"[PackCategory] List: Created List.wz from JSON format ({result.OutputFileSize} bytes)");
+                                    return result;
+                                }
+                            }
+                        }
+                        catch (JsonException)
+                        {
+                            // Not JSON format, fall through to normal processing
+                            Debug.WriteLine($"[PackCategory] List.img is not in JSON format, attempting normal WZ processing");
+                        }
+                    }
+                }
+
                 if (saveAs64Bit)
                 {
                     // 64-bit format with potential file splitting
@@ -1561,6 +1620,18 @@ namespace MapleLib.Img
     {
         public Exception Exception { get; }
         public PackingErrorEventArgs(Exception ex) => Exception = ex;
+    }
+    #endregion
+
+    #region List.wz JSON Format
+    /// <summary>
+    /// JSON format used for extracted List.wz files
+    /// </summary>
+    internal class ListWzJsonFormat
+    {
+        public string Type { get; set; }
+        public string Description { get; set; }
+        public List<string> Entries { get; set; }
     }
     #endregion
 }
