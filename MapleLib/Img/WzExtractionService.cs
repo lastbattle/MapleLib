@@ -159,6 +159,26 @@ namespace MapleLib.Img
                     Directory.CreateDirectory(outputVersionPath);
                 }
 
+                // Pre-parse List.wz if it exists (for tracking decrypted images)
+                HashSet<string> listWzEntries = null;
+                ConcurrentDictionary<string, byte> extractedListWzImages = null;
+                string listWzFilePath = Path.Combine(mapleStoryPath, "List.wz");
+
+                if (File.Exists(listWzFilePath) && WzTool.IsListFile(listWzFilePath))
+                {
+                    try
+                    {
+                        var entries = ListFileParser.ParseListFile(listWzFilePath, encryption);
+                        listWzEntries = new HashSet<string>(entries, StringComparer.OrdinalIgnoreCase);
+                        extractedListWzImages = new ConcurrentDictionary<string, byte>(StringComparer.OrdinalIgnoreCase);
+                        Debug.WriteLine($"[WzExtraction] Pre-parsed List.wz with {listWzEntries.Count} entries");
+                    }
+                    catch (Exception ex)
+                    {
+                        Debug.WriteLine($"[WzExtraction] Failed to pre-parse List.wz: {ex.Message}");
+                    }
+                }
+
                 // Use the provided categories
                 var wzFilesToExtract = categoriesToExtract.ToList();
                 progressData.TotalFiles = CountTotalImages(wzFilesToExtract, mapleStoryPath, encryption, is64Bit);
@@ -202,6 +222,8 @@ namespace MapleLib.Img
                         is64Bit,
                         isPreBB,
                         resolveLinks,
+                        listWzEntries,
+                        extractedListWzImages,
                         ct,
                         (current, total, fileName) =>
                         {
@@ -257,6 +279,12 @@ namespace MapleLib.Img
                 var validationResult = ValidateExtraction(outputVersionPath);
                 result.ValidationResult = validationResult;
 
+                // Write filtered List.json if we had List.wz entries
+                if (listWzEntries != null && listWzEntries.Count > 0)
+                {
+                    WriteFilteredListJson(outputVersionPath, listWzEntries, extractedListWzImages);
+                }
+
                 result.Success = validationResult.IsValid;
                 result.EndTime = DateTime.Now;
 
@@ -293,6 +321,8 @@ namespace MapleLib.Img
             bool is64Bit,
             bool isPreBB,
             bool resolveLinks,
+            HashSet<string> listWzEntries,
+            ConcurrentDictionary<string, byte> extractedListWzImages,
             CancellationToken cancellationToken,
             Action<int, int, string> progressCallback = null)
         {
@@ -316,7 +346,8 @@ namespace MapleLib.Img
                 // Find WZ files for this category (could be multiple like Mob, Mob001, Mob2)
                 var wzFilePaths = FindCategoryWzFiles(mapleStoryPath, category, is64Bit);
 
-                var serializer = new WzImgSerializer();
+                // Use BMS encryption (all zeroes) for extracted IMG files - plain/unencrypted format
+                var serializer = WzImgSerializer.CreateForImgExtraction();
                 int processedCount = 0;
 
                 // Load ALL WZ files for this category simultaneously so outlinks can resolve
@@ -336,39 +367,12 @@ namespace MapleLib.Img
                                 continue;
 
                             // Handle List.wz files specially - they have a different format (pre-Big Bang)
-                            // containing encrypted path strings instead of WZ image data
+                            // List.wz is pre-parsed and List.json is written at the end with only remaining entries
                             if (WzTool.IsListFile(wzFilePath))
                             {
-                                try
-                                {
-                                    // Parse List.wz and save as JSON
-                                    var listEntries = ListFileParser.ParseListFile(wzFilePath, encryption);
-
-                                    // Save to List category folder as JSON (clearer than .img for a JSON file)
-                                    string listOutputPath = Path.Combine(categoryOutputPath, "List.json");
-                                    if (!Directory.Exists(categoryOutputPath))
-                                    {
-                                        Directory.CreateDirectory(categoryOutputPath);
-                                    }
-
-                                    // Create a simple structure with the list entries
-                                    var listData = new
-                                    {
-                                        Type = "ListWz",
-                                        Description = "Pre-Big Bang List.wz - contains paths of images with different encryption",
-                                        Entries = listEntries
-                                    };
-
-                                    string json = JsonConvert.SerializeObject(listData, Formatting.Indented);
-                                    File.WriteAllText(listOutputPath, json);
-
-                                    result.ImagesExtracted++;
-                                    result.TotalSize += json.Length;
-                                }
-                                catch (Exception ex)
-                                {
-                                    result.Errors.Add($"Failed to parse List.wz: {ex.Message}");
-                                }
+                                // List.wz is handled at extraction end - skip here
+                                // The entries were pre-parsed and will be filtered based on what was decrypted
+                                result.ImagesExtracted++;
                                 continue;
                             }
 
@@ -399,8 +403,11 @@ namespace MapleLib.Img
                             ExtractWzNode(
                                 wzFile.WzDirectory,
                                 categoryOutputPath,
+                                category,
                                 serializer,
                                 linkResolver,
+                                listWzEntries,
+                                extractedListWzImages,
                                 ref processedCount,
                                 progressCallback,
                                 result);
@@ -694,8 +701,11 @@ namespace MapleLib.Img
         private void ExtractWzNode(
             WzDirectory directory,
             string outputPath,
+            string categoryName,
             WzImgSerializer serializer,
             WzLinkResolver linkResolver,
+            HashSet<string> listWzEntries,
+            ConcurrentDictionary<string, byte> extractedListWzImages,
             ref int processedCount,
             Action<int, int, string> progressCallback,
             CategoryExtractionResult result)
@@ -709,7 +719,7 @@ namespace MapleLib.Img
                     Directory.CreateDirectory(subDirPath);
                 }
 
-                ExtractWzNode(subDir, subDirPath, serializer, linkResolver, ref processedCount, progressCallback, result);
+                ExtractWzNode(subDir, subDirPath, categoryName, serializer, linkResolver, listWzEntries, extractedListWzImages, ref processedCount, progressCallback, result);
             }
 
             // Extract images
@@ -729,6 +739,17 @@ namespace MapleLib.Img
                     processedCount++;
                     result.TotalSize += new FileInfo(imgPath).Length;
 
+                    // Track if this image was in List.wz (for filtering decrypted entries)
+                    if (listWzEntries != null && extractedListWzImages != null)
+                    {
+                        // Build the List.wz style path: Category/SubDir/.../ImageName.img
+                        string listWzPath = BuildListWzPath(categoryName, directory, img.Name);
+                        if (listWzEntries.Contains(listWzPath))
+                        {
+                            extractedListWzImages.TryAdd(listWzPath, 0);
+                        }
+                    }
+
                     progressCallback?.Invoke(processedCount, 0, img.Name);
                 }
                 catch (Exception ex)
@@ -744,6 +765,71 @@ namespace MapleLib.Img
                     img.UnparseImage();
                 }
             }
+        }
+
+        /// <summary>
+        /// Builds the List.wz style path for an image (e.g., "Mob/0100100.img")
+        /// </summary>
+        private string BuildListWzPath(string categoryName, WzDirectory directory, string imageName)
+        {
+            // Build path from directory hierarchy
+            var pathParts = new List<string> { categoryName };
+
+            // Walk up the directory tree to build the full path
+            var current = directory;
+            var dirPath = new Stack<string>();
+            while (current != null && current.Parent is WzDirectory parentDir)
+            {
+                dirPath.Push(current.Name);
+                current = parentDir;
+            }
+            while (dirPath.Count > 0)
+            {
+                pathParts.Add(dirPath.Pop());
+            }
+
+            pathParts.Add(imageName);
+            return string.Join("/", pathParts);
+        }
+
+        /// <summary>
+        /// Writes List.json with only entries that were NOT successfully decrypted
+        /// </summary>
+        private void WriteFilteredListJson(
+            string outputVersionPath,
+            HashSet<string> listWzEntries,
+            ConcurrentDictionary<string, byte> extractedListWzImages)
+        {
+            // Create List directory
+            string listOutputPath = Path.Combine(outputVersionPath, "List");
+            if (!Directory.Exists(listOutputPath))
+            {
+                Directory.CreateDirectory(listOutputPath);
+            }
+
+            // Filter out successfully decrypted entries
+            var remainingEntries = listWzEntries
+                .Where(entry => !extractedListWzImages.ContainsKey(entry))
+                .ToList();
+
+            var decryptedEntries = extractedListWzImages.Keys.ToList();
+
+            // Create the JSON structure
+            var listData = new
+            {
+                Type = "ListWz",
+                Description = "Pre-Big Bang List.wz - images with different encryption",
+                OriginalCount = listWzEntries.Count,
+                DecryptedCount = decryptedEntries.Count,
+                RemainingCount = remainingEntries.Count,
+                DecryptedEntries = decryptedEntries,
+                RemainingEntries = remainingEntries
+            };
+
+            string json = JsonConvert.SerializeObject(listData, Formatting.Indented);
+            File.WriteAllText(Path.Combine(listOutputPath, "List.json"), json);
+
+            Debug.WriteLine($"[WzExtraction] List.wz: {listWzEntries.Count} total, {decryptedEntries.Count} decrypted, {remainingEntries.Count} remaining");
         }
 
         /// <summary>
