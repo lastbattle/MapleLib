@@ -94,7 +94,7 @@ namespace MapleLib.Img
         {
             // Discover all WZ files and extract them
             bool is64Bit = WzFileManager.Detect64BitDirectoryWzFileFormat(mapleStoryPath);
-            bool isPreBB = WzFileManager.DetectIsPreBBDataWZFileFormat(mapleStoryPath);
+            bool isPreBB = WzFileManager.DetectIsPreBBDataWZFileFormat(mapleStoryPath, encryption);
             var allCategories = DiscoverWzFiles(mapleStoryPath, is64Bit, isPreBB);
 
             return await ExtractAsync(
@@ -151,7 +151,7 @@ namespace MapleLib.Img
             {
                 // Detect WZ format
                 bool is64Bit = WzFileManager.Detect64BitDirectoryWzFileFormat(mapleStoryPath);
-                bool isPreBB = WzFileManager.DetectIsPreBBDataWZFileFormat(mapleStoryPath);
+                bool isPreBB = WzFileManager.DetectIsPreBBDataWZFileFormat(mapleStoryPath, encryption);
 
                 // Create output directory
                 if (!Directory.Exists(outputVersionPath))

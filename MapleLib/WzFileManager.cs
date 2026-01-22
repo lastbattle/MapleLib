@@ -173,10 +173,34 @@ namespace MapleLib {
         /// </summary>
         /// <returns></returns>
         public static bool DetectIsPreBBDataWZFileFormat(string baseDirectoryPath) {
+            return DetectIsPreBBDataWZFileFormat(baseDirectoryPath, null);
+        }
+
+        /// <summary>
+        /// Detects if the MapleStory installation is pre-Big Bang format.
+        /// Detection methods (in order):
+        /// 1. List.wz exists - only in pre-BB versions
+        /// 2. Data.wz exists without separate category WZ files - very old pre-BB
+        /// 3. UI.wz/UIWindow2.img doesn't have "BigBang!!!!..." marker - requires encryption to parse
+        /// </summary>
+        /// <param name="baseDirectoryPath">Path to MapleStory installation</param>
+        /// <param name="encryption">Optional encryption version for parsing UI.wz (can be null to skip this check)</param>
+        /// <returns>True if pre-Big Bang format</returns>
+        public static bool DetectIsPreBBDataWZFileFormat(string baseDirectoryPath, WzMapleVersion? encryption) {
             if (!Directory.Exists(baseDirectoryPath))
                 throw new Exception("Non-existent directory provided.");
 
-            // Check if the directory contains a "Data.wz" file
+            // Method 1: Check for List.wz - this file only exists in pre-Big Bang versions
+            // This is the most reliable indicator of pre-BB format
+            string listWzFilePath = Path.Combine(baseDirectoryPath, "List.wz");
+            if (File.Exists(listWzFilePath))
+            {
+                // Verify it's actually a List.wz file (different format than normal WZ)
+                if (WzLib.Util.WzTool.IsListFile(listWzFilePath))
+                    return true;
+            }
+
+            // Method 2: Check if the directory contains a "Data.wz" file (very old pre-BB format)
             string dataWzFilePath = Path.Combine(baseDirectoryPath, "Data.wz");
             bool bDirectoryContainsDataWz = File.Exists(dataWzFilePath);
             if (bDirectoryContainsDataWz) {
@@ -204,9 +228,78 @@ namespace MapleLib {
                         return true;
                 }
             }
+
+            // Method 3: Check UI.wz/UIWindow2.img for BigBang marker
+            // Big Bang update added "BigBang!!!!..." property to UIWindow2.img
+            // If UIWindow2.img doesn't exist or doesn't have this marker, it's pre-BB
+            if (encryption.HasValue)
+            {
+                string uiWzFilePath = Path.Combine(baseDirectoryPath, "UI.wz");
+                if (File.Exists(uiWzFilePath))
+                {
+                    try
+                    {
+                        using (var uiWzFile = new WzFile(uiWzFilePath, encryption.Value))
+                        {
+                            var parseStatus = uiWzFile.ParseWzFile();
+                            if (parseStatus == WzFileParseStatus.Success)
+                            {
+                                // Look for UIWindow2.img
+                                var uiWindow2 = uiWzFile.WzDirectory?.GetImageByName("UIWindow2.img");
+                                if (uiWindow2 == null)
+                                {
+                                    // UIWindow2.img doesn't exist - pre-BB
+                                    return true;
+                                }
+
+                                // Parse the image to check for BigBang marker
+                                uiWindow2.ParseImage();
+                                var bigBangMarker = uiWindow2["BigBang!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"];
+                                if (bigBangMarker == null)
+                                {
+                                    // BigBang marker doesn't exist - pre-BB
+                                    return true;
+                                }
+                            }
+                        }
+                    }
+                    catch
+                    {
+                        // If parsing fails, we can't determine from UI.wz
+                    }
+                }
+            }
+
             return false;
         }
 
+        /// <summary>
+        /// Big Bang marker property name in UIWindow2.img
+        /// </summary>
+        public const string BIG_BANG_MARKER = "BigBang!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!";
+        public const string BIG_BANG_2_MARKER = "BigBang2!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!";
+
+        /// <summary>
+        /// Checks if UIWindow2.img indicates Big Bang update (post-BB).
+        /// Use this with already-loaded WzImage objects at runtime.
+        /// </summary>
+        /// <param name="uiWindow2Image">The UIWindow2.img WzImage (can be null)</param>
+        /// <returns>True if Big Bang update (post-BB), false if pre-BB or null</returns>
+        public static bool IsBigBangUpdate(WzImage uiWindow2Image)
+        {
+            return uiWindow2Image?[BIG_BANG_MARKER] != null;
+        }
+
+        /// <summary>
+        /// Checks if UIWindow2.img indicates Big Bang 2 / Chaos update.
+        /// Use this with already-loaded WzImage objects at runtime.
+        /// </summary>
+        /// <param name="uiWindow2Image">The UIWindow2.img WzImage (can be null)</param>
+        /// <returns>True if Big Bang 2/Chaos update, false otherwise</returns>
+        public static bool IsBigBang2Update(WzImage uiWindow2Image)
+        {
+            return uiWindow2Image?[BIG_BANG_2_MARKER] != null;
+        }
 
         /// <summary>
         /// Gets the .ini file path and index information from a directory
