@@ -265,7 +265,7 @@ namespace MapleLib.WzLib.WzProperties
                     long pos = this.wzReader.BaseStream.Position;
                     this.wzReader.BaseStream.Position = offs;
                     int len = this.wzReader.ReadInt32() - 1;
-                    if (len <= 0) // possibility an image written with the wrong wzIv 
+                    if (len <= 0) // possibility an image written with the wrong wzIv
                         throw new Exception("The length of the image is negative. WzPngProperty. Wrong WzIV?");
 
                     this.wzReader.BaseStream.Position += 1;
@@ -284,6 +284,108 @@ namespace MapleLib.WzLib.WzProperties
                 }
             }
             return compressedImageBytes;
+        }
+
+        /// <summary>
+        /// Gets compressed bytes in standard zlib format, converting from listWz format if necessary.
+        /// This is used for IMG filesystem extraction to ensure PNG data can be read without
+        /// the original WZ encryption key.
+        /// </summary>
+        /// <param name="saveInMemory">Whether to cache the bytes</param>
+        /// <returns>Compressed bytes in standard zlib format</returns>
+        public byte[] GetCompressedBytesForExtraction(bool saveInMemory)
+        {
+            byte[] rawBytes = GetCompressedBytes(saveInMemory);
+            if (rawBytes == null || rawBytes.Length < 2)
+                return rawBytes;
+
+            // Check if this is listWz format (non-standard zlib header)
+            ushort header = (ushort)(rawBytes[0] | (rawBytes[1] << 8));
+            bool isListWzFormat = header != 0x9C78 && header != 0xDA78 && header != 0x0178 && header != 0x5E78;
+
+            if (!isListWzFormat)
+                return rawBytes;
+
+            // Convert listWz format to standard zlib format by XOR decrypting
+            // and re-compressing the raw pixel data
+            // Get the WzKey - prefer wzReader (set during parsing), fall back to ParentImage.reader
+            var wzKey = this.wzReader?.WzKey ?? ParentImage?.reader?.WzKey;
+            if (wzKey == null)
+                return rawBytes; // Return as-is, may fail on read
+
+            try
+            {
+                // Decrypt the listWz format data (same logic as GetRawImage)
+                using (var inputStream = new MemoryStream(rawBytes))
+                using (var reader = new BinaryReader(inputStream))
+                using (var decryptedStream = new MemoryStream())
+                {
+                    int endOfPng = rawBytes.Length;
+                    while (reader.BaseStream.Position < endOfPng)
+                    {
+                        int blockSize = reader.ReadInt32();
+                        for (int i = 0; i < blockSize; i++)
+                        {
+                            decryptedStream.WriteByte((byte)(reader.ReadByte() ^ wzKey[i]));
+                        }
+                    }
+
+                    // The decrypted data is zlib compressed, skip 2-byte header for deflate
+                    decryptedStream.Position = 2;
+
+                    // Decompress - must loop since Read() doesn't guarantee all bytes
+                    int uncompressedSize = GetUncompressedSize();
+                    byte[] decompressed = new byte[uncompressedSize];
+                    int totalRead = 0;
+
+                    using (var deflate = new DeflateStream(decryptedStream, CompressionMode.Decompress))
+                    {
+                        while (totalRead < uncompressedSize)
+                        {
+                            int bytesRead = deflate.Read(decompressed, totalRead, uncompressedSize - totalRead);
+                            if (bytesRead == 0) break;
+                            totalRead += bytesRead;
+                        }
+                    }
+
+                    // Re-compress to standard zlib format
+                    using (var outputStream = new MemoryStream())
+                    {
+                        // Write zlib header (default compression)
+                        outputStream.WriteByte(0x78);
+                        outputStream.WriteByte(0x9C);
+
+                        using (var deflateOut = new DeflateStream(outputStream, CompressionLevel.Optimal, leaveOpen: true))
+                        {
+                            deflateOut.Write(decompressed, 0, decompressed.Length);
+                        }
+
+                        return outputStream.ToArray();
+                    }
+                }
+            }
+            catch
+            {
+                return rawBytes; // Return original on failure
+            }
+        }
+
+        /// <summary>
+        /// Gets the uncompressed size based on format and dimensions
+        /// </summary>
+        private int GetUncompressedSize()
+        {
+            return Format switch
+            {
+                WzPngFormat.Format1 => width * height * 2,
+                WzPngFormat.Format2 => width * height * 4,
+                WzPngFormat.Format3 => width * height * 4,
+                WzPngFormat.Format513 => width * height * 2,
+                WzPngFormat.Format517 => width * height / 128,
+                WzPngFormat.Format1026 => width * height * 4,
+                WzPngFormat.Format2050 => width * height * 4,
+                _ => width * height * 4
+            };
         }
 
         public Bitmap GetImage(bool saveInMemory)
@@ -460,13 +562,21 @@ namespace MapleLib.WzLib.WzProperties
                     int blocksize = 0;
                     int endOfPng = rawImageBytes.Length;
 
+                    // Get the WzKey - prefer wzReader (set during parsing), fall back to ParentImage.reader
+                    var wzKey = this.wzReader?.WzKey ?? ParentImage?.reader?.WzKey;
+                    if (wzKey == null)
+                    {
+                        throw new Exception("Cannot decrypt listWz format PNG - no WzKey available. " +
+                            $"wzReader={this.wzReader != null}, ParentImage={ParentImage != null}");
+                    }
+
                     // Read image into zlib
                     while (reader.BaseStream.Position < endOfPng)
                     {
                         blocksize = reader.ReadInt32();
                         for (int i = 0; i < blocksize; i++)
                         {
-                            dataStream.WriteByte((byte)(reader.ReadByte() ^ ParentImage.reader.WzKey[i]));
+                            dataStream.WriteByte((byte)(reader.ReadByte() ^ wzKey[i]));
                         }
                     }
                     dataStream.Position = 2;

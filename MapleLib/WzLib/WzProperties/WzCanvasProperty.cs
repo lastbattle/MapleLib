@@ -145,8 +145,9 @@ namespace MapleLib.WzLib.WzProperties {
 
             writer.Write((Int32)0);
 
-            // Write image
-            byte[] bytes = PngProperty.GetCompressedBytes(false);
+            // Write image - use GetCompressedBytesForExtraction to convert listWz format
+            // to standard zlib format, ensuring PNG can be read without the original WzKey
+            byte[] bytes = PngProperty.GetCompressedBytesForExtraction(false);
             writer.Write(bytes.Length + 1);
             writer.Write((byte)0); // header? see WzImageProperty.ParseExtendedProp "0x00"
             writer.Write(bytes);

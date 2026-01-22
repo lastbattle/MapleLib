@@ -148,8 +148,10 @@ namespace MapleLib.WzLib
 
             if (sourcePng != null && destPng != null)
             {
-                // Get compressed bytes from source and set on destination
-                byte[] compressedBytes = sourcePng.GetCompressedBytes(false);
+                // Use GetCompressedBytesForExtraction to convert listWz format to standard zlib format.
+                // This is critical because SetCompressedBytes clears the wzReader reference,
+                // so we must convert while the source still has access to the WzKey.
+                byte[] compressedBytes = sourcePng.GetCompressedBytesForExtraction(false);
                 destPng.SetCompressedBytes(compressedBytes, sourcePng.Width, sourcePng.Height, sourcePng.Format);
             }
 

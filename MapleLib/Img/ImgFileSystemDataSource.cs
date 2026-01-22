@@ -64,6 +64,14 @@ namespace MapleLib.Img
             return _manager.ImageExists(category, imageName);
         }
 
+        /// <summary>
+        /// Gets diagnostic information about an image lookup for debugging
+        /// </summary>
+        public string GetImageDiagnostics(string category, string imageName)
+        {
+            return _manager.GetImageDiagnostics(category, imageName);
+        }
+
         public bool CategoryExists(string category)
         {
             return _manager.CategoryExists(category);

@@ -124,16 +124,6 @@ namespace MapleLib.Img
                 string json = File.ReadAllText(manifestPath);
                 _versionInfo = Newtonsoft.Json.JsonConvert.DeserializeObject<VersionInfo>(json);
                 _versionInfo.DirectoryPath = versionPath;
-
-                // Parse encryption type
-                if (Enum.TryParse<WzMapleVersion>(_versionInfo.Encryption, out var version))
-                {
-                    _mapleVersion = version;
-                }
-                else
-                {
-                    _mapleVersion = WzMapleVersion.BMS; // Default to BMS (no encryption)
-                }
             }
             else
             {
@@ -145,9 +135,11 @@ namespace MapleLib.Img
                     DirectoryPath = versionPath,
                     ExtractedDate = DateTime.Now
                 };
-                _mapleVersion = WzMapleVersion.BMS;
             }
 
+            // IMPORTANT: Extracted .img files are ALWAYS in BMS format (unencrypted/plain)
+            // The manifest's "encryption" field stores the original WZ encryption for reference only
+            _mapleVersion = WzMapleVersion.BMS;
             _wzIv = WzTool.GetIvByMapleVersion(_mapleVersion);
         }
         #endregion
@@ -294,13 +286,15 @@ namespace MapleLib.Img
                 }
                 else
                 {
-                    Debug.WriteLine($"Failed to parse image: {filePath}");
+                    Debug.WriteLine($"[ImgFileSystemManager] Failed to parse image: {filePath} (success={success}, image={image != null})");
+                    Debug.WriteLine($"[ImgFileSystemManager] Using IV: {BitConverter.ToString(_wzIv)}");
                     return null;
                 }
             }
             catch (Exception ex)
             {
-                Debug.WriteLine($"Error loading image {filePath}: {ex.Message}");
+                Debug.WriteLine($"[ImgFileSystemManager] Error loading image {filePath}: {ex.Message}");
+                Debug.WriteLine($"[ImgFileSystemManager] Stack trace: {ex.StackTrace}");
                 return null;
             }
         }
@@ -475,6 +469,39 @@ namespace MapleLib.Img
             if (!fullPath.EndsWith(".img", StringComparison.OrdinalIgnoreCase))
                 fullPath += ".img";
             return File.Exists(fullPath);
+        }
+
+        /// <summary>
+        /// Gets diagnostic information about an image lookup for debugging purposes
+        /// </summary>
+        public string GetImageDiagnostics(string category, string relativePath)
+        {
+            string fullPath = Path.Combine(_versionPath, category, relativePath);
+            if (!fullPath.EndsWith(".img", StringComparison.OrdinalIgnoreCase))
+                fullPath += ".img";
+
+            string categoryPath = Path.Combine(_versionPath, category);
+            bool categoryDirExists = Directory.Exists(categoryPath);
+            bool fileExists = File.Exists(fullPath);
+
+            var sb = new System.Text.StringBuilder();
+            sb.AppendLine($"Version path: {_versionPath}");
+            sb.AppendLine($"Category: {category}");
+            sb.AppendLine($"Relative path: {relativePath}");
+            sb.AppendLine($"Full path: {fullPath}");
+            sb.AppendLine($"Category directory exists: {categoryDirExists}");
+            sb.AppendLine($"File exists: {fileExists}");
+
+            if (categoryDirExists)
+            {
+                var imgFiles = Directory.EnumerateFiles(categoryPath, "*.img", SearchOption.TopDirectoryOnly)
+                    .Select(Path.GetFileName)
+                    .Take(10)
+                    .ToList();
+                sb.AppendLine($"First 10 .img files in category root: {string.Join(", ", imgFiles)}");
+            }
+
+            return sb.ToString();
         }
 
         /// <summary>
