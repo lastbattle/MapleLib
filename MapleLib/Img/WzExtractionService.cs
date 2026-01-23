@@ -1,4 +1,5 @@
 using MapleLib.WzLib;
+using MapleLib.WzLib.MSFile;
 using MapleLib.WzLib.Serializer;
 using MapleLib.WzLib.Util;
 using MapleLib.WzLib.WzProperties;
@@ -181,6 +182,30 @@ namespace MapleLib.Img
 
                 // Use the provided categories
                 var wzFilesToExtract = categoriesToExtract.ToList();
+
+                // If Packs is selected along with other categories, skip categories covered by .ms files
+                // to avoid duplicate extraction (Packs contains the complete image data)
+                if (wzFilesToExtract.Contains("Packs", StringComparer.OrdinalIgnoreCase))
+                {
+                    var categoriesInPacks = GetCategoriesInPacks(mapleStoryPath);
+                    var skippedCategories = new List<string>();
+
+                    foreach (var packCategory in categoriesInPacks)
+                    {
+                        if (wzFilesToExtract.Contains(packCategory, StringComparer.OrdinalIgnoreCase) &&
+                            !packCategory.Equals("Packs", StringComparison.OrdinalIgnoreCase))
+                        {
+                            wzFilesToExtract.RemoveAll(c => c.Equals(packCategory, StringComparison.OrdinalIgnoreCase));
+                            skippedCategories.Add(packCategory);
+                        }
+                    }
+
+                    if (skippedCategories.Count > 0)
+                    {
+                        Debug.WriteLine($"[WzExtraction] Skipping {skippedCategories.Count} categories covered by Packs: {string.Join(", ", skippedCategories)}");
+                    }
+                }
+
                 progressData.TotalFiles = CountTotalImages(wzFilesToExtract, mapleStoryPath, encryption, is64Bit);
 
                 // Force GC after counting to release any memory allocated during counting
@@ -276,7 +301,7 @@ namespace MapleLib.Img
                 progressData.CurrentPhase = "Validating";
                 progress?.Report(progressData);
 
-                var validationResult = ValidateExtraction(outputVersionPath);
+                var validationResult = ValidateExtraction(outputVersionPath, result.CategoriesExtracted.Keys.ToList());
                 result.ValidationResult = validationResult;
 
                 // Write filtered List.json if we had List.wz entries
@@ -285,7 +310,8 @@ namespace MapleLib.Img
                     WriteFilteredListJson(outputVersionPath, listWzEntries, extractedListWzImages);
                 }
 
-                result.Success = validationResult.IsValid;
+                // Success if at least some images were extracted
+                result.Success = result.TotalImagesExtracted > 0;
                 result.EndTime = DateTime.Now;
 
                 progressData.CurrentPhase = "Complete";
@@ -344,7 +370,11 @@ namespace MapleLib.Img
             try
             {
                 // Find WZ files for this category (could be multiple like Mob, Mob001, Mob2)
+                // For Packs category, this returns .ms files instead
                 var wzFilePaths = FindCategoryWzFiles(mapleStoryPath, category, is64Bit);
+
+                // Check if this is the Packs category with .ms files
+                bool isPacksCategory = category.Equals("Packs", StringComparison.OrdinalIgnoreCase);
 
                 // Use BMS encryption (all zeroes) for extracted IMG files - plain/unencrypted format
                 var serializer = WzImgSerializer.CreateForImgExtraction();
@@ -352,75 +382,145 @@ namespace MapleLib.Img
 
                 // Load ALL WZ files for this category simultaneously so outlinks can resolve
                 // across split files (e.g., Mob001.wz referencing Mob/xxx.img in Mob.wz)
-                var loadedWzFiles = new List<WzFile>();
+                // _Canvas WZ files are loaded for link resolution but NOT extracted separately
+                var loadedWzFiles = new List<(WzFile wzFile, bool isCanvasFile, string relativePath)>();
+                var loadedMsFiles = new List<WzMsFile>();
+
+                // Get category root path for calculating relative paths (64-bit clients)
+                string categoryRootPath = is64Bit ? Path.Combine(mapleStoryPath, "Data", category) : null;
 
                 await Task.Run(() =>
                 {
                     try
                     {
-                        // First, load and parse all WZ files for this category
-                        foreach (var wzFilePath in wzFilePaths)
+                        if (isPacksCategory)
                         {
-                            cancellationToken.ThrowIfCancellationRequested();
-
-                            if (!File.Exists(wzFilePath))
-                                continue;
-
-                            // Handle List.wz files specially - they have a different format (pre-Big Bang)
-                            // List.wz is pre-parsed and List.json is written at the end with only remaining entries
-                            if (WzTool.IsListFile(wzFilePath))
-                            {
-                                // List.wz is handled at extraction end - skip here
-                                // The entries were pre-parsed and will be filtered based on what was decrypted
-                                result.ImagesExtracted++;
-                                continue;
-                            }
-
-                            var wzFile = new WzFile(wzFilePath, encryption);
-                            var parseStatus = wzFile.ParseWzFile();
-
-                            if (parseStatus != WzFileParseStatus.Success)
-                            {
-                                result.Errors.Add($"Failed to parse {wzFilePath}: {parseStatus}");
-                                wzFile.Dispose();
-                                continue;
-                            }
-
-                            loadedWzFiles.Add(wzFile);
-                        }
-
-                        // Set all loaded WZ files on the resolver for cross-file outlink resolution
-                        if (linkResolver != null && loadedWzFiles.Count > 0)
-                        {
-                            linkResolver.SetCategoryWzFiles(loadedWzFiles, category);
-                        }
-
-                        // Now extract from all loaded WZ files (outlinks can resolve across them)
-                        foreach (var wzFile in loadedWzFiles)
-                        {
-                            cancellationToken.ThrowIfCancellationRequested();
-
-                            ExtractWzNode(
-                                wzFile.WzDirectory,
-                                categoryOutputPath,
-                                category,
+                            // Handle Packs category with .ms files
+                            ExtractPacksMsFiles(
+                                wzFilePaths,
+                                outputVersionPath,
+                                encryption,
                                 serializer,
                                 linkResolver,
                                 listWzEntries,
                                 extractedListWzImages,
+                                loadedMsFiles,
                                 ref processedCount,
                                 progressCallback,
-                                result);
+                                result,
+                                cancellationToken);
+                        }
+                        else
+                        {
+                            // Standard WZ file extraction
+                            // First, load and parse all WZ files for this category
+                            foreach (var wzFilePath in wzFilePaths)
+                            {
+                                cancellationToken.ThrowIfCancellationRequested();
+
+                                if (!File.Exists(wzFilePath))
+                                    continue;
+
+                                // Handle List.wz files specially - they have a different format (pre-Big Bang)
+                                // List.wz is pre-parsed and List.json is written at the end with only remaining entries
+                                if (WzTool.IsListFile(wzFilePath))
+                                {
+                                    // List.wz is handled at extraction end - skip here
+                                    // The entries were pre-parsed and will be filtered based on what was decrypted
+                                    result.ImagesExtracted++;
+                                    continue;
+                                }
+
+                                var wzFile = new WzFile(wzFilePath, encryption);
+                                var parseStatus = wzFile.ParseWzFile();
+
+                                if (parseStatus != WzFileParseStatus.Success)
+                                {
+                                    result.Errors.Add($"Failed to parse {wzFilePath}: {parseStatus}");
+                                    wzFile.Dispose();
+                                    continue;
+                                }
+
+                                // Check if this is a _Canvas WZ file
+                                // _Canvas files are used for link resolution but NOT extracted separately
+                                // Their canvas data will be embedded into the main .img files via link resolution
+                                bool isCanvasFile = wzFilePath.Contains("_Canvas", StringComparison.OrdinalIgnoreCase);
+
+                                // Calculate relative path from category root (for 64-bit clients with nested WZ files)
+                                // e.g., if wzFilePath is "Data/Map/Map/Map0/Map0_000.wz", relative path is "Map/Map0"
+                                string relativePath = "";
+                                if (categoryRootPath != null)
+                                {
+                                    string wzDir = Path.GetDirectoryName(wzFilePath);
+                                    if (wzDir.StartsWith(categoryRootPath, StringComparison.OrdinalIgnoreCase))
+                                    {
+                                        relativePath = wzDir.Substring(categoryRootPath.Length).TrimStart(Path.DirectorySeparatorChar);
+                                    }
+                                }
+
+                                loadedWzFiles.Add((wzFile, isCanvasFile, relativePath));
+                            }
+
+                            // Set all loaded WZ files on the resolver for cross-file outlink resolution
+                            // This includes _Canvas files so their canvas data can be resolved
+                            if (linkResolver != null && loadedWzFiles.Count > 0)
+                            {
+                                linkResolver.SetCategoryWzFiles(loadedWzFiles.Select(x => x.wzFile).ToList(), category);
+                            }
+
+                            // Now extract from non-Canvas WZ files only
+                            // _Canvas files are NOT extracted - their data is embedded via link resolution
+                            foreach (var (wzFile, isCanvasFile, relativePath) in loadedWzFiles)
+                            {
+                                cancellationToken.ThrowIfCancellationRequested();
+
+                                // Skip _Canvas files - they are only used for link resolution
+                                // The canvas images will be embedded into the main .img files
+                                if (isCanvasFile)
+                                {
+                                    continue;
+                                }
+
+                                // Determine output path - include relative path for nested WZ files
+                                string outputPath = categoryOutputPath;
+                                if (!string.IsNullOrEmpty(relativePath))
+                                {
+                                    outputPath = Path.Combine(categoryOutputPath, relativePath);
+                                    if (!Directory.Exists(outputPath))
+                                    {
+                                        Directory.CreateDirectory(outputPath);
+                                    }
+                                }
+
+                                ExtractWzNode(
+                                    wzFile.WzDirectory,
+                                    outputPath,
+                                    category,
+                                    serializer,
+                                    linkResolver,
+                                    listWzEntries,
+                                    extractedListWzImages,
+                                    ref processedCount,
+                                    progressCallback,
+                                    result);
+                            }
                         }
                     }
                     finally
                     {
                         // Dispose all WZ files
-                        foreach (var wzFile in loadedWzFiles)
+                        foreach (var (wzFile, _, _) in loadedWzFiles)
                         {
                             wzFile.Dispose();
                         }
                         loadedWzFiles.Clear();
+
+                        // Dispose all MS files
+                        foreach (var msFile in loadedMsFiles)
+                        {
+                            msFile.Dispose();
+                        }
+                        loadedMsFiles.Clear();
 
                         // Force garbage collection after category extraction
                         GC.Collect();
@@ -462,7 +562,9 @@ namespace MapleLib.Img
         /// <summary>
         /// Validates an extraction by checking required files exist
         /// </summary>
-        public ExtractionValidationResult ValidateExtraction(string versionPath)
+        /// <param name="versionPath">Path to the extracted version</param>
+        /// <param name="extractedCategories">Categories that were extracted (optional - if null, checks all required)</param>
+        public ExtractionValidationResult ValidateExtraction(string versionPath, List<string> extractedCategories = null)
         {
             var result = new ExtractionValidationResult
             {
@@ -470,38 +572,48 @@ namespace MapleLib.Img
                 CheckedAt = DateTime.Now
             };
 
-            // Check String category exists with Map.img
-            string stringPath = Path.Combine(versionPath, "String");
-            if (!Directory.Exists(stringPath))
+            // Only check for required categories if they were in the extraction list (or if extracting all)
+            bool checkString = extractedCategories == null || extractedCategories.Contains("String", StringComparer.OrdinalIgnoreCase);
+            bool checkMap = extractedCategories == null || extractedCategories.Contains("Map", StringComparer.OrdinalIgnoreCase);
+
+            // Check String category exists with Map.img (only if String was extracted)
+            if (checkString)
             {
-                result.Errors.Add("String category is missing");
-            }
-            else
-            {
-                string mapStringPath = Path.Combine(stringPath, "Map.img");
-                if (!File.Exists(mapStringPath))
+                string stringPath = Path.Combine(versionPath, "String");
+                if (!Directory.Exists(stringPath))
                 {
-                    result.Errors.Add("String/Map.img is missing");
+                    result.Errors.Add("String category is missing");
+                }
+                else
+                {
+                    string mapStringPath = Path.Combine(stringPath, "Map.img");
+                    if (!File.Exists(mapStringPath))
+                    {
+                        result.Errors.Add("String/Map.img is missing");
+                    }
                 }
             }
 
-            // Check Map category exists with at least some maps
-            string mapPath = Path.Combine(versionPath, "Map");
-            if (!Directory.Exists(mapPath))
+            // Check Map category exists with at least some maps (only if Map was extracted)
+            if (checkMap)
             {
-                result.Errors.Add("Map category is missing");
-            }
-            else
-            {
-                int mapCount = Directory.EnumerateFiles(mapPath, "*.img", SearchOption.AllDirectories).Count();
-                if (mapCount == 0)
+                string mapPath = Path.Combine(versionPath, "Map");
+                if (!Directory.Exists(mapPath))
                 {
-                    result.Errors.Add("Map category has no .img files");
+                    result.Errors.Add("Map category is missing");
                 }
-                result.TotalImageCount += mapCount;
+                else
+                {
+                    int mapCount = Directory.EnumerateFiles(mapPath, "*.img", SearchOption.AllDirectories).Count();
+                    if (mapCount == 0)
+                    {
+                        result.Errors.Add("Map category has no .img files");
+                    }
+                    result.TotalImageCount += mapCount;
+                }
             }
 
-            // Count total images
+            // Count total images in all categories that exist
             foreach (var category in STANDARD_WZ_FILES)
             {
                 string categoryPath = Path.Combine(versionPath, category);
@@ -509,7 +621,7 @@ namespace MapleLib.Img
                 {
                     int count = Directory.EnumerateFiles(categoryPath, "*.img", SearchOption.AllDirectories).Count();
                     result.CategoryImageCounts[category] = count;
-                    if (category != "Map") // Already counted
+                    if (category != "Map") // Already counted above if Map was checked
                     {
                         result.TotalImageCount += count;
                     }
@@ -555,10 +667,21 @@ namespace MapleLib.Img
                     foreach (var dir in Directory.EnumerateDirectories(dataPath))
                     {
                         string dirName = Path.GetFileName(dir);
+                        // Skip Packs - it will be added separately if .ms files exist
+                        if (dirName.Equals("Packs", StringComparison.OrdinalIgnoreCase))
+                            continue;
                         if (!categories.Contains(dirName, StringComparer.OrdinalIgnoreCase))
                         {
                             categories.Add(dirName);
                         }
+                    }
+
+                    // Check for Packs folder - add it if the folder exists
+                    // (extraction will handle .ms files within)
+                    string packsPath = Path.Combine(dataPath, "Packs");
+                    if (Directory.Exists(packsPath))
+                    {
+                        categories.Add("Packs");
                     }
                 }
             }
@@ -608,10 +731,22 @@ namespace MapleLib.Img
 
         /// <summary>
         /// Finds all WZ files for a category (handles split files like Mob, Mob001, Mob2)
+        /// Also handles Packs category with .ms files
         /// </summary>
         private List<string> FindCategoryWzFiles(string mapleStoryPath, string category, bool is64Bit)
         {
             var files = new List<string>();
+
+            // Special handling for Packs category with .ms files (search recursively)
+            if (category.Equals("Packs", StringComparison.OrdinalIgnoreCase))
+            {
+                string packsPath = Path.Combine(mapleStoryPath, "Data", "Packs");
+                if (Directory.Exists(packsPath))
+                {
+                    files.AddRange(Directory.EnumerateFiles(packsPath, "*.ms", SearchOption.AllDirectories));
+                }
+                return files;
+            }
 
             if (is64Bit)
             {
@@ -649,6 +784,34 @@ namespace MapleLib.Img
         }
 
         /// <summary>
+        /// Gets the list of categories covered by .ms files in the Packs folder.
+        /// Used to avoid duplicate extraction when both Packs and individual categories are selected.
+        /// </summary>
+        private HashSet<string> GetCategoriesInPacks(string mapleStoryPath)
+        {
+            var categories = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            string packsPath = Path.Combine(mapleStoryPath, "Data", "Packs");
+            if (!Directory.Exists(packsPath))
+                return categories;
+
+            // Scan .ms files and extract category names from filenames
+            // Format: "Mob_00000.ms" -> "Mob"
+            foreach (var msFile in Directory.EnumerateFiles(packsPath, "*.ms", SearchOption.AllDirectories))
+            {
+                string fileName = Path.GetFileNameWithoutExtension(msFile);
+                int underscoreIndex = fileName.IndexOf('_');
+                if (underscoreIndex > 0)
+                {
+                    string category = fileName.Substring(0, underscoreIndex);
+                    categories.Add(category);
+                }
+            }
+
+            return categories;
+        }
+
+        /// <summary>
         /// Counts total images to be extracted for progress reporting
         /// </summary>
         private int CountTotalImages(
@@ -662,6 +825,37 @@ namespace MapleLib.Img
             foreach (var category in categories)
             {
                 var wzFiles = FindCategoryWzFiles(mapleStoryPath, category, is64Bit);
+
+                // Handle Packs category with .ms files
+                if (category.Equals("Packs", StringComparison.OrdinalIgnoreCase))
+                {
+                    foreach (var msFilePath in wzFiles)
+                    {
+                        if (!File.Exists(msFilePath))
+                            continue;
+
+                        try
+                        {
+                            var fileStream = File.OpenRead(msFilePath);
+                            var memoryStream = new MemoryStream();
+                            fileStream.CopyTo(memoryStream);
+                            fileStream.Close();
+                            memoryStream.Position = 0;
+
+                            using (var msFile = new WzMsFile(memoryStream, Path.GetFileName(msFilePath), msFilePath, true))
+                            {
+                                msFile.ReadEntries();
+                                total += msFile.Entries.Count;
+                            }
+                        }
+                        catch
+                        {
+                            // Skip files that can't be opened
+                        }
+                    }
+                    continue;
+                }
+
                 foreach (var wzFilePath in wzFiles)
                 {
                     if (!File.Exists(wzFilePath))
@@ -679,7 +873,7 @@ namespace MapleLib.Img
                         using (var wzFile = new WzFile(wzFilePath, encryption))
                         {
                             var parseStatus = wzFile.ParseWzFile();
-                            if (parseStatus == WzFileParseStatus.Success)
+                            if (parseStatus == WzFileParseStatus.Success && wzFile.WzDirectory != null)
                             {
                                 total += wzFile.WzDirectory.CountImages();
                             }
@@ -710,19 +904,30 @@ namespace MapleLib.Img
             Action<int, int, string> progressCallback,
             CategoryExtractionResult result)
         {
-            // Extract subdirectories first
-            foreach (var subDir in directory.WzDirectories)
-            {
-                string subDirPath = Path.Combine(outputPath, EscapeFileName(subDir.Name));
-                if (!Directory.Exists(subDirPath))
-                {
-                    Directory.CreateDirectory(subDirPath);
-                }
+            if (directory == null)
+                return;
 
-                ExtractWzNode(subDir, subDirPath, categoryName, serializer, linkResolver, listWzEntries, extractedListWzImages, ref processedCount, progressCallback, result);
+            // Extract subdirectories first
+            if (directory.WzDirectories != null)
+            {
+                foreach (var subDir in directory.WzDirectories)
+                {
+                    if (subDir == null) continue;
+
+                    string subDirPath = Path.Combine(outputPath, EscapeFileName(subDir.Name));
+                    if (!Directory.Exists(subDirPath))
+                    {
+                        Directory.CreateDirectory(subDirPath);
+                    }
+
+                    ExtractWzNode(subDir, subDirPath, categoryName, serializer, linkResolver, listWzEntries, extractedListWzImages, ref processedCount, progressCallback, result);
+                }
             }
 
             // Extract images
+            if (directory.WzImages == null)
+                return;
+
             foreach (var img in directory.WzImages)
             {
                 try
@@ -790,6 +995,242 @@ namespace MapleLib.Img
 
             pathParts.Add(imageName);
             return string.Join("/", pathParts);
+        }
+
+        /// <summary>
+        /// Extracts .ms files from the Packs folder.
+        /// Each .ms file contains images that belong to different categories (e.g., Mob/0100000.img)
+        /// </summary>
+        private void ExtractPacksMsFiles(
+            List<string> msFilePaths,
+            string outputVersionPath,
+            WzMapleVersion encryption,
+            WzImgSerializer serializer,
+            WzLinkResolver linkResolver,
+            HashSet<string> listWzEntries,
+            ConcurrentDictionary<string, byte> extractedListWzImages,
+            List<WzMsFile> loadedMsFiles,
+            ref int processedCount,
+            Action<int, int, string> progressCallback,
+            CategoryExtractionResult result,
+            CancellationToken cancellationToken)
+        {
+            // Group .ms files by category (e.g., "Mob_00000.ms" -> "Mob")
+            // This allows us to load _Canvas WZ files once per category
+            var msFilesByCategory = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
+            foreach (var msFilePath in msFilePaths)
+            {
+                string msFileName = Path.GetFileNameWithoutExtension(msFilePath);
+                // Extract category from filename: "Mob_00000" -> "Mob"
+                int underscoreIndex = msFileName.IndexOf('_');
+                string category = underscoreIndex > 0 ? msFileName.Substring(0, underscoreIndex) : msFileName;
+
+                if (!msFilesByCategory.ContainsKey(category))
+                    msFilesByCategory[category] = new List<string>();
+                msFilesByCategory[category].Add(msFilePath);
+            }
+
+            // Get the MapleStory base path from the first .ms file path
+            string mapleStoryPath = null;
+            if (msFilePaths.Count > 0)
+            {
+                // Path is like: D:\...\Data\Packs\Mob_00000.ms
+                // We need: D:\...
+                string packsPath = Path.GetDirectoryName(msFilePaths[0]);
+                string dataPath = Path.GetDirectoryName(packsPath);
+                mapleStoryPath = Path.GetDirectoryName(dataPath);
+            }
+
+            // Track loaded _Canvas WZ files for disposal
+            var loadedCanvasFiles = new List<WzFile>();
+
+            try
+            {
+                // Process each category
+                foreach (var categoryGroup in msFilesByCategory)
+                {
+                    string category = categoryGroup.Key;
+                    var categoryMsFiles = categoryGroup.Value;
+
+                    // Load _Canvas WZ files for this category if link resolution is enabled
+                    // Search recursively for ALL _Canvas folders (they can be in subdirectories like Roguelike/Skill/_Canvas)
+                    if (linkResolver != null && mapleStoryPath != null)
+                    {
+                        string categoryPath = Path.Combine(mapleStoryPath, "Data", category);
+                        if (Directory.Exists(categoryPath))
+                        {
+                            var categoryWzFiles = new List<WzFile>();
+
+                            // Find all _Canvas directories recursively
+                            var canvasDirs = Directory.EnumerateDirectories(categoryPath, "_Canvas", SearchOption.AllDirectories).ToList();
+
+                            foreach (var canvasDir in canvasDirs)
+                            {
+                                var canvasWzFiles = Directory.EnumerateFiles(canvasDir, "*.wz", SearchOption.AllDirectories).ToList();
+
+                                foreach (var canvasWzPath in canvasWzFiles)
+                                {
+                                    try
+                                    {
+                                        // Use the same encryption as the main extraction
+                                        var canvasWzFile = new WzFile(canvasWzPath, encryption);
+                                        var parseStatus = canvasWzFile.ParseWzFile();
+                                        if (parseStatus == WzFileParseStatus.Success)
+                                        {
+                                            categoryWzFiles.Add(canvasWzFile);
+                                            loadedCanvasFiles.Add(canvasWzFile);
+                                        }
+                                        else
+                                        {
+                                            // Log the failure for debugging
+                                            Debug.WriteLine($"[WzExtraction] Failed to parse _Canvas file {canvasWzPath}: {parseStatus}");
+                                            canvasWzFile.Dispose();
+                                        }
+                                    }
+                                    catch (Exception ex)
+                                    {
+                                        Debug.WriteLine($"[WzExtraction] Exception loading _Canvas file {canvasWzPath}: {ex.Message}");
+                                    }
+                                }
+                            }
+
+                            if (categoryWzFiles.Count > 0)
+                            {
+                                linkResolver.SetCategoryWzFiles(categoryWzFiles, category);
+                            }
+                        }
+                    }
+
+                    // Process all .ms files for this category
+                    foreach (var msFilePath in categoryMsFiles)
+                    {
+                        cancellationToken.ThrowIfCancellationRequested();
+
+                        if (!File.Exists(msFilePath))
+                            continue;
+
+                        string msFileName = Path.GetFileName(msFilePath);
+
+                        try
+                        {
+                            // Load the .ms file
+                            var fileStream = File.OpenRead(msFilePath);
+                            var memoryStream = new MemoryStream();
+                            fileStream.CopyTo(memoryStream);
+                            fileStream.Close();
+                            memoryStream.Position = 0;
+
+                            var msFile = new WzMsFile(memoryStream, msFileName, msFilePath, true);
+                            msFile.ReadEntries();
+                            loadedMsFiles.Add(msFile);
+
+                            // Load as WzFile for extraction
+                            var wzFile = msFile.LoadAsWzFile();
+
+                            // Extract each image to its proper category folder
+                            // Entry names are like "Mob/0100000.img" - parse to get category and image name
+                            foreach (var entry in msFile.Entries)
+                            {
+                                cancellationToken.ThrowIfCancellationRequested();
+
+                                try
+                                {
+                                    // Parse entry name: "Category/ImageName.img" or "Category/SubDir/ImageName.img"
+                                    string entryName = entry.Name;
+                                    int firstSlash = entryName.IndexOf('/');
+                                    if (firstSlash < 0)
+                                    {
+                                        // No category prefix, skip
+                                        result.Errors.Add($"Invalid .ms entry name (no category): {entryName}");
+                                        continue;
+                                    }
+
+                                    string entryCategory = entryName.Substring(0, firstSlash);
+                                    string remainingPath = entryName.Substring(firstSlash + 1);
+
+                                    // Create category output folder if needed
+                                    string categoryOutputPath = Path.Combine(outputVersionPath, entryCategory);
+                                    if (!Directory.Exists(categoryOutputPath))
+                                    {
+                                        Directory.CreateDirectory(categoryOutputPath);
+                                    }
+
+                                    // Handle subdirectory paths like "Map/Map/Map0/000010000.img"
+                                    string imgOutputPath;
+                                    int lastSlash = remainingPath.LastIndexOf('/');
+                                    if (lastSlash >= 0)
+                                    {
+                                        string subDir = remainingPath.Substring(0, lastSlash);
+                                        string imgName = remainingPath.Substring(lastSlash + 1);
+                                        string subDirPath = Path.Combine(categoryOutputPath, subDir);
+                                        if (!Directory.Exists(subDirPath))
+                                        {
+                                            Directory.CreateDirectory(subDirPath);
+                                        }
+                                        imgOutputPath = Path.Combine(subDirPath, EscapeFileName(imgName));
+                                    }
+                                    else
+                                    {
+                                        imgOutputPath = Path.Combine(categoryOutputPath, EscapeFileName(remainingPath));
+                                    }
+
+                                    // Find the corresponding WzImage in the loaded WzFile
+                                    string imgBaseName = Path.GetFileName(entryName);
+                                    var wzImage = wzFile.WzDirectory.WzImages.FirstOrDefault(img => img.Name == imgBaseName);
+
+                                    if (wzImage == null)
+                                    {
+                                        result.Errors.Add($"WzImage not found for .ms entry: {entryName}");
+                                        continue;
+                                    }
+
+                                    // Resolve links if enabled
+                                    if (linkResolver != null)
+                                    {
+                                        linkResolver.ResolveLinksInImage(wzImage);
+                                    }
+
+                                    // Serialize the image
+                                    serializer.SerializeImage(wzImage, imgOutputPath);
+
+                                    processedCount++;
+                                    result.TotalSize += new FileInfo(imgOutputPath).Length;
+
+                                    // Track if this image was in List.wz
+                                    if (listWzEntries != null && extractedListWzImages != null)
+                                    {
+                                        if (listWzEntries.Contains(entryName))
+                                        {
+                                            extractedListWzImages.TryAdd(entryName, 0);
+                                        }
+                                    }
+
+                                    progressCallback?.Invoke(processedCount, 0, imgBaseName);
+                                }
+                                catch (Exception ex)
+                                {
+                                    result.Errors.Add($"Failed to extract .ms entry {entry.Name}: {ex.Message}");
+                                }
+                            }
+
+                            wzFile.Dispose();
+                        }
+                        catch (Exception ex)
+                        {
+                            result.Errors.Add($"Failed to load .ms file {msFileName}: {ex.Message}");
+                        }
+                    }
+                }
+            }
+            finally
+            {
+                // Dispose all loaded _Canvas WZ files
+                foreach (var canvasFile in loadedCanvasFiles)
+                {
+                    canvasFile.Dispose();
+                }
+                loadedCanvasFiles.Clear();
+            }
         }
 
         /// <summary>
