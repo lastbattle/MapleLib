@@ -280,6 +280,48 @@ namespace MapleLib {
         public const string BIG_BANG_2_MARKER = "BigBang2!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!";
 
         /// <summary>
+        /// Detects if this is a very early beta MapleStory (v0.01-v0.30) with only Data.wz.
+        /// This is a subset of pre-BB format but specifically the earliest version where all data
+        /// is contained in a single Data.wz file instead of separate category WZ files.
+        /// </summary>
+        /// <param name="baseDirectoryPath">Path to MapleStory installation</param>
+        /// <returns>True if beta Data.wz format (single Data.wz, no separate WZ files)</returns>
+        public static bool DetectBetaDataWzFormat(string baseDirectoryPath)
+        {
+            if (!Directory.Exists(baseDirectoryPath))
+                return false;
+
+            // Check if Data.wz exists
+            string dataWzFilePath = Path.Combine(baseDirectoryPath, "Data.wz");
+            if (!File.Exists(dataWzFilePath))
+                return false;
+
+            // Check that separate category WZ files don't exist
+            // If they exist, this is either a hotfix Data.wz or a later version with split WZ files
+            string skillWzFilePath = Path.Combine(baseDirectoryPath, "Skill.wz");
+            string stringWzFilePath = Path.Combine(baseDirectoryPath, "String.wz");
+            string characterWzFilePath = Path.Combine(baseDirectoryPath, "Character.wz");
+
+            if (File.Exists(skillWzFilePath) || File.Exists(stringWzFilePath) || File.Exists(characterWzFilePath))
+                return false;
+
+            // Also make sure this isn't a 64-bit installation with Data directory
+            // 64-bit clients have a Data directory with subdirectories for each category
+            string dataDirectoryPath = Path.Combine(baseDirectoryPath, "Data");
+            if (Directory.Exists(dataDirectoryPath))
+            {
+                string skillDirPath = Path.Combine(dataDirectoryPath, "Skill");
+                string stringDirPath = Path.Combine(dataDirectoryPath, "String");
+                string characterDirPath = Path.Combine(dataDirectoryPath, "Character");
+
+                if (Directory.Exists(skillDirPath) || Directory.Exists(stringDirPath) || Directory.Exists(characterDirPath))
+                    return false;
+            }
+
+            return true;
+        }
+
+        /// <summary>
         /// Checks if UIWindow2.img indicates Big Bang update (post-BB).
         /// Use this with already-loaded WzImage objects at runtime.
         /// </summary>

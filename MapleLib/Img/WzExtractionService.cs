@@ -367,11 +367,15 @@ namespace MapleLib.Img
             // Create link resolver if enabled
             WzLinkResolver linkResolver = resolveLinks ? new WzLinkResolver() : null;
 
+            // Check if this is beta Data.wz format
+            bool isBetaDataWz = WzFileManager.DetectBetaDataWzFormat(mapleStoryPath);
+
             try
             {
                 // Find WZ files for this category (could be multiple like Mob, Mob001, Mob2)
                 // For Packs category, this returns .ms files instead
-                var wzFilePaths = FindCategoryWzFiles(mapleStoryPath, category, is64Bit);
+                // For beta Data.wz, this returns Data.wz
+                var wzFilePaths = FindCategoryWzFiles(mapleStoryPath, category, is64Bit, isBetaDataWz);
 
                 // Check if this is the Packs category with .ms files
                 bool isPacksCategory = category.Equals("Packs", StringComparison.OrdinalIgnoreCase);
@@ -405,6 +409,24 @@ namespace MapleLib.Img
                                 listWzEntries,
                                 extractedListWzImages,
                                 loadedMsFiles,
+                                ref processedCount,
+                                progressCallback,
+                                result,
+                                cancellationToken);
+                        }
+                        else if (isBetaDataWz)
+                        {
+                            // Handle beta Data.wz format - extract specific subdirectory from Data.wz
+                            ExtractBetaDataWzCategory(
+                                wzFilePaths,
+                                category,
+                                categoryOutputPath,
+                                encryption,
+                                serializer,
+                                linkResolver,
+                                listWzEntries,
+                                extractedListWzImages,
+                                loadedWzFiles,
                                 ref processedCount,
                                 progressCallback,
                                 result,
@@ -641,10 +663,14 @@ namespace MapleLib.Img
         {
             var categories = new List<string>();
 
-            if (isPreBB)
+            // Check if this is specifically beta Data.wz format (single Data.wz with all categories)
+            bool isBetaDataWz = WzFileManager.DetectBetaDataWzFormat(mapleStoryPath);
+
+            if (isBetaDataWz)
             {
-                // Pre-BB has everything in Data.wz
-                // We'll extract to standard categories based on directory structure inside
+                // Beta Data.wz format - add "Data" as a single category for extraction
+                // The actual subdirectories will be extracted by ExtractBetaDataWzCategory
+                // Note: For UI selection, use PopulateWzFileList which lists subdirectories
                 categories.Add("Data");
             }
             else if (is64Bit)
@@ -731,11 +757,22 @@ namespace MapleLib.Img
 
         /// <summary>
         /// Finds all WZ files for a category (handles split files like Mob, Mob001, Mob2)
-        /// Also handles Packs category with .ms files
+        /// Also handles Packs category with .ms files and beta Data.wz format
         /// </summary>
-        private List<string> FindCategoryWzFiles(string mapleStoryPath, string category, bool is64Bit)
+        private List<string> FindCategoryWzFiles(string mapleStoryPath, string category, bool is64Bit, bool isBetaDataWz = false)
         {
             var files = new List<string>();
+
+            // Special handling for beta Data.wz format - all categories come from single Data.wz
+            if (isBetaDataWz)
+            {
+                string dataWzPath = Path.Combine(mapleStoryPath, "Data.wz");
+                if (File.Exists(dataWzPath))
+                {
+                    files.Add(dataWzPath);
+                }
+                return files;
+            }
 
             // Special handling for Packs category with .ms files (search recursively)
             if (category.Equals("Packs", StringComparison.OrdinalIgnoreCase))
@@ -822,30 +859,108 @@ namespace MapleLib.Img
         {
             int total = 0;
 
-            foreach (var category in categories)
-            {
-                var wzFiles = FindCategoryWzFiles(mapleStoryPath, category, is64Bit);
+            // Check for beta Data.wz format
+            bool isBetaDataWz = WzFileManager.DetectBetaDataWzFormat(mapleStoryPath);
 
-                // Handle Packs category with .ms files
-                if (category.Equals("Packs", StringComparison.OrdinalIgnoreCase))
+            // For beta format, we need to load Data.wz once and count from specific subdirectories
+            WzFile betaDataWzFile = null;
+            if (isBetaDataWz)
+            {
+                string dataWzPath = Path.Combine(mapleStoryPath, "Data.wz");
+                if (File.Exists(dataWzPath))
                 {
-                    foreach (var msFilePath in wzFiles)
+                    try
                     {
-                        if (!File.Exists(msFilePath))
+                        betaDataWzFile = new WzFile(dataWzPath, encryption);
+                        betaDataWzFile.ParseWzFile();
+                    }
+                    catch
+                    {
+                        betaDataWzFile?.Dispose();
+                        betaDataWzFile = null;
+                    }
+                }
+            }
+
+            try
+            {
+                foreach (var category in categories)
+                {
+                    // Handle beta Data.wz format - count from specific subdirectory
+                    if (isBetaDataWz && betaDataWzFile != null)
+                    {
+                        // Handle special "_Root" category
+                        if (category.Equals("_Root", StringComparison.OrdinalIgnoreCase))
+                        {
+                            total += betaDataWzFile.WzDirectory.WzImages?.Count ?? 0;
                             continue;
+                        }
+
+                        // Find the category subdirectory
+                        foreach (var dir in betaDataWzFile.WzDirectory.WzDirectories)
+                        {
+                            if (dir.Name.Equals(category, StringComparison.OrdinalIgnoreCase))
+                            {
+                                total += dir.CountImages();
+                                break;
+                            }
+                        }
+                        continue;
+                    }
+
+                    var wzFiles = FindCategoryWzFiles(mapleStoryPath, category, is64Bit, isBetaDataWz);
+
+                    // Handle Packs category with .ms files
+                    if (category.Equals("Packs", StringComparison.OrdinalIgnoreCase))
+                    {
+                        foreach (var msFilePath in wzFiles)
+                        {
+                            if (!File.Exists(msFilePath))
+                                continue;
+
+                            try
+                            {
+                                var fileStream = File.OpenRead(msFilePath);
+                                var memoryStream = new MemoryStream();
+                                fileStream.CopyTo(memoryStream);
+                                fileStream.Close();
+                                memoryStream.Position = 0;
+
+                                using (var msFile = new WzMsFile(memoryStream, Path.GetFileName(msFilePath), msFilePath, true))
+                                {
+                                    msFile.ReadEntries();
+                                    total += msFile.Entries.Count;
+                                }
+                            }
+                            catch
+                            {
+                                // Skip files that can't be opened
+                            }
+                        }
+                        continue;
+                    }
+
+                    foreach (var wzFilePath in wzFiles)
+                    {
+                        if (!File.Exists(wzFilePath))
+                            continue;
+
+                        // Count List.wz as 1 image (it will be extracted as JSON)
+                        if (WzTool.IsListFile(wzFilePath))
+                        {
+                            total++;
+                            continue;
+                        }
 
                         try
                         {
-                            var fileStream = File.OpenRead(msFilePath);
-                            var memoryStream = new MemoryStream();
-                            fileStream.CopyTo(memoryStream);
-                            fileStream.Close();
-                            memoryStream.Position = 0;
-
-                            using (var msFile = new WzMsFile(memoryStream, Path.GetFileName(msFilePath), msFilePath, true))
+                            using (var wzFile = new WzFile(wzFilePath, encryption))
                             {
-                                msFile.ReadEntries();
-                                total += msFile.Entries.Count;
+                                var parseStatus = wzFile.ParseWzFile();
+                                if (parseStatus == WzFileParseStatus.Success && wzFile.WzDirectory != null)
+                                {
+                                    total += wzFile.WzDirectory.CountImages();
+                                }
                             }
                         }
                         catch
@@ -853,37 +968,11 @@ namespace MapleLib.Img
                             // Skip files that can't be opened
                         }
                     }
-                    continue;
                 }
-
-                foreach (var wzFilePath in wzFiles)
-                {
-                    if (!File.Exists(wzFilePath))
-                        continue;
-
-                    // Count List.wz as 1 image (it will be extracted as JSON)
-                    if (WzTool.IsListFile(wzFilePath))
-                    {
-                        total++;
-                        continue;
-                    }
-
-                    try
-                    {
-                        using (var wzFile = new WzFile(wzFilePath, encryption))
-                        {
-                            var parseStatus = wzFile.ParseWzFile();
-                            if (parseStatus == WzFileParseStatus.Success && wzFile.WzDirectory != null)
-                            {
-                                total += wzFile.WzDirectory.CountImages();
-                            }
-                        }
-                    }
-                    catch
-                    {
-                        // Skip files that can't be opened
-                    }
-                }
+            }
+            finally
+            {
+                betaDataWzFile?.Dispose();
             }
 
             return total;
@@ -995,6 +1084,133 @@ namespace MapleLib.Img
 
             pathParts.Add(imageName);
             return string.Join("/", pathParts);
+        }
+
+        /// <summary>
+        /// Extracts a specific category subdirectory from beta Data.wz file.
+        /// Beta MapleStory (v0.01-v0.30) stores all data in a single Data.wz with subdirectories.
+        /// </summary>
+        private void ExtractBetaDataWzCategory(
+            List<string> wzFilePaths,
+            string category,
+            string categoryOutputPath,
+            WzMapleVersion encryption,
+            WzImgSerializer serializer,
+            WzLinkResolver linkResolver,
+            HashSet<string> listWzEntries,
+            ConcurrentDictionary<string, byte> extractedListWzImages,
+            List<(WzFile wzFile, bool isCanvasFile, string relativePath)> loadedWzFiles,
+            ref int processedCount,
+            Action<int, int, string> progressCallback,
+            CategoryExtractionResult result,
+            CancellationToken cancellationToken)
+        {
+            if (wzFilePaths.Count == 0)
+            {
+                result.Errors.Add("No Data.wz file found for beta extraction");
+                return;
+            }
+
+            string dataWzPath = wzFilePaths[0];
+            if (!File.Exists(dataWzPath))
+            {
+                result.Errors.Add($"Data.wz file not found: {dataWzPath}");
+                return;
+            }
+
+            var wzFile = new WzFile(dataWzPath, encryption);
+            var parseStatus = wzFile.ParseWzFile();
+
+            if (parseStatus != WzFileParseStatus.Success)
+            {
+                result.Errors.Add($"Failed to parse Data.wz: {parseStatus}");
+                wzFile.Dispose();
+                return;
+            }
+
+            loadedWzFiles.Add((wzFile, false, ""));
+
+            try
+            {
+                // Find the category subdirectory within Data.wz
+                WzDirectory categoryDir = null;
+
+                // Handle special "_Root" category for images at root level
+                if (category.Equals("_Root", StringComparison.OrdinalIgnoreCase))
+                {
+                    // Extract images directly from root of Data.wz
+                    if (wzFile.WzDirectory.WzImages != null && wzFile.WzDirectory.WzImages.Count > 0)
+                    {
+                        foreach (var img in wzFile.WzDirectory.WzImages)
+                        {
+                            cancellationToken.ThrowIfCancellationRequested();
+
+                            try
+                            {
+                                if (linkResolver != null)
+                                {
+                                    linkResolver.ResolveLinksInImage(img);
+                                }
+
+                                string imgPath = Path.Combine(categoryOutputPath, ProgressingWzSerializer.EscapeInvalidFilePathNames(img.Name));
+                                serializer.SerializeImage(img, imgPath);
+
+                                processedCount++;
+                                result.TotalSize += new FileInfo(imgPath).Length;
+                                progressCallback?.Invoke(processedCount, 0, img.Name);
+                            }
+                            catch (Exception ex)
+                            {
+                                result.Errors.Add($"Failed to extract {img.Name}: {ex.Message}");
+                            }
+                            finally
+                            {
+                                img.UnparseImage();
+                            }
+                        }
+                    }
+                    return;
+                }
+
+                // Look for the category directory in Data.wz
+                foreach (var dir in wzFile.WzDirectory.WzDirectories)
+                {
+                    if (dir.Name.Equals(category, StringComparison.OrdinalIgnoreCase))
+                    {
+                        categoryDir = dir;
+                        break;
+                    }
+                }
+
+                if (categoryDir == null)
+                {
+                    result.Errors.Add($"Category '{category}' not found in Data.wz");
+                    return;
+                }
+
+                // Set up link resolver with the entire Data.wz for cross-category link resolution
+                if (linkResolver != null)
+                {
+                    linkResolver.SetCategoryWzFiles(new List<WzFile> { wzFile }, category);
+                }
+
+                // Extract the category directory
+                ExtractWzNode(
+                    categoryDir,
+                    categoryOutputPath,
+                    category,
+                    serializer,
+                    linkResolver,
+                    listWzEntries,
+                    extractedListWzImages,
+                    ref processedCount,
+                    progressCallback,
+                    result);
+            }
+            catch (Exception ex)
+            {
+                result.Errors.Add($"Error extracting category '{category}' from Data.wz: {ex.Message}");
+            }
         }
 
         /// <summary>
