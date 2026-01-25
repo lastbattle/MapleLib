@@ -555,6 +555,7 @@ namespace MapleLib.Img
         /// <param name="progress">Progress reporter</param>
         /// <param name="overridePatchVersion">Optional patch version to override manifest value (0 or negative to use manifest)</param>
         /// <param name="separateCanvas">Whether to save canvas images in separate _Canvas folders (64-bit format only)</param>
+        /// <param name="overrideEncryption">Optional encryption to override manifest value (null to use manifest)</param>
         public async Task<PackingResult> PackCategoriesAsync(
             string versionPath,
             string outputPath,
@@ -563,7 +564,8 @@ namespace MapleLib.Img
             CancellationToken cancellationToken = default,
             IProgress<PackingProgress> progress = null,
             short overridePatchVersion = 0,
-            bool separateCanvas = false)
+            bool separateCanvas = false,
+            WzMapleVersion? overrideEncryption = null)
         {
             var result = new PackingResult
             {
@@ -600,6 +602,12 @@ namespace MapleLib.Img
                 if (overridePatchVersion > 0)
                 {
                     patchVersion = overridePatchVersion;
+                }
+
+                // Use override encryption if specified
+                if (overrideEncryption.HasValue)
+                {
+                    encryption = overrideEncryption.Value;
                 }
 
                 // Create output directory
@@ -676,13 +684,15 @@ namespace MapleLib.Img
         /// <param name="cancellationToken">Cancellation token</param>
         /// <param name="progress">Progress reporter</param>
         /// <param name="overridePatchVersion">Optional patch version to override manifest value (0 or negative to use manifest)</param>
+        /// <param name="overrideEncryption">Optional encryption to override manifest value (null to use manifest)</param>
         public async Task<PackingResult> PackBetaDataWzAsync(
             string versionPath,
             string outputPath,
             IEnumerable<string> categories,
             CancellationToken cancellationToken = default,
             IProgress<PackingProgress> progress = null,
-            short overridePatchVersion = 0)
+            short overridePatchVersion = 0,
+            WzMapleVersion? overrideEncryption = null)
         {
             var result = new PackingResult
             {
@@ -719,6 +729,12 @@ namespace MapleLib.Img
                 if (overridePatchVersion > 0)
                 {
                     patchVersion = overridePatchVersion;
+                }
+
+                // Use override encryption if specified
+                if (overrideEncryption.HasValue)
+                {
+                    encryption = overrideEncryption.Value;
                 }
 
                 // Create output directory
