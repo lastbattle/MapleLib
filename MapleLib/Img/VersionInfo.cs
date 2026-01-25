@@ -53,6 +53,18 @@ namespace MapleLib.Img
         public bool IsPreBB { get; set; }
 
         /// <summary>
+        /// Whether this is a beta MapleStory format (v0.01-v0.30) with single Data.wz containing all categories
+        /// </summary>
+        [JsonProperty("isBetaMs")]
+        public bool IsBetaMs { get; set; }
+
+        /// <summary>
+        /// Whether this is a Big Bang 2 / Chaos update version (has BigBang2 marker in UIWindow2.img)
+        /// </summary>
+        [JsonProperty("isBigBang2")]
+        public bool IsBigBang2 { get; set; }
+
+        /// <summary>
         /// The original MapleStory patch version number (e.g., 83, 176, 230)
         /// </summary>
         [JsonProperty("patchVersion")]

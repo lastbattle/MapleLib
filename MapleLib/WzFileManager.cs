@@ -344,6 +344,64 @@ namespace MapleLib {
         }
 
         /// <summary>
+        /// Detects if this is a Big Bang 2 / Chaos update version by checking for BigBang2 marker in UIWindow2.img.
+        /// Use this for format detection from a MapleStory installation path.
+        /// </summary>
+        /// <param name="mapleStoryPath">Path to MapleStory installation</param>
+        /// <param name="encryption">WZ encryption version</param>
+        /// <param name="is64Bit">Whether this is a 64-bit client (use Detect64BitDirectoryWzFileFormat first)</param>
+        /// <returns>True if Big Bang 2/Chaos update, false otherwise</returns>
+        public static bool DetectBigBang2Format(string mapleStoryPath, WzMapleVersion encryption, bool is64Bit)
+        {
+            // Beta versions don't have BigBang2 marker
+            if (DetectBetaDataWzFormat(mapleStoryPath))
+                return false;
+
+            try
+            {
+                string uiWzPath = null;
+
+                if (is64Bit)
+                {
+                    // 64-bit: UI.wz is in Data/UI/UI_000.wz
+                    string uiPath = Path.Combine(mapleStoryPath, "Data", "UI");
+                    if (Directory.Exists(uiPath))
+                    {
+                        var wzFiles = Directory.GetFiles(uiPath, "UI_*.wz");
+                        uiWzPath = wzFiles.FirstOrDefault();
+                    }
+                }
+                else
+                {
+                    // Standard: UI.wz is in root
+                    uiWzPath = Path.Combine(mapleStoryPath, "UI.wz");
+                }
+
+                if (string.IsNullOrEmpty(uiWzPath) || !File.Exists(uiWzPath))
+                    return false;
+
+                using (var wzFile = new WzFile(uiWzPath, encryption))
+                {
+                    var parseStatus = wzFile.ParseWzFile();
+                    if (parseStatus != WzFileParseStatus.Success)
+                        return false;
+
+                    var uiWindow2 = wzFile.WzDirectory?.GetImageByName("UIWindow2.img");
+                    if (uiWindow2 == null)
+                        return false;
+
+                    uiWindow2.ParseImage();
+                    return IsBigBang2Update(uiWindow2);
+                }
+            }
+            catch
+            {
+                // If we can't detect, assume false
+                return false;
+            }
+        }
+
+        /// <summary>
         /// Gets the .ini file path and index information from a directory
         /// </summary>
         /// <param name="directoryPath">Directory to search for .ini file</param>

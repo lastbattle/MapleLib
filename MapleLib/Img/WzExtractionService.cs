@@ -153,6 +153,8 @@ namespace MapleLib.Img
                 // Detect WZ format
                 bool is64Bit = WzFileManager.Detect64BitDirectoryWzFileFormat(mapleStoryPath);
                 bool isPreBB = WzFileManager.DetectIsPreBBDataWZFileFormat(mapleStoryPath, encryption);
+                bool isBetaMs = WzFileManager.DetectBetaDataWzFormat(mapleStoryPath);
+                bool isBigBang2 = WzFileManager.DetectBigBang2Format(mapleStoryPath, encryption, is64Bit);
 
                 // Create output directory
                 if (!Directory.Exists(outputVersionPath))
@@ -291,6 +293,8 @@ namespace MapleLib.Img
                     encryption,
                     is64Bit,
                     isPreBB,
+                    isBetaMs,
+                    isBigBang2,
                     outputVersionPath,
                     result.CategoriesExtracted);
 
@@ -1498,6 +1502,8 @@ namespace MapleLib.Img
             WzMapleVersion encryption,
             bool is64Bit,
             bool isPreBB,
+            bool isBetaMs,
+            bool isBigBang2,
             string outputPath,
             Dictionary<string, CategoryExtractionResult> categories)
         {
@@ -1508,6 +1514,8 @@ namespace MapleLib.Img
                 Encryption = encryption.ToString(),
                 Is64Bit = is64Bit,
                 IsPreBB = isPreBB,
+                IsBetaMs = isBetaMs,
+                IsBigBang2 = isBigBang2,
                 ExtractedDate = DateTime.Now,
                 DirectoryPath = outputPath
             };
