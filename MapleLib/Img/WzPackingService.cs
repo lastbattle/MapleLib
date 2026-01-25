@@ -268,8 +268,11 @@ namespace MapleLib.Img
 
             try
             {
-                // Get WZ IV for encryption
+                // Get WZ IV for the target encryption (used for WzDirectory and saving)
                 byte[] wzIv = WzTool.GetIvByMapleVersion(encryption);
+
+                // IMG files are always extracted with BMS encryption, so use BMS IV for reading
+                byte[] readIv = WzAESConstant.WZ_BMSCLASSIC;
 
                 // Special handling for List.wz files (pre-Big Bang format)
                 // These are stored as JSON during extraction and need to be converted back to List.wz format
@@ -392,7 +395,8 @@ namespace MapleLib.Img
                                 {
                                     cancellationToken.ThrowIfCancellationRequested();
 
-                                    var processingResult = ProcessSingleImgFile(imgFileInfo, wzIv);
+                                    // Use BMS IV for reading (IMG files are extracted with BMS encryption)
+                                    var processingResult = ProcessSingleImgFile(imgFileInfo, readIv);
                                     processingResults.Add(processingResult);
 
                                     int currentCount = Interlocked.Increment(ref processedCount);
@@ -487,7 +491,8 @@ namespace MapleLib.Img
                             {
                                 cancellationToken.ThrowIfCancellationRequested();
 
-                                var processingResult = ProcessSingleImgFile(imgFileInfo, wzIv);
+                                // Use BMS IV for reading (IMG files are extracted with BMS encryption)
+                                var processingResult = ProcessSingleImgFile(imgFileInfo, readIv);
                                 processingResults.Add(processingResult);
 
                                 int currentCount = Interlocked.Increment(ref processedCount);
@@ -659,6 +664,325 @@ namespace MapleLib.Img
                 OnErrorOccurred(ex);
             }
 
+            return result;
+        }
+        /// <summary>
+        /// Packs categories into a single beta Data.wz file.
+        /// Beta MapleStory (v0.01-v0.30) stores all data in a single Data.wz with category subdirectories.
+        /// </summary>
+        /// <param name="versionPath">Path to the version directory</param>
+        /// <param name="outputPath">Output path for the WZ file</param>
+        /// <param name="categories">Categories to pack</param>
+        /// <param name="cancellationToken">Cancellation token</param>
+        /// <param name="progress">Progress reporter</param>
+        /// <param name="overridePatchVersion">Optional patch version to override manifest value (0 or negative to use manifest)</param>
+        public async Task<PackingResult> PackBetaDataWzAsync(
+            string versionPath,
+            string outputPath,
+            IEnumerable<string> categories,
+            CancellationToken cancellationToken = default,
+            IProgress<PackingProgress> progress = null,
+            short overridePatchVersion = 0)
+        {
+            var result = new PackingResult
+            {
+                VersionPath = versionPath,
+                OutputPath = outputPath,
+                StartTime = DateTime.Now
+            };
+
+            var progressData = new PackingProgress
+            {
+                CurrentPhase = "Initializing",
+                TotalFiles = 0,
+                ProcessedFiles = 0
+            };
+
+            try
+            {
+                // Load version info
+                VersionInfo versionInfo = LoadVersionInfo(versionPath);
+                result.VersionInfo = versionInfo;
+
+                WzMapleVersion encryption = WzMapleVersion.BMS;
+                short patchVersion = 1;
+                if (versionInfo != null)
+                {
+                    if (Enum.TryParse<WzMapleVersion>(versionInfo.Encryption, out var parsedEncryption))
+                    {
+                        encryption = parsedEncryption;
+                    }
+                    patchVersion = (short)versionInfo.PatchVersion;
+                }
+
+                // Use override patch version if specified (> 0)
+                if (overridePatchVersion > 0)
+                {
+                    patchVersion = overridePatchVersion;
+                }
+
+                // Create output directory
+                if (!Directory.Exists(outputPath))
+                {
+                    Directory.CreateDirectory(outputPath);
+                }
+
+                // Get WZ IV for the target encryption (used for WzDirectory and saving)
+                byte[] wzIv = WzTool.GetIvByMapleVersion(encryption);
+
+                // IMG files are always extracted with BMS encryption, so use BMS IV for reading
+                byte[] readIv = WzAESConstant.WZ_BMSCLASSIC;
+
+                // Separate List category from others (List.wz is always separate)
+                var categoriesList = categories.ToList();
+                bool hasListCategory = categoriesList.RemoveAll(c => c.Equals("List", StringComparison.OrdinalIgnoreCase)) > 0;
+
+                // Count total images for progress
+                foreach (var category in categoriesList)
+                {
+                    string categoryPath = Path.Combine(versionPath, category);
+                    if (Directory.Exists(categoryPath))
+                    {
+                        progressData.TotalFiles += Directory.EnumerateFiles(categoryPath, "*.img", SearchOption.AllDirectories).Count();
+                    }
+                }
+                progress?.Report(progressData);
+
+                // Create single Data.wz file containing all categories
+                string dataWzPath = Path.Combine(outputPath, "Data.wz");
+                progressData.CurrentPhase = "Packing Data.wz";
+                progress?.Report(progressData);
+
+                int totalProcessed = 0;
+                long totalOutputSize = 0;
+
+                await Task.Run(() =>
+                {
+                    using (var wzFile = new WzFile(patchVersion, encryption))
+                    {
+                        wzFile.Name = "Data.wz";
+
+                        // Process each category
+                        foreach (var category in categoriesList)
+                        {
+                            cancellationToken.ThrowIfCancellationRequested();
+
+                            string categoryPath = Path.Combine(versionPath, category);
+                            if (!Directory.Exists(categoryPath))
+                            {
+                                continue;
+                            }
+
+                            progressData.CurrentPhase = $"Packing {category}";
+                            progress?.Report(progressData);
+
+                            OnCategoryStarted(category);
+
+                            var categoryResult = new CategoryPackingResult
+                            {
+                                CategoryName = category,
+                                StartTime = DateTime.Now
+                            };
+
+                            // Determine where to add images
+                            WzDirectory targetDirectory;
+                            if (category.Equals("_Root", StringComparison.OrdinalIgnoreCase))
+                            {
+                                // _Root images go directly into WzFile.WzDirectory
+                                targetDirectory = wzFile.WzDirectory;
+                            }
+                            else
+                            {
+                                // Other categories become subdirectories
+                                var categoryDir = new WzDirectory(category) { WzIv = wzIv };
+                                wzFile.WzDirectory.AddDirectory(categoryDir);
+                                targetDirectory = categoryDir;
+                            }
+
+                            // Build directory structure and collect IMG files
+                            var imgFiles = new List<ImgFileInfo>();
+                            BuildDirectoryStructureAndCollectImgFiles(
+                                categoryPath,
+                                targetDirectory,
+                                categoryPath,
+                                wzIv,
+                                imgFiles);
+
+                            int categoryCount = imgFiles.Count;
+                            Debug.WriteLine($"[PackBetaDataWz] {category}: Found {categoryCount} IMG files");
+
+                            // Process IMG files concurrently
+                            var processingResults = new ConcurrentBag<ImgProcessingResult>();
+                            var lockObj = new object();
+
+                            var parallelOptions = new ParallelOptions
+                            {
+                                MaxDegreeOfParallelism = MAX_DEGREE_OF_PARALLELISM,
+                                CancellationToken = cancellationToken
+                            };
+
+                            Parallel.ForEach(imgFiles, parallelOptions, imgFileInfo =>
+                            {
+                                cancellationToken.ThrowIfCancellationRequested();
+
+                                // Use BMS IV for reading (IMG files are extracted with BMS encryption)
+                                var processingResult = ProcessSingleImgFile(imgFileInfo, readIv);
+                                processingResults.Add(processingResult);
+
+                                int currentCount = Interlocked.Increment(ref totalProcessed);
+                                progressData.ProcessedFiles = currentCount;
+                                progressData.CurrentFile = imgFileInfo.RelativePath;
+                                progress?.Report(progressData);
+                            });
+
+                            // Add processed images to parent directories
+                            int categoryImagesPacked = 0;
+                            foreach (var processingResult in processingResults)
+                            {
+                                if (processingResult.Success && processingResult.Image != null)
+                                {
+                                    lock (lockObj)
+                                    {
+                                        processingResult.ParentDirectory.AddImage(processingResult.Image);
+                                        categoryImagesPacked++;
+                                    }
+                                }
+                                else if (!processingResult.Success)
+                                {
+                                    categoryResult.Errors.Add(processingResult.ErrorMessage ?? $"Failed to process: {processingResult.RelativePath}");
+                                }
+                            }
+
+                            categoryResult.ImagesPacked = categoryImagesPacked;
+                            categoryResult.Success = true;
+                            categoryResult.EndTime = DateTime.Now;
+
+                            result.CategoriesPacked.Add(category, categoryResult);
+                            OnCategoryCompleted(category, categoryResult);
+                        }
+
+                        // Save the single Data.wz file (NOT 64-bit format for beta)
+                        Debug.WriteLine($"[PackBetaDataWz] Saving Data.wz to {dataWzPath}");
+                        wzFile.SaveToDisk(dataWzPath, false, encryption);
+
+                        if (File.Exists(dataWzPath))
+                        {
+                            totalOutputSize = new FileInfo(dataWzPath).Length;
+                            Debug.WriteLine($"[PackBetaDataWz] Created Data.wz ({totalOutputSize / 1024 / 1024}MB)");
+                        }
+                    }
+                }, cancellationToken);
+
+                // Pack List.wz separately if List category was selected
+                if (hasListCategory)
+                {
+                    progressData.CurrentPhase = "Packing List.wz";
+                    progress?.Report(progressData);
+
+                    var listResult = PackListCategorySeparately(versionPath, outputPath, encryption, patchVersion);
+                    if (listResult != null)
+                    {
+                        result.CategoriesPacked.Add("List", listResult);
+                        totalOutputSize += listResult.OutputFileSize;
+                    }
+                }
+
+                result.Success = true;
+                result.EndTime = DateTime.Now;
+
+                progressData.CurrentPhase = "Complete";
+                progress?.Report(progressData);
+            }
+            catch (OperationCanceledException)
+            {
+                result.Success = false;
+                result.ErrorMessage = "Packing was cancelled";
+            }
+            catch (Exception ex)
+            {
+                result.Success = false;
+                result.ErrorMessage = ex.Message;
+                OnErrorOccurred(ex);
+            }
+
+            return result;
+        }
+
+        /// <summary>
+        /// Packs the List category separately as List.wz.
+        /// List.wz is always a separate file, even in beta format.
+        /// </summary>
+        private CategoryPackingResult PackListCategorySeparately(
+            string versionPath,
+            string outputPath,
+            WzMapleVersion encryption,
+            short patchVersion)
+        {
+            var result = new CategoryPackingResult
+            {
+                CategoryName = "List",
+                StartTime = DateTime.Now
+            };
+
+            try
+            {
+                string listCategoryPath = Path.Combine(versionPath, "List");
+                string listJsonPath = Path.Combine(listCategoryPath, "List.json");
+
+                if (!File.Exists(listJsonPath))
+                {
+                    Debug.WriteLine("[PackListCategorySeparately] List.json not found, skipping List.wz");
+                    result.Success = false;
+                    result.Errors.Add("List.json not found");
+                    result.EndTime = DateTime.Now;
+                    return result;
+                }
+
+                string jsonContent = File.ReadAllText(listJsonPath);
+
+                // Check if this is our JSON format
+                if (!jsonContent.TrimStart().StartsWith("{"))
+                {
+                    result.Success = false;
+                    result.Errors.Add("List.json is not in expected JSON format");
+                    result.EndTime = DateTime.Now;
+                    return result;
+                }
+
+                var listData = JsonConvert.DeserializeObject<ListWzJsonFormat>(jsonContent);
+
+                if (listData?.Entries == null || listData.Entries.Count == 0)
+                {
+                    result.Success = false;
+                    result.Errors.Add("List.json has no entries");
+                    result.EndTime = DateTime.Now;
+                    return result;
+                }
+
+                string listWzPath = Path.Combine(outputPath, "List.wz");
+
+                // Use ListFileParser to save in proper List.wz format
+                ListFileParser.SaveToDisk(listWzPath, encryption, listData.Entries);
+
+                result.Success = true;
+                result.ImagesPacked = 1;
+                result.OutputFilePath = listWzPath;
+
+                if (File.Exists(listWzPath))
+                {
+                    result.OutputFileSize = new FileInfo(listWzPath).Length;
+                }
+
+                Debug.WriteLine($"[PackListCategorySeparately] Created List.wz ({result.OutputFileSize} bytes)");
+            }
+            catch (Exception ex)
+            {
+                result.Success = false;
+                result.Errors.Add($"Error packing List.wz: {ex.Message}");
+                Debug.WriteLine($"[PackListCategorySeparately] Error: {ex}");
+            }
+
+            result.EndTime = DateTime.Now;
             return result;
         }
         #endregion
@@ -1068,7 +1392,9 @@ namespace MapleLib.Img
         /// Processes a single IMG file: reads, parses, and clones it.
         /// This method is thread-safe and can be called concurrently.
         /// </summary>
-        private ImgProcessingResult ProcessSingleImgFile(ImgFileInfo imgFileInfo, byte[] wzIv)
+        /// <param name="imgFileInfo">Information about the IMG file to process</param>
+        /// <param name="readIv">IV used for reading the IMG file (usually BMS since IMG files are extracted with BMS)</param>
+        private ImgProcessingResult ProcessSingleImgFile(ImgFileInfo imgFileInfo, byte[] readIv)
         {
             var result = new ImgProcessingResult
             {
@@ -1086,7 +1412,7 @@ namespace MapleLib.Img
                 // Create WzImage from the raw bytes
                 using (var memStream = new MemoryStream(imgBytes))
                 {
-                    var wzReader = new WzBinaryReader(memStream, wzIv);
+                    var wzReader = new WzBinaryReader(memStream, readIv);
 
                     var wzImage = new WzImage(imgFileName, wzReader)
                     {
