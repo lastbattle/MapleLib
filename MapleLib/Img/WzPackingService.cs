@@ -62,6 +62,11 @@ namespace MapleLib.Img
         /// Maximum degree of parallelism for concurrent IMG file processing
         /// </summary>
         private static readonly int MAX_DEGREE_OF_PARALLELISM = Math.Max(1, Environment.ProcessorCount - 1);
+
+        /// <summary>
+        /// Hard cap for IMG parsing fan-out to avoid extreme memory spikes on large categories.
+        /// </summary>
+        private const int MAX_IMG_PARSE_PARALLELISM = 2;
         #endregion
 
         #region Helper Classes for Concurrent Processing
@@ -278,14 +283,18 @@ namespace MapleLib.Img
             try
             {
                 // Restore canonical filename casing from extraction metadata before packing.
-                ReferenceWzMetadata referenceMetadata = TryLoadReferenceWzMetadata(outputPath, category, encryption);
                 bool hasCaseMapMetadata = ApplyImageCaseMap(categoryPath);
-                if (!hasCaseMapMetadata && referenceMetadata != null)
+                ReferenceWzMetadata referenceMetadata = null;
+                if (!hasCaseMapMetadata)
                 {
-                    int renamedCount = ApplyImageCaseMapEntries(categoryPath, referenceMetadata.CaseEntries);
-                    if (renamedCount > 0)
+                    referenceMetadata = TryLoadReferenceWzMetadata(outputPath, category, encryption, patchVersion);
+                    if (referenceMetadata != null)
                     {
-                        Debug.WriteLine($"[PackCategory] Applied {renamedCount} case fixes from reference WZ: {referenceMetadata.SourcePath}");
+                        int renamedCount = ApplyImageCaseMapEntries(categoryPath, referenceMetadata.CaseEntries);
+                        if (renamedCount > 0)
+                        {
+                            Debug.WriteLine($"[PackCategory] Applied {renamedCount} case fixes from reference WZ: {referenceMetadata.SourcePath}");
+                        }
                     }
                 }
 
@@ -425,7 +434,7 @@ namespace MapleLib.Img
 
                                 var parallelOptions = new ParallelOptions
                                 {
-                                    MaxDegreeOfParallelism = MAX_DEGREE_OF_PARALLELISM,
+                                    MaxDegreeOfParallelism = GetImgProcessingParallelism(chunk.Count),
                                     CancellationToken = cancellationToken
                                 };
 
@@ -526,7 +535,7 @@ namespace MapleLib.Img
 
                             var parallelOptions = new ParallelOptions
                             {
-                                MaxDegreeOfParallelism = MAX_DEGREE_OF_PARALLELISM,
+                                MaxDegreeOfParallelism = GetImgProcessingParallelism(imgFiles.Count),
                                 CancellationToken = cancellationToken
                             };
 
@@ -847,7 +856,7 @@ namespace MapleLib.Img
 
                             var parallelOptions = new ParallelOptions
                             {
-                                MaxDegreeOfParallelism = MAX_DEGREE_OF_PARALLELISM,
+                                MaxDegreeOfParallelism = GetImgProcessingParallelism(imgFiles.Count),
                                 CancellationToken = cancellationToken
                             };
 
@@ -1197,7 +1206,8 @@ namespace MapleLib.Img
         private ReferenceWzMetadata TryLoadReferenceWzMetadata(
             string outputPath,
             string category,
-            WzMapleVersion encryption)
+            WzMapleVersion encryption,
+            short patchVersion)
         {
             foreach (string candidatePath in EnumerateReferenceWzCandidates(outputPath, category))
             {
@@ -1208,7 +1218,9 @@ namespace MapleLib.Img
 
                 try
                 {
-                    using (var wzFile = new WzFile(candidatePath, encryption))
+                    using (var wzFile = patchVersion > 0
+                        ? new WzFile(candidatePath, patchVersion, encryption)
+                        : new WzFile(candidatePath, encryption))
                     {
                         var parseStatus = wzFile.ParseWzFile();
                         if (parseStatus != WzFileParseStatus.Success || wzFile.WzDirectory == null)
@@ -1349,6 +1361,20 @@ namespace MapleLib.Img
                 }
             }
             return renamedCount;
+        }
+
+        private static int GetImgProcessingParallelism(int itemCount)
+        {
+            if (itemCount <= 0)
+            {
+                return 1;
+            }
+
+            return Math.Max(
+                1,
+                Math.Min(
+                    MAX_DEGREE_OF_PARALLELISM,
+                    Math.Min(MAX_IMG_PARSE_PARALLELISM, itemCount)));
         }
 
         /// <summary>
