@@ -30,6 +30,7 @@ namespace MapleLib.Img
         public static readonly string[] STANDARD_CATEGORIES = WzExtractionService.STANDARD_WZ_FILES;
 
         private const string MANIFEST_FILENAME = "manifest.json";
+        private const string IMG_CASE_MAP_FILENAME = ".imgcase.json";
 
         /// <summary>
         /// Name of the canvas directory for 64-bit format
@@ -269,6 +270,9 @@ namespace MapleLib.Img
 
             try
             {
+                // Restore canonical filename casing from extraction metadata before packing.
+                ApplyImageCaseMap(categoryPath);
+
                 // Get WZ IV for the target encryption (used for WzDirectory and saving)
                 byte[] wzIv = WzTool.GetIvByMapleVersion(encryption);
 
@@ -1122,6 +1126,114 @@ namespace MapleLib.Img
 
             // Parsed successfully, but no entries to write.
             return new List<string>();
+        }
+
+        /// <summary>
+        /// Applies extracted filename case metadata so packed WZ image names match original casing.
+        /// </summary>
+        private void ApplyImageCaseMap(string categoryPath)
+        {
+            string mapPath = Path.Combine(categoryPath, IMG_CASE_MAP_FILENAME);
+            if (!File.Exists(mapPath))
+            {
+                return;
+            }
+
+            try
+            {
+                string json = File.ReadAllText(mapPath);
+                var caseMap = JsonConvert.DeserializeObject<ImageCaseMapData>(json);
+                if (caseMap?.Entries == null || caseMap.Entries.Count == 0)
+                {
+                    return;
+                }
+
+                int renamedCount = 0;
+                var imgFiles = Directory.EnumerateFiles(categoryPath, "*.img", SearchOption.AllDirectories).ToList();
+                foreach (var filePath in imgFiles)
+                {
+                    if (!File.Exists(filePath))
+                    {
+                        continue;
+                    }
+
+                    string relativePath = Path.GetRelativePath(categoryPath, filePath)
+                        .Replace(Path.DirectorySeparatorChar, '/');
+                    string lowerKey = relativePath.ToLowerInvariant();
+                    if (!caseMap.Entries.TryGetValue(lowerKey, out var canonicalRelativePath))
+                    {
+                        continue;
+                    }
+
+                    if (string.Equals(relativePath, canonicalRelativePath, StringComparison.Ordinal))
+                    {
+                        continue;
+                    }
+
+                    string canonicalPath = Path.Combine(
+                        categoryPath,
+                        canonicalRelativePath.Replace('/', Path.DirectorySeparatorChar));
+
+                    if (MoveFileUsingTemp(filePath, canonicalPath))
+                    {
+                        renamedCount++;
+                    }
+                }
+
+                if (renamedCount > 0)
+                {
+                    Debug.WriteLine($"[PackCategory] Applied {renamedCount} case fixes from {IMG_CASE_MAP_FILENAME} in {categoryPath}");
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[PackCategory] Failed to apply {IMG_CASE_MAP_FILENAME}: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Moves a file through a temporary path to enforce target casing on case-insensitive filesystems.
+        /// </summary>
+        private static bool MoveFileUsingTemp(string sourcePath, string targetPath)
+        {
+            try
+            {
+                if (string.Equals(sourcePath, targetPath, StringComparison.Ordinal))
+                {
+                    return true;
+                }
+
+                string targetDir = Path.GetDirectoryName(targetPath);
+                if (string.IsNullOrEmpty(targetDir))
+                {
+                    return false;
+                }
+                Directory.CreateDirectory(targetDir);
+
+                if (File.Exists(targetPath) &&
+                    !string.Equals(sourcePath, targetPath, StringComparison.OrdinalIgnoreCase))
+                {
+                    // Different file already exists at canonical path; skip to avoid data loss.
+                    return false;
+                }
+
+                string sourceDir = Path.GetDirectoryName(sourcePath) ?? targetDir;
+                string tempPath = Path.Combine(
+                    sourceDir,
+                    $"__casefix_{Guid.NewGuid():N}{Path.GetExtension(sourcePath)}");
+
+                File.Move(sourcePath, tempPath);
+                if (File.Exists(targetPath))
+                {
+                    File.Delete(targetPath);
+                }
+                File.Move(tempPath, targetPath);
+                return true;
+            }
+            catch
+            {
+                return false;
+            }
         }
 
         /// <summary>

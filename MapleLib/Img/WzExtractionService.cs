@@ -41,6 +41,7 @@ namespace MapleLib.Img
         };
 
         private const string MANIFEST_FILENAME = "manifest.json";
+        private const string IMG_CASE_MAP_FILENAME = ".imgcase.json";
 
         /// <summary>
         /// Maximum degree of parallelism for concurrent WZ file extraction.
@@ -80,7 +81,7 @@ namespace MapleLib.Img
         /// <param name="versionId">Version identifier (e.g., "v83")</param>
         /// <param name="displayName">Human-readable display name</param>
         /// <param name="encryption">WZ encryption version</param>
-        /// <param name="resolveLinks">Whether to resolve _inlink/_outlink canvas references (default true)</param>
+        /// <param name="resolveLinks">Whether to resolve _inlink/_outlink canvas references (default false for 1:1 repack fidelity)</param>
         /// <param name="cancellationToken">Cancellation token</param>
         /// <param name="progress">Progress reporter</param>
         /// <returns>Extraction result with statistics</returns>
@@ -90,7 +91,7 @@ namespace MapleLib.Img
             string versionId,
             string displayName,
             WzMapleVersion encryption,
-            bool resolveLinks = true,
+            bool resolveLinks = false,
             CancellationToken cancellationToken = default,
             IProgress<ExtractionProgress> progress = null)
         {
@@ -120,7 +121,7 @@ namespace MapleLib.Img
         /// <param name="displayName">Display name for the version</param>
         /// <param name="encryption">WZ encryption version</param>
         /// <param name="categoriesToExtract">List of category names to extract (e.g., "Map", "Mob", "String")</param>
-        /// <param name="resolveLinks">Whether to resolve _inlink/_outlink canvas references (default true)</param>
+        /// <param name="resolveLinks">Whether to resolve _inlink/_outlink canvas references (default false for 1:1 repack fidelity)</param>
         /// <param name="cancellationToken">Cancellation token</param>
         /// <param name="progress">Progress reporter</param>
         /// <returns>Extraction result with statistics</returns>
@@ -131,7 +132,7 @@ namespace MapleLib.Img
             string displayName,
             WzMapleVersion encryption,
             IEnumerable<string> categoriesToExtract,
-            bool resolveLinks = true,
+            bool resolveLinks = false,
             CancellationToken cancellationToken = default,
             IProgress<ExtractionProgress> progress = null)
         {
@@ -410,6 +411,7 @@ namespace MapleLib.Img
                 // Use BMS encryption (all zeroes) for extracted IMG files - plain/unencrypted format
                 var serializer = WzImgSerializer.CreateForImgExtraction();
                 int processedCount = 0;
+                var extractedImageCaseMap = new Dictionary<string, string>(StringComparer.Ordinal);
 
                 // Load ALL WZ files for this category simultaneously so outlinks can resolve
                 // across split files (e.g., Mob001.wz referencing Mob/xxx.img in Mob.wz)
@@ -453,6 +455,7 @@ namespace MapleLib.Img
                                 linkResolver,
                                 listWzEntries,
                                 extractedListWzImages,
+                                extractedImageCaseMap,
                                 loadedWzFiles,
                                 ref processedCount,
                                 progressCallback,
@@ -559,11 +562,13 @@ namespace MapleLib.Img
                                 ExtractWzNode(
                                     wzFile.WzDirectory,
                                     outputPath,
+                                    categoryOutputPath,
                                     category,
                                     serializer,
                                     linkResolver,
                                     listWzEntries,
                                     extractedListWzImages,
+                                    extractedImageCaseMap,
                                     ref processedCount,
                                     progressCallback,
                                     result);
@@ -611,6 +616,13 @@ namespace MapleLib.Img
                             result.Errors.Add($"... and {linkResolver.FailedLinks.Count - 10} more broken links (missing data in original WZ files)");
                         }
                     }
+                }
+
+                // Persist exact image filename casing so packer can restore canonical names
+                // on case-insensitive filesystems if files are later edited/replaced.
+                if (!isPacksCategory && extractedImageCaseMap.Count > 0)
+                {
+                    SaveImageCaseMap(categoryOutputPath, extractedImageCaseMap);
                 }
             }
             catch (Exception ex)
@@ -1026,11 +1038,13 @@ namespace MapleLib.Img
         private void ExtractWzNode(
             WzDirectory directory,
             string outputPath,
+            string categoryOutputRootPath,
             string categoryName,
             WzImgSerializer serializer,
             WzLinkResolver linkResolver,
             HashSet<string> listWzEntries,
             ConcurrentDictionary<string, byte> extractedListWzImages,
+            Dictionary<string, string> extractedImageCaseMap,
             ref int processedCount,
             Action<int, int, string> progressCallback,
             CategoryExtractionResult result)
@@ -1051,7 +1065,19 @@ namespace MapleLib.Img
                         Directory.CreateDirectory(subDirPath);
                     }
 
-                    ExtractWzNode(subDir, subDirPath, categoryName, serializer, linkResolver, listWzEntries, extractedListWzImages, ref processedCount, progressCallback, result);
+                    ExtractWzNode(
+                        subDir,
+                        subDirPath,
+                        categoryOutputRootPath,
+                        categoryName,
+                        serializer,
+                        linkResolver,
+                        listWzEntries,
+                        extractedListWzImages,
+                        extractedImageCaseMap,
+                        ref processedCount,
+                        progressCallback,
+                        result);
                 }
             }
 
@@ -1070,7 +1096,9 @@ namespace MapleLib.Img
                     }
 
                     string imgPath = Path.Combine(outputPath, EscapeFileName(img.Name));
+                    EnsureExactFilePathCase(imgPath);
                     serializer.SerializeImage(img, imgPath);
+                    TryRecordImageCaseMap(categoryOutputRootPath, imgPath, extractedImageCaseMap);
 
                     processedCount++;
                     result.TotalSize += new FileInfo(imgPath).Length;
@@ -1141,6 +1169,7 @@ namespace MapleLib.Img
             WzLinkResolver linkResolver,
             HashSet<string> listWzEntries,
             ConcurrentDictionary<string, byte> extractedListWzImages,
+            Dictionary<string, string> extractedImageCaseMap,
             List<(WzFile wzFile, bool isCanvasFile, string relativePath)> loadedWzFiles,
             ref int processedCount,
             Action<int, int, string> progressCallback,
@@ -1209,7 +1238,9 @@ namespace MapleLib.Img
                                 }
 
                                 string imgPath = Path.Combine(categoryOutputPath, ProgressingWzSerializer.EscapeInvalidFilePathNames(img.Name));
+                                EnsureExactFilePathCase(imgPath);
                                 serializer.SerializeImage(img, imgPath);
+                                TryRecordImageCaseMap(categoryOutputPath, imgPath, extractedImageCaseMap);
 
                                 processedCount++;
                                 result.TotalSize += new FileInfo(imgPath).Length;
@@ -1254,11 +1285,13 @@ namespace MapleLib.Img
                 ExtractWzNode(
                     categoryDir,
                     categoryOutputPath,
+                    categoryOutputPath,
                     category,
                     serializer,
                     linkResolver,
                     listWzEntries,
                     extractedListWzImages,
+                    extractedImageCaseMap,
                     ref processedCount,
                     progressCallback,
                     result);
@@ -1463,6 +1496,7 @@ namespace MapleLib.Img
                                     }
 
                                     // Serialize the image
+                                    EnsureExactFilePathCase(imgOutputPath);
                                     serializer.SerializeImage(wzImage, imgOutputPath);
 
                                     processedCount++;
@@ -1621,6 +1655,98 @@ namespace MapleLib.Img
             return ProgressingWzSerializer.EscapeInvalidFilePathNames(fileName);
         }
 
+        /// <summary>
+        /// Ensures existing files use the exact requested casing on case-insensitive filesystems.
+        /// </summary>
+        private void EnsureExactFilePathCase(string desiredFilePath)
+        {
+            string directoryPath = Path.GetDirectoryName(desiredFilePath);
+            if (string.IsNullOrEmpty(directoryPath) || !Directory.Exists(directoryPath))
+            {
+                return;
+            }
+
+            string desiredFileName = Path.GetFileName(desiredFilePath);
+            string existingFilePath = Directory.EnumerateFiles(directoryPath)
+                .FirstOrDefault(path =>
+                    string.Equals(Path.GetFileName(path), desiredFileName, StringComparison.OrdinalIgnoreCase));
+
+            if (string.IsNullOrEmpty(existingFilePath))
+            {
+                return;
+            }
+
+            string existingFileName = Path.GetFileName(existingFilePath);
+            if (string.Equals(existingFileName, desiredFileName, StringComparison.Ordinal))
+            {
+                return;
+            }
+
+            string tempPath = Path.Combine(
+                directoryPath,
+                $"__casefix_{Guid.NewGuid():N}{Path.GetExtension(desiredFileName)}");
+
+            File.Move(existingFilePath, tempPath);
+            File.Move(tempPath, Path.Combine(directoryPath, desiredFileName));
+        }
+
+        /// <summary>
+        /// Records canonical casing for extracted IMG filenames.
+        /// Only entries with uppercase characters are tracked to keep metadata compact.
+        /// </summary>
+        private void TryRecordImageCaseMap(
+            string categoryOutputRootPath,
+            string imageOutputPath,
+            Dictionary<string, string> imageCaseMap)
+        {
+            if (imageCaseMap == null ||
+                string.IsNullOrEmpty(categoryOutputRootPath) ||
+                string.IsNullOrEmpty(imageOutputPath))
+            {
+                return;
+            }
+
+            string relativePath = Path.GetRelativePath(categoryOutputRootPath, imageOutputPath)
+                .Replace(Path.DirectorySeparatorChar, '/');
+
+            string fileName = Path.GetFileName(relativePath);
+            if (!fileName.Any(char.IsUpper))
+            {
+                return;
+            }
+
+            string lowerKey = relativePath.ToLowerInvariant();
+            if (!imageCaseMap.ContainsKey(lowerKey))
+            {
+                imageCaseMap[lowerKey] = relativePath;
+            }
+        }
+
+        /// <summary>
+        /// Saves extracted filename case metadata for packer-side restoration.
+        /// </summary>
+        private void SaveImageCaseMap(string categoryOutputPath, Dictionary<string, string> imageCaseMap)
+        {
+            try
+            {
+                var payload = new ImageCaseMapData
+                {
+                    Format = "ImgCaseMapV1",
+                    Entries = imageCaseMap
+                        .OrderBy(kvp => kvp.Key, StringComparer.Ordinal)
+                        .ToDictionary(kvp => kvp.Key, kvp => kvp.Value, StringComparer.Ordinal)
+                };
+
+                string json = JsonConvert.SerializeObject(payload, Formatting.Indented);
+                string mapPath = Path.Combine(categoryOutputPath, IMG_CASE_MAP_FILENAME);
+                File.WriteAllText(mapPath, json);
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[WzExtraction] Failed to save {IMG_CASE_MAP_FILENAME}: {ex.Message}");
+            }
+        }
+
         #endregion
 
         #region Event Invokers
@@ -1701,6 +1827,12 @@ namespace MapleLib.Img
         /// The detected MapleStory locale/region from MapleStory.exe (e.g., GMS, KMS, MSEA)
         /// </summary>
         public string DetectedLocale { get; set; }
+    }
+
+    internal class ImageCaseMapData
+    {
+        public string Format { get; set; } = "ImgCaseMapV1";
+        public Dictionary<string, string> Entries { get; set; } = new(StringComparer.Ordinal);
     }
 
     /// <summary>
