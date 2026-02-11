@@ -254,6 +254,52 @@ namespace MapleLib.Img
         }
 
         /// <summary>
+        /// Gets all cached items as key-value pairs without affecting LRU order.
+        /// Thread-safe snapshot of current cache contents.
+        /// </summary>
+        public IEnumerable<KeyValuePair<TKey, TValue>> GetAllItems()
+        {
+            _lock.EnterReadLock();
+            try
+            {
+                // Create a snapshot to avoid holding lock during enumeration
+                var snapshot = new List<KeyValuePair<TKey, TValue>>(_cache.Count);
+                foreach (var node in _lruList)
+                {
+                    snapshot.Add(new KeyValuePair<TKey, TValue>(node.Key, node.Value));
+                }
+                return snapshot;
+            }
+            finally
+            {
+                _lock.ExitReadLock();
+            }
+        }
+
+        /// <summary>
+        /// Gets all cached values without affecting LRU order.
+        /// Thread-safe snapshot of current cache contents.
+        /// </summary>
+        public IEnumerable<TValue> GetAllValues()
+        {
+            _lock.EnterReadLock();
+            try
+            {
+                // Create a snapshot to avoid holding lock during enumeration
+                var snapshot = new List<TValue>(_cache.Count);
+                foreach (var node in _lruList)
+                {
+                    snapshot.Add(node.Value);
+                }
+                return snapshot;
+            }
+            finally
+            {
+                _lock.ExitReadLock();
+            }
+        }
+
+        /// <summary>
         /// Clears all items from the cache
         /// </summary>
         public void Clear()
