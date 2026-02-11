@@ -257,14 +257,14 @@ namespace MapleLib.Img
                         ProgressChanged?.Invoke(this, batchProgress);
                     });
 
-                    // Run extraction (resolve links by default)
+                    // Run extraction with link preservation for pack fidelity
                     var extractionResult = await _extractionService.ExtractAsync(
                         source.SourcePath,
                         versionResult.OutputPath,
                         source.VersionName,
                         source.DisplayName ?? source.VersionName,
                         source.Encryption,
-                        resolveLinks: true,
+                        resolveLinks: false,
                         cancellationToken,
                         extractionProgress);
 
