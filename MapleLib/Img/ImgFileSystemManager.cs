@@ -777,6 +777,81 @@ namespace MapleLib.Img
         }
 
         /// <summary>
+        /// Gets all cached WzImages that have been modified (Changed = true).
+        /// Returns key-value pairs where key is the cache key (category/relativePath) and value is the WzImage.
+        /// </summary>
+        /// <returns>Collection of changed images with their cache keys</returns>
+        public IEnumerable<KeyValuePair<string, WzImage>> GetChangedImages()
+        {
+            var allItems = _imageCache.GetAllItems();
+            return allItems.Where(kvp => kvp.Value != null && kvp.Value.Changed);
+        }
+
+        /// <summary>
+        /// Gets the count of cached WzImages that have been modified.
+        /// </summary>
+        /// <returns>Number of changed images in cache</returns>
+        public int GetChangedImagesCount()
+        {
+            return _imageCache.GetAllValues().Count(img => img != null && img.Changed);
+        }
+
+        /// <summary>
+        /// Saves all changed images in the cache back to disk.
+        /// </summary>
+        /// <returns>Number of images saved</returns>
+        public int SaveAllChangedImages()
+        {
+            int savedCount = 0;
+            var changedImages = GetChangedImages().ToList();
+
+            foreach (var kvp in changedImages)
+            {
+                // Parse cache key to get category and relative path
+                // Key format is "category/relativePath"
+                string cacheKey = kvp.Key;
+                int separatorIndex = cacheKey.IndexOf('/');
+                if (separatorIndex > 0)
+                {
+                    string category = cacheKey.Substring(0, separatorIndex);
+                    string relativePath = cacheKey.Substring(separatorIndex + 1);
+
+                    if (SaveImage(kvp.Value, category, relativePath))
+                    {
+                        savedCount++;
+                    }
+                }
+            }
+
+            return savedCount;
+        }
+
+        /// <summary>
+        /// Gets information about changed images for display purposes.
+        /// </summary>
+        /// <returns>List of tuples containing (category, relativePath, imageName)</returns>
+        public List<(string Category, string RelativePath, string ImageName)> GetChangedImagesInfo()
+        {
+            var result = new List<(string, string, string)>();
+            var changedImages = GetChangedImages();
+
+            foreach (var kvp in changedImages)
+            {
+                string cacheKey = kvp.Key;
+                int separatorIndex = cacheKey.IndexOf('/');
+                if (separatorIndex > 0)
+                {
+                    string category = cacheKey.Substring(0, separatorIndex);
+                    string relativePath = cacheKey.Substring(separatorIndex + 1);
+                    string imageName = kvp.Value?.Name ?? Path.GetFileName(relativePath);
+                    result.Add((category, relativePath, imageName));
+                }
+            }
+
+            return result;
+        }
+
+        /// <summary>
         /// Gets memory estimate for cached images
         /// </summary>
         public long EstimateCacheMemoryUsage()

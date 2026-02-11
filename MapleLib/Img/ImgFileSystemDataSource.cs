@@ -137,6 +137,23 @@ namespace MapleLib.Img
         public ImgFileSystemManager Manager => _manager;
 
         /// <summary>
+        /// Gets the count of cached WzImages that have been modified.
+        /// </summary>
+        public int GetChangedImagesCount() => _manager.GetChangedImagesCount();
+
+        /// <summary>
+        /// Gets information about changed images for display purposes.
+        /// </summary>
+        public List<(string Category, string RelativePath, string ImageName)> GetChangedImagesInfo()
+            => _manager.GetChangedImagesInfo();
+
+        /// <summary>
+        /// Saves all changed images in the cache back to disk.
+        /// </summary>
+        /// <returns>Number of images saved</returns>
+        public int SaveAllChangedImages() => _manager.SaveAllChangedImages();
+
+        /// <summary>
         /// Enables or disables hot swap (file system watching) for category directories
         /// </summary>
         /// <param name="enable">True to enable, false to disable</param>
