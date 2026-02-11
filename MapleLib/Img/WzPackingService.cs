@@ -11,6 +11,7 @@ using System.Drawing;
 using System.IO;
 using System.Linq;
 using System.Text;
+using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -152,12 +153,12 @@ namespace MapleLib.Img
 
                 result.VersionInfo = versionInfo;
 
-                // Parse encryption from manifest
-                WzMapleVersion encryption = WzMapleVersion.BMS;
-                if (Enum.TryParse<WzMapleVersion>(versionInfo.Encryption, out var parsedEncryption))
-                {
-                    encryption = parsedEncryption;
-                }
+                ResolvePackingSettings(
+                    versionInfo,
+                    overridePatchVersion: 0,
+                    overrideEncryption: null,
+                    out var encryption,
+                    out var patchVersion);
 
                 // Create output directory
                 if (!Directory.Exists(outputPath))
@@ -188,7 +189,7 @@ namespace MapleLib.Img
                         outputPath,
                         category,
                         encryption,
-                        (short)versionInfo.PatchVersion,
+                        patchVersion,
                         saveAs64Bit,
                         cancellationToken,
                         (current, total, fileName) =>
@@ -289,40 +290,58 @@ namespace MapleLib.Img
                             if (jsonContent.TrimStart().StartsWith("{"))
                             {
                                 var listData = JsonConvert.DeserializeObject<ListWzJsonFormat>(jsonContent);
-
-                                if (listData?.Entries != null && listData.Entries.Count > 0)
+                                if (listData == null)
                                 {
-                                    // Determine output path for List.wz
-                                    string listWzPath;
-                                    if (saveAs64Bit)
-                                    {
-                                        string categoryOutputPath = Path.Combine(outputPath, "Data", category);
-                                        if (!Directory.Exists(categoryOutputPath))
-                                        {
-                                            Directory.CreateDirectory(categoryOutputPath);
-                                        }
-                                        listWzPath = Path.Combine(categoryOutputPath, "List_000.wz");
-                                    }
-                                    else
-                                    {
-                                        listWzPath = Path.Combine(outputPath, "List.wz");
-                                    }
-
-                                    // Use ListFileParser to save in proper List.wz format
-                                    ListFileParser.SaveToDisk(listWzPath, encryption, listData.Entries);
-
-                                    result.Success = true;
-                                    result.ImagesPacked = 1;
-                                    result.OutputFilePath = listWzPath;
-                                    if (File.Exists(listWzPath))
-                                    {
-                                        result.OutputFileSize = new FileInfo(listWzPath).Length;
-                                    }
+                                    result.Success = false;
+                                    result.Errors.Add("List.json could not be parsed");
                                     result.EndTime = DateTime.Now;
-
-                                    Debug.WriteLine($"[PackCategory] List: Created List.wz from JSON format ({result.OutputFileSize} bytes)");
                                     return result;
                                 }
+
+                                var listEntries = GetListEntriesForPacking(listData);
+
+                                // If there are no remaining entries, List.wz is not needed.
+                                if (listEntries == null || listEntries.Count == 0)
+                                {
+                                    result.Success = true;
+                                    result.ImagesPacked = 0;
+                                    result.OutputFilePath = null;
+                                    result.OutputFileSize = 0;
+                                    result.EndTime = DateTime.Now;
+                                    Debug.WriteLine("[PackCategory] List: No entries to pack, skipping List.wz creation");
+                                    return result;
+                                }
+
+                                // Determine output path for List.wz
+                                string listWzPath;
+                                if (saveAs64Bit)
+                                {
+                                    string categoryOutputPath = Path.Combine(outputPath, "Data", category);
+                                    if (!Directory.Exists(categoryOutputPath))
+                                    {
+                                        Directory.CreateDirectory(categoryOutputPath);
+                                    }
+                                    listWzPath = Path.Combine(categoryOutputPath, "List_000.wz");
+                                }
+                                else
+                                {
+                                    listWzPath = Path.Combine(outputPath, "List.wz");
+                                }
+
+                                // Use ListFileParser to save in proper List.wz format
+                                ListFileParser.SaveToDisk(listWzPath, encryption, listEntries);
+
+                                result.Success = true;
+                                result.ImagesPacked = 1;
+                                result.OutputFilePath = listWzPath;
+                                if (File.Exists(listWzPath))
+                                {
+                                    result.OutputFileSize = new FileInfo(listWzPath).Length;
+                                }
+                                result.EndTime = DateTime.Now;
+
+                                Debug.WriteLine($"[PackCategory] List: Created List.wz from JSON format ({result.OutputFileSize} bytes)");
+                                return result;
                             }
                         }
                         catch (JsonException)
@@ -587,28 +606,12 @@ namespace MapleLib.Img
                 VersionInfo versionInfo = LoadVersionInfo(versionPath);
                 result.VersionInfo = versionInfo;
 
-                WzMapleVersion encryption = WzMapleVersion.BMS;
-                short patchVersion = 1; // Default fallback
-                if (versionInfo != null)
-                {
-                    if (Enum.TryParse<WzMapleVersion>(versionInfo.Encryption, out var parsedEncryption))
-                    {
-                        encryption = parsedEncryption;
-                    }
-                    patchVersion = (short)versionInfo.PatchVersion;
-                }
-
-                // Use override patch version if specified (> 0)
-                if (overridePatchVersion > 0)
-                {
-                    patchVersion = overridePatchVersion;
-                }
-
-                // Use override encryption if specified
-                if (overrideEncryption.HasValue)
-                {
-                    encryption = overrideEncryption.Value;
-                }
+                ResolvePackingSettings(
+                    versionInfo,
+                    overridePatchVersion,
+                    overrideEncryption,
+                    out var encryption,
+                    out var patchVersion);
 
                 // Create output directory
                 if (!Directory.Exists(outputPath))
@@ -714,28 +717,12 @@ namespace MapleLib.Img
                 VersionInfo versionInfo = LoadVersionInfo(versionPath);
                 result.VersionInfo = versionInfo;
 
-                WzMapleVersion encryption = WzMapleVersion.BMS;
-                short patchVersion = 1;
-                if (versionInfo != null)
-                {
-                    if (Enum.TryParse<WzMapleVersion>(versionInfo.Encryption, out var parsedEncryption))
-                    {
-                        encryption = parsedEncryption;
-                    }
-                    patchVersion = (short)versionInfo.PatchVersion;
-                }
-
-                // Use override patch version if specified (> 0)
-                if (overridePatchVersion > 0)
-                {
-                    patchVersion = overridePatchVersion;
-                }
-
-                // Use override encryption if specified
-                if (overrideEncryption.HasValue)
-                {
-                    encryption = overrideEncryption.Value;
-                }
+                ResolvePackingSettings(
+                    versionInfo,
+                    overridePatchVersion,
+                    overrideEncryption,
+                    out var encryption,
+                    out var patchVersion);
 
                 // Create output directory
                 if (!Directory.Exists(outputPath))
@@ -966,11 +953,22 @@ namespace MapleLib.Img
                 }
 
                 var listData = JsonConvert.DeserializeObject<ListWzJsonFormat>(jsonContent);
+                var listEntries = GetListEntriesForPacking(listData);
 
-                if (listData?.Entries == null || listData.Entries.Count == 0)
+                if (listData == null)
                 {
                     result.Success = false;
-                    result.Errors.Add("List.json has no entries");
+                    result.Errors.Add("List.json could not be parsed");
+                    result.EndTime = DateTime.Now;
+                    return result;
+                }
+
+                if (listEntries == null || listEntries.Count == 0)
+                {
+                    result.Success = true;
+                    result.ImagesPacked = 0;
+                    result.OutputFilePath = null;
+                    result.OutputFileSize = 0;
                     result.EndTime = DateTime.Now;
                     return result;
                 }
@@ -978,7 +976,7 @@ namespace MapleLib.Img
                 string listWzPath = Path.Combine(outputPath, "List.wz");
 
                 // Use ListFileParser to save in proper List.wz format
-                ListFileParser.SaveToDisk(listWzPath, encryption, listData.Entries);
+                ListFileParser.SaveToDisk(listWzPath, encryption, listEntries);
 
                 result.Success = true;
                 result.ImagesPacked = 1;
@@ -1027,6 +1025,106 @@ namespace MapleLib.Img
         }
 
         /// <summary>
+        /// Resolves effective packing settings from manifest metadata and optional UI overrides.
+        /// Ensures patch version is always valid (> 0).
+        /// </summary>
+        private static void ResolvePackingSettings(
+            VersionInfo versionInfo,
+            short overridePatchVersion,
+            WzMapleVersion? overrideEncryption,
+            out WzMapleVersion encryption,
+            out short patchVersion)
+        {
+            encryption = WzMapleVersion.BMS;
+            patchVersion = 1;
+
+            if (versionInfo != null)
+            {
+                if (!string.IsNullOrEmpty(versionInfo.Encryption) &&
+                    Enum.TryParse<WzMapleVersion>(versionInfo.Encryption, true, out var parsedEncryption))
+                {
+                    encryption = parsedEncryption;
+                }
+
+                if (versionInfo.PatchVersion > 0 && versionInfo.PatchVersion <= short.MaxValue)
+                {
+                    patchVersion = (short)versionInfo.PatchVersion;
+                }
+                else if (TryExtractPatchVersion(versionInfo.Version, out var parsedVersion))
+                {
+                    patchVersion = parsedVersion;
+                }
+                else if (TryExtractPatchVersion(versionInfo.DisplayName, out parsedVersion))
+                {
+                    patchVersion = parsedVersion;
+                }
+            }
+
+            if (overridePatchVersion > 0)
+            {
+                patchVersion = overridePatchVersion;
+            }
+
+            if (overrideEncryption.HasValue)
+            {
+                encryption = overrideEncryption.Value;
+            }
+
+            // Defensive fallback for malformed manifests or invalid overrides.
+            if (patchVersion <= 0)
+            {
+                patchVersion = 1;
+            }
+        }
+
+        /// <summary>
+        /// Extracts patch version from strings such as "v115", "gms_v230", or "MapleStorySEA v115".
+        /// </summary>
+        private static bool TryExtractPatchVersion(string input, out short patchVersion)
+        {
+            patchVersion = 0;
+            if (string.IsNullOrWhiteSpace(input))
+            {
+                return false;
+            }
+
+            var match = Regex.Match(input, @"v(\d+)", RegexOptions.IgnoreCase);
+            if (match.Success && short.TryParse(match.Groups[1].Value, out patchVersion) && patchVersion > 0)
+            {
+                return true;
+            }
+
+            match = Regex.Match(input, @"(\d+)");
+            return match.Success &&
+                   short.TryParse(match.Groups[1].Value, out patchVersion) &&
+                   patchVersion > 0;
+        }
+
+        /// <summary>
+        /// Gets the List.wz entries to pack from either legacy or current List.json format.
+        /// </summary>
+        private static List<string> GetListEntriesForPacking(ListWzJsonFormat listData)
+        {
+            if (listData == null)
+            {
+                return null;
+            }
+
+            if (listData.Entries != null && listData.Entries.Count > 0)
+            {
+                return listData.Entries;
+            }
+
+            if (listData.RemainingEntries != null && listData.RemainingEntries.Count > 0)
+            {
+                return listData.RemainingEntries;
+            }
+
+            // Parsed successfully, but no entries to write.
+            return new List<string>();
+        }
+
+        /// <summary>
         /// Counts total IMG files in version directory
         /// </summary>
         private int CountTotalImages(string versionPath)
@@ -1043,6 +1141,13 @@ namespace MapleLib.Img
                     continue;
 
                 count += Directory.EnumerateFiles(dirPath, "*.img", SearchOption.AllDirectories).Count();
+
+                // Pre-BB List category can exist as List.json without any IMG files.
+                if (dirName.Equals("List", StringComparison.OrdinalIgnoreCase) &&
+                    File.Exists(Path.Combine(dirPath, "List.json")))
+                {
+                    count += 1;
+                }
             }
 
             return count;
@@ -1059,8 +1164,16 @@ namespace MapleLib.Img
             foreach (var category in STANDARD_CATEGORIES)
             {
                 string categoryPath = Path.Combine(versionPath, category);
-                if (Directory.Exists(categoryPath) &&
-                    Directory.EnumerateFiles(categoryPath, "*.img", SearchOption.AllDirectories).Any())
+                if (!Directory.Exists(categoryPath))
+                {
+                    continue;
+                }
+
+                bool hasImgFiles = Directory.EnumerateFiles(categoryPath, "*.img", SearchOption.AllDirectories).Any();
+                bool hasListJson = category.Equals("List", StringComparison.OrdinalIgnoreCase) &&
+                                   File.Exists(Path.Combine(categoryPath, "List.json"));
+
+                if (hasImgFiles || hasListJson)
                 {
                     categories.Add(category);
                 }
@@ -1081,14 +1194,16 @@ namespace MapleLib.Img
 
                 // Check for .img files
                 int imgCount = Directory.EnumerateFiles(dirPath, "*.img", SearchOption.AllDirectories).Count();
+                bool hasListJson = dirName.Equals("List", StringComparison.OrdinalIgnoreCase) &&
+                                   File.Exists(Path.Combine(dirPath, "List.json"));
 
                 // Also check for subdirectories (some WZ files like Base.wz only have directory structure)
                 int subDirCount = Directory.EnumerateDirectories(dirPath, "*", SearchOption.AllDirectories).Count();
 
                 Debug.WriteLine($"[GetCategoriesToPack] Checking '{dirName}': {imgCount} .img files, {subDirCount} subdirs");
 
-                // Add if it has .img files OR subdirectories (for empty WZ structures like Base.wz)
-                if (imgCount > 0 || subDirCount > 0)
+                // Add if it has .img files, subdirectories, or a List.json entry list.
+                if (imgCount > 0 || subDirCount > 0 || hasListJson)
                 {
                     categories.Add(dirName);
                     Debug.WriteLine($"[GetCategoriesToPack] Added category: {dirName}");
@@ -1974,6 +2089,11 @@ namespace MapleLib.Img
         public string Type { get; set; }
         public string Description { get; set; }
         public List<string> Entries { get; set; }
+        public List<string> RemainingEntries { get; set; }
+        public List<string> DecryptedEntries { get; set; }
+        public int OriginalCount { get; set; }
+        public int DecryptedCount { get; set; }
+        public int RemainingCount { get; set; }
     }
     #endregion
 }

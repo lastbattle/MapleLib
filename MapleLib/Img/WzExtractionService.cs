@@ -1,3 +1,4 @@
+using MapleLib.ClientLib;
 using MapleLib.WzLib;
 using MapleLib.WzLib.MSFile;
 using MapleLib.WzLib.Serializer;
@@ -287,6 +288,26 @@ namespace MapleLib.Img
                 progressData.CurrentPhase = "Generating manifest";
                 progress?.Report(progressData);
 
+                // Get the detected patch version and locale from extracted categories (use first non-zero/non-empty value found)
+                short detectedPatchVersion = 0;
+                string detectedLocale = null;
+                foreach (var categoryResult in result.CategoriesExtracted.Values)
+                {
+                    if (detectedPatchVersion == 0 && categoryResult.DetectedPatchVersion > 0)
+                    {
+                        detectedPatchVersion = categoryResult.DetectedPatchVersion;
+                    }
+                    if (string.IsNullOrEmpty(detectedLocale) && !string.IsNullOrEmpty(categoryResult.DetectedLocale))
+                    {
+                        detectedLocale = categoryResult.DetectedLocale;
+                    }
+                    // Break if we have both values
+                    if (detectedPatchVersion > 0 && !string.IsNullOrEmpty(detectedLocale))
+                    {
+                        break;
+                    }
+                }
+
                 var versionInfo = CreateVersionInfo(
                     versionId,
                     displayName,
@@ -296,7 +317,9 @@ namespace MapleLib.Img
                     isBetaMs,
                     isBigBang2,
                     outputVersionPath,
-                    result.CategoriesExtracted);
+                    result.CategoriesExtracted,
+                    detectedPatchVersion,
+                    detectedLocale);
 
                 SaveManifest(outputVersionPath, versionInfo);
                 result.VersionInfo = versionInfo;
@@ -465,6 +488,21 @@ namespace MapleLib.Img
                                     result.Errors.Add($"Failed to parse {wzFilePath}: {parseStatus}");
                                     wzFile.Dispose();
                                     continue;
+                                }
+
+                                // Capture the detected patch version from the first successfully parsed WZ file
+                                if (result.DetectedPatchVersion == 0 && wzFile.Version > 0)
+                                {
+                                    result.DetectedPatchVersion = wzFile.Version;
+                                    Debug.WriteLine($"[WzExtraction] Detected patch version {wzFile.Version} from {wzFilePath}");
+                                }
+
+                                // Capture the detected locale if available
+                                if (string.IsNullOrEmpty(result.DetectedLocale) &&
+                                    wzFile.MapleLocaleVersion != MapleStoryLocalisation.Not_Known)
+                                {
+                                    result.DetectedLocale = wzFile.MapleLocaleVersion.ToString();
+                                    Debug.WriteLine($"[WzExtraction] Detected locale {result.DetectedLocale} from {wzFilePath}");
                                 }
 
                                 // Check if this is a _Canvas WZ file
@@ -1132,6 +1170,20 @@ namespace MapleLib.Img
                 return;
             }
 
+            // Capture the detected patch version from Data.wz
+            if (wzFile.Version > 0)
+            {
+                result.DetectedPatchVersion = wzFile.Version;
+                Debug.WriteLine($"[WzExtraction] Detected patch version {wzFile.Version} from beta Data.wz");
+            }
+
+            // Capture the detected locale if available
+            if (wzFile.MapleLocaleVersion != MapleStoryLocalisation.Not_Known)
+            {
+                result.DetectedLocale = wzFile.MapleLocaleVersion.ToString();
+                Debug.WriteLine($"[WzExtraction] Detected locale {result.DetectedLocale} from beta Data.wz");
+            }
+
             loadedWzFiles.Add((wzFile, false, ""));
 
             try
@@ -1483,6 +1535,8 @@ namespace MapleLib.Img
                 OriginalCount = listWzEntries.Count,
                 DecryptedCount = decryptedEntries.Count,
                 RemainingCount = remainingEntries.Count,
+                // Keep "Entries" for backward compatibility with older packers.
+                Entries = remainingEntries,
                 DecryptedEntries = decryptedEntries,
                 RemainingEntries = remainingEntries
             };
@@ -1505,7 +1559,9 @@ namespace MapleLib.Img
             bool isBetaMs,
             bool isBigBang2,
             string outputPath,
-            Dictionary<string, CategoryExtractionResult> categories)
+            Dictionary<string, CategoryExtractionResult> categories,
+            short detectedPatchVersion = 0,
+            string detectedLocale = null)
         {
             var versionInfo = new VersionInfo
             {
@@ -1517,7 +1573,9 @@ namespace MapleLib.Img
                 IsBetaMs = isBetaMs,
                 IsBigBang2 = isBigBang2,
                 ExtractedDate = DateTime.Now,
-                DirectoryPath = outputPath
+                DirectoryPath = outputPath,
+                PatchVersion = detectedPatchVersion,
+                SourceRegion = detectedLocale
             };
 
             // Populate category info
@@ -1633,6 +1691,16 @@ namespace MapleLib.Img
         public DateTime EndTime { get; set; }
         public TimeSpan Duration => EndTime - StartTime;
         public List<string> Errors { get; set; } = new();
+
+        /// <summary>
+        /// The detected MapleStory patch version from the WZ file (e.g., 83, 176, 230)
+        /// </summary>
+        public short DetectedPatchVersion { get; set; }
+
+        /// <summary>
+        /// The detected MapleStory locale/region from MapleStory.exe (e.g., GMS, KMS, MSEA)
+        /// </summary>
+        public string DetectedLocale { get; set; }
     }
 
     /// <summary>
