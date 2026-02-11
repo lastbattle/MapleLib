@@ -4,7 +4,6 @@ using MapleLib.WzLib.Util;
 using MapleLib.WzLib.WzProperties;
 using Newtonsoft.Json;
 using System;
-using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Drawing;
@@ -87,6 +86,14 @@ namespace MapleLib.Img
             public WzDirectory ParentDirectory { get; set; }
             public string RelativePath { get; set; }
             public string ErrorMessage { get; set; }
+        }
+
+        private class ReferenceWzMetadata
+        {
+            public string SourcePath { get; set; }
+            public Dictionary<string, string> CaseEntries { get; set; }
+            public Dictionary<string, int> DirectoryOrder { get; set; }
+            public Dictionary<string, int> ImageOrder { get; set; }
         }
         #endregion
 
@@ -271,7 +278,16 @@ namespace MapleLib.Img
             try
             {
                 // Restore canonical filename casing from extraction metadata before packing.
-                ApplyImageCaseMap(categoryPath);
+                ReferenceWzMetadata referenceMetadata = TryLoadReferenceWzMetadata(outputPath, category, encryption);
+                bool hasCaseMapMetadata = ApplyImageCaseMap(categoryPath);
+                if (!hasCaseMapMetadata && referenceMetadata != null)
+                {
+                    int renamedCount = ApplyImageCaseMapEntries(categoryPath, referenceMetadata.CaseEntries);
+                    if (renamedCount > 0)
+                    {
+                        Debug.WriteLine($"[PackCategory] Applied {renamedCount} case fixes from reference WZ: {referenceMetadata.SourcePath}");
+                    }
+                }
 
                 // Get WZ IV for the target encryption (used for WzDirectory and saving)
                 byte[] wzIv = WzTool.GetIvByMapleVersion(encryption);
@@ -404,9 +420,8 @@ namespace MapleLib.Img
                                 // Build directory structure for this chunk's files
                                 BuildDirectoryStructureForFiles(wzFile.WzDirectory, chunk, wzIv);
 
-                                // Process IMG files concurrently
-                                var processingResults = new ConcurrentBag<ImgProcessingResult>();
-                                var lockObj = new object();
+                                // Process IMG files concurrently, then add images in deterministic order.
+                                var processingResults = new ImgProcessingResult[chunk.Count];
 
                                 var parallelOptions = new ParallelOptions
                                 {
@@ -414,32 +429,36 @@ namespace MapleLib.Img
                                     CancellationToken = cancellationToken
                                 };
 
-                                Parallel.ForEach(chunk, parallelOptions, imgFileInfo =>
+                                Parallel.For(0, chunk.Count, parallelOptions, index =>
                                 {
                                     cancellationToken.ThrowIfCancellationRequested();
+                                    var imgFileInfo = chunk[index];
 
                                     // Use BMS IV for reading (IMG files are extracted with BMS encryption)
                                     var processingResult = ProcessSingleImgFile(imgFileInfo, readIv);
-                                    processingResults.Add(processingResult);
+                                    processingResults[index] = processingResult;
 
                                     int currentCount = Interlocked.Increment(ref processedCount);
                                     progressCallback?.Invoke(currentCount, totalCount, imgFileInfo.RelativePath);
                                 });
 
-                                // Add processed images to parent directories
+                                // Add processed images to parent directories in stable source order.
+                                int failedCount = 0;
                                 foreach (var processingResult in processingResults)
                                 {
                                     if (processingResult.Success && processingResult.Image != null)
                                     {
-                                        lock (lockObj)
-                                        {
-                                            processingResult.ParentDirectory.AddImage(processingResult.Image);
-                                        }
+                                        processingResult.ParentDirectory.AddImage(processingResult.Image);
                                     }
-                                    else if (!processingResult.Success)
+                                    else
                                     {
+                                        failedCount++;
                                         result.Errors.Add(processingResult.ErrorMessage ?? $"Failed to process: {processingResult.RelativePath}");
                                     }
+                                }
+                                if (failedCount > 0)
+                                {
+                                    throw new InvalidOperationException($"Failed to process {failedCount} IMG files in {wzFileName}.");
                                 }
 
                                 // Handle canvas separation for 64-bit format (only for first chunk to avoid duplicates)
@@ -493,16 +512,17 @@ namespace MapleLib.Img
                                 wzFile.WzDirectory,
                                 categoryPath,
                                 wzIv,
-                                imgFiles);
+                                imgFiles,
+                                referenceMetadata?.DirectoryOrder,
+                                referenceMetadata?.ImageOrder);
 
                             int totalCount = imgFiles.Count;
                             int processedCount = 0;
 
                             Debug.WriteLine($"[PackCategory] {category}: Found {totalCount} IMG files");
 
-                            // Process IMG files concurrently
-                            var processingResults = new ConcurrentBag<ImgProcessingResult>();
-                            var lockObj = new object();
+                            // Process IMG files concurrently, then add images in deterministic order.
+                            var processingResults = new ImgProcessingResult[imgFiles.Count];
 
                             var parallelOptions = new ParallelOptions
                             {
@@ -510,32 +530,36 @@ namespace MapleLib.Img
                                 CancellationToken = cancellationToken
                             };
 
-                            Parallel.ForEach(imgFiles, parallelOptions, imgFileInfo =>
+                            Parallel.For(0, imgFiles.Count, parallelOptions, index =>
                             {
                                 cancellationToken.ThrowIfCancellationRequested();
+                                var imgFileInfo = imgFiles[index];
 
                                 // Use BMS IV for reading (IMG files are extracted with BMS encryption)
                                 var processingResult = ProcessSingleImgFile(imgFileInfo, readIv);
-                                processingResults.Add(processingResult);
+                                processingResults[index] = processingResult;
 
                                 int currentCount = Interlocked.Increment(ref processedCount);
                                 progressCallback?.Invoke(currentCount, totalCount, imgFileInfo.RelativePath);
                             });
 
-                            // Add processed images to parent directories
+                            // Add processed images to parent directories in stable source order.
+                            int failedCount = 0;
                             foreach (var processingResult in processingResults)
                             {
                                 if (processingResult.Success && processingResult.Image != null)
                                 {
-                                    lock (lockObj)
-                                    {
-                                        processingResult.ParentDirectory.AddImage(processingResult.Image);
-                                    }
+                                    processingResult.ParentDirectory.AddImage(processingResult.Image);
                                 }
-                                else if (!processingResult.Success)
+                                else
                                 {
+                                    failedCount++;
                                     result.Errors.Add(processingResult.ErrorMessage ?? $"Failed to process: {processingResult.RelativePath}");
                                 }
+                            }
+                            if (failedCount > 0)
+                            {
+                                throw new InvalidOperationException($"Failed to process {failedCount} IMG files in {wzFileName}.");
                             }
 
                             // Save the WZ file
@@ -818,9 +842,8 @@ namespace MapleLib.Img
                             int categoryCount = imgFiles.Count;
                             Debug.WriteLine($"[PackBetaDataWz] {category}: Found {categoryCount} IMG files");
 
-                            // Process IMG files concurrently
-                            var processingResults = new ConcurrentBag<ImgProcessingResult>();
-                            var lockObj = new object();
+                            // Process IMG files concurrently, then add images in deterministic order.
+                            var processingResults = new ImgProcessingResult[imgFiles.Count];
 
                             var parallelOptions = new ParallelOptions
                             {
@@ -828,13 +851,14 @@ namespace MapleLib.Img
                                 CancellationToken = cancellationToken
                             };
 
-                            Parallel.ForEach(imgFiles, parallelOptions, imgFileInfo =>
+                            Parallel.For(0, imgFiles.Count, parallelOptions, index =>
                             {
                                 cancellationToken.ThrowIfCancellationRequested();
+                                var imgFileInfo = imgFiles[index];
 
                                 // Use BMS IV for reading (IMG files are extracted with BMS encryption)
                                 var processingResult = ProcessSingleImgFile(imgFileInfo, readIv);
-                                processingResults.Add(processingResult);
+                                processingResults[index] = processingResult;
 
                                 int currentCount = Interlocked.Increment(ref totalProcessed);
                                 progressData.ProcessedFiles = currentCount;
@@ -842,22 +866,25 @@ namespace MapleLib.Img
                                 progress?.Report(progressData);
                             });
 
-                            // Add processed images to parent directories
+                            // Add processed images to parent directories in stable source order.
                             int categoryImagesPacked = 0;
+                            int failedCount = 0;
                             foreach (var processingResult in processingResults)
                             {
                                 if (processingResult.Success && processingResult.Image != null)
                                 {
-                                    lock (lockObj)
-                                    {
-                                        processingResult.ParentDirectory.AddImage(processingResult.Image);
-                                        categoryImagesPacked++;
-                                    }
+                                    processingResult.ParentDirectory.AddImage(processingResult.Image);
+                                    categoryImagesPacked++;
                                 }
-                                else if (!processingResult.Success)
+                                else
                                 {
+                                    failedCount++;
                                     categoryResult.Errors.Add(processingResult.ErrorMessage ?? $"Failed to process: {processingResult.RelativePath}");
                                 }
+                            }
+                            if (failedCount > 0)
+                            {
+                                throw new InvalidOperationException($"Failed to process {failedCount} IMG files in beta category {category}.");
                             }
 
                             categoryResult.ImagesPacked = categoryImagesPacked;
@@ -1130,13 +1157,14 @@ namespace MapleLib.Img
 
         /// <summary>
         /// Applies extracted filename case metadata so packed WZ image names match original casing.
+        /// Returns true when metadata was found and parsed.
         /// </summary>
-        private void ApplyImageCaseMap(string categoryPath)
+        private bool ApplyImageCaseMap(string categoryPath)
         {
             string mapPath = Path.Combine(categoryPath, IMG_CASE_MAP_FILENAME);
             if (!File.Exists(mapPath))
             {
-                return;
+                return false;
             }
 
             try
@@ -1145,50 +1173,182 @@ namespace MapleLib.Img
                 var caseMap = JsonConvert.DeserializeObject<ImageCaseMapData>(json);
                 if (caseMap?.Entries == null || caseMap.Entries.Count == 0)
                 {
-                    return;
+                    return false;
                 }
 
-                int renamedCount = 0;
-                var imgFiles = Directory.EnumerateFiles(categoryPath, "*.img", SearchOption.AllDirectories).ToList();
-                foreach (var filePath in imgFiles)
-                {
-                    if (!File.Exists(filePath))
-                    {
-                        continue;
-                    }
-
-                    string relativePath = Path.GetRelativePath(categoryPath, filePath)
-                        .Replace(Path.DirectorySeparatorChar, '/');
-                    string lowerKey = relativePath.ToLowerInvariant();
-                    if (!caseMap.Entries.TryGetValue(lowerKey, out var canonicalRelativePath))
-                    {
-                        continue;
-                    }
-
-                    if (string.Equals(relativePath, canonicalRelativePath, StringComparison.Ordinal))
-                    {
-                        continue;
-                    }
-
-                    string canonicalPath = Path.Combine(
-                        categoryPath,
-                        canonicalRelativePath.Replace('/', Path.DirectorySeparatorChar));
-
-                    if (MoveFileUsingTemp(filePath, canonicalPath))
-                    {
-                        renamedCount++;
-                    }
-                }
-
+                int renamedCount = ApplyImageCaseMapEntries(categoryPath, caseMap.Entries);
                 if (renamedCount > 0)
                 {
                     Debug.WriteLine($"[PackCategory] Applied {renamedCount} case fixes from {IMG_CASE_MAP_FILENAME} in {categoryPath}");
                 }
+                return true;
             }
             catch (Exception ex)
             {
                 Debug.WriteLine($"[PackCategory] Failed to apply {IMG_CASE_MAP_FILENAME}: {ex.Message}");
+                return false;
             }
+        }
+
+        /// <summary>
+        /// Loads canonical image casing and traversal order from a nearby original WZ file.
+        /// Used for backward compatibility with exports that predate .imgcase metadata.
+        /// </summary>
+        private ReferenceWzMetadata TryLoadReferenceWzMetadata(
+            string outputPath,
+            string category,
+            WzMapleVersion encryption)
+        {
+            foreach (string candidatePath in EnumerateReferenceWzCandidates(outputPath, category))
+            {
+                if (!File.Exists(candidatePath))
+                {
+                    continue;
+                }
+
+                try
+                {
+                    using (var wzFile = new WzFile(candidatePath, encryption))
+                    {
+                        var parseStatus = wzFile.ParseWzFile();
+                        if (parseStatus != WzFileParseStatus.Success || wzFile.WzDirectory == null)
+                        {
+                            continue;
+                        }
+
+                        var metadata = new ReferenceWzMetadata
+                        {
+                            SourcePath = candidatePath,
+                            CaseEntries = new Dictionary<string, string>(StringComparer.Ordinal),
+                            DirectoryOrder = new Dictionary<string, int>(StringComparer.Ordinal),
+                            ImageOrder = new Dictionary<string, int>(StringComparer.Ordinal)
+                        };
+
+                        int dirIndex = 0;
+                        int imageIndex = 0;
+                        CollectReferenceMetadata(
+                            wzFile.WzDirectory,
+                            string.Empty,
+                            metadata.CaseEntries,
+                            metadata.DirectoryOrder,
+                            metadata.ImageOrder,
+                            ref dirIndex,
+                            ref imageIndex);
+
+                        if (metadata.CaseEntries.Count > 0 || metadata.ImageOrder.Count > 0)
+                        {
+                            return metadata;
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Debug.WriteLine($"[PackCategory] Failed to load reference metadata from {candidatePath}: {ex.Message}");
+                }
+            }
+
+            return null;
+        }
+
+        private static IEnumerable<string> EnumerateReferenceWzCandidates(string outputPath, string category)
+        {
+            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            foreach (var candidate in new[]
+            {
+                Path.Combine(outputPath, $"{category}.wz"),
+                Path.Combine(outputPath, "Data", category, $"{category}_000.wz"),
+                Path.Combine(Directory.GetParent(outputPath)?.FullName ?? string.Empty, $"{category}.wz"),
+                Path.Combine(Directory.GetParent(outputPath)?.FullName ?? string.Empty, "Data", category, $"{category}_000.wz")
+            })
+            {
+                if (!string.IsNullOrWhiteSpace(candidate) && seen.Add(candidate))
+                {
+                    yield return candidate;
+                }
+            }
+        }
+
+        private static void CollectReferenceMetadata(
+            WzDirectory directory,
+            string relativeDirPath,
+            Dictionary<string, string> caseMap,
+            Dictionary<string, int> directoryOrder,
+            Dictionary<string, int> imageOrder,
+            ref int dirIndex,
+            ref int imageIndex)
+        {
+            foreach (var image in directory.WzImages)
+            {
+                string relativePath = string.IsNullOrEmpty(relativeDirPath)
+                    ? image.Name
+                    : $"{relativeDirPath}/{image.Name}";
+                string lowerKey = relativePath.ToLowerInvariant();
+                if (!caseMap.ContainsKey(lowerKey))
+                {
+                    caseMap[lowerKey] = relativePath;
+                }
+                if (!imageOrder.ContainsKey(lowerKey))
+                {
+                    imageOrder[lowerKey] = imageIndex++;
+                }
+            }
+
+            foreach (var subDir in directory.WzDirectories)
+            {
+                string subDirPath = string.IsNullOrEmpty(relativeDirPath)
+                    ? subDir.Name
+                    : $"{relativeDirPath}/{subDir.Name}";
+                string lowerDirKey = subDirPath.ToLowerInvariant();
+                if (!directoryOrder.ContainsKey(lowerDirKey))
+                {
+                    directoryOrder[lowerDirKey] = dirIndex++;
+                }
+                CollectReferenceMetadata(
+                    subDir,
+                    subDirPath,
+                    caseMap,
+                    directoryOrder,
+                    imageOrder,
+                    ref dirIndex,
+                    ref imageIndex);
+            }
+        }
+
+        private static int ApplyImageCaseMapEntries(string categoryPath, IDictionary<string, string> entries)
+        {
+            int renamedCount = 0;
+            var imgFiles = Directory.EnumerateFiles(categoryPath, "*.img", SearchOption.AllDirectories).ToList();
+            foreach (var filePath in imgFiles)
+            {
+                if (!File.Exists(filePath))
+                {
+                    continue;
+                }
+
+                string relativePath = Path.GetRelativePath(categoryPath, filePath)
+                    .Replace(Path.DirectorySeparatorChar, '/');
+                string lowerKey = relativePath.ToLowerInvariant();
+                if (!entries.TryGetValue(lowerKey, out var canonicalRelativePath) || string.IsNullOrWhiteSpace(canonicalRelativePath))
+                {
+                    continue;
+                }
+
+                if (string.Equals(relativePath, canonicalRelativePath, StringComparison.Ordinal))
+                {
+                    continue;
+                }
+
+                string canonicalPath = Path.Combine(
+                    categoryPath,
+                    canonicalRelativePath.Replace('/', Path.DirectorySeparatorChar));
+
+                if (MoveFileUsingTemp(filePath, canonicalPath))
+                {
+                    renamedCount++;
+                }
+            }
+            return renamedCount;
         }
 
         /// <summary>
@@ -1589,10 +1749,27 @@ namespace MapleLib.Img
             WzDirectory parentDir,
             string basePath,
             byte[] wzIv,
-            List<ImgFileInfo> imgFiles)
+            List<ImgFileInfo> imgFiles,
+            Dictionary<string, int> referenceDirectoryOrder = null,
+            Dictionary<string, int> referenceImageOrder = null)
         {
+            int ResolveReferenceOrder(string path, Dictionary<string, int> orderMap)
+            {
+                if (orderMap == null)
+                {
+                    return int.MaxValue;
+                }
+
+                string relativePath = Path.GetRelativePath(basePath, path)
+                    .Replace(Path.DirectorySeparatorChar, '/')
+                    .ToLowerInvariant();
+                return orderMap.TryGetValue(relativePath, out int idx) ? idx : int.MaxValue;
+            }
+
             // Process subdirectories first - create WzDirectory for each
-            foreach (var subDirPath in Directory.EnumerateDirectories(currentPath))
+            foreach (var subDirPath in Directory.EnumerateDirectories(currentPath)
+                .OrderBy(path => ResolveReferenceOrder(path, referenceDirectoryOrder))
+                .ThenBy(path => Path.GetFileName(path), StringComparer.OrdinalIgnoreCase))
             {
                 string subDirName = Path.GetFileName(subDirPath);
 
@@ -1612,11 +1789,15 @@ namespace MapleLib.Img
                     subDir,
                     basePath,
                     wzIv,
-                    imgFiles);
+                    imgFiles,
+                    referenceDirectoryOrder,
+                    referenceImageOrder);
             }
 
             // Collect IMG files in current directory
-            foreach (var imgFilePath in Directory.EnumerateFiles(currentPath, "*.img"))
+            foreach (var imgFilePath in Directory.EnumerateFiles(currentPath, "*.img")
+                .OrderBy(path => ResolveReferenceOrder(path, referenceImageOrder))
+                .ThenBy(path => Path.GetFileName(path), StringComparer.OrdinalIgnoreCase))
             {
                 string relativePath = imgFilePath.Substring(basePath.Length).TrimStart(Path.DirectorySeparatorChar);
                 var fileInfo = new FileInfo(imgFilePath);
