@@ -21,7 +21,8 @@ namespace MapleLib.Img
 
         private List<WzImage> _images;
         private List<VirtualWzDirectory> _subDirectories;
-        private bool _populated;
+        private bool _subDirsPopulated;
+        private bool _imagesPopulated;
         #endregion
 
         #region Properties
@@ -80,43 +81,38 @@ namespace MapleLib.Img
 
         #region Directory Population
         /// <summary>
-        /// Populates the directory contents lazily
+        /// Populates subdirectories lazily (without loading images)
         /// </summary>
-        private void EnsurePopulated()
+        private void EnsureSubdirectoriesPopulated()
         {
-            if (_populated)
+            if (_subDirsPopulated)
                 return;
 
-            PopulateDirectory();
-            _populated = true;
+            PopulateSubdirectories();
+            _subDirsPopulated = true;
         }
 
         /// <summary>
-        /// Populates images and subdirectories from the filesystem
+        /// Populates images lazily (loads images in this directory)
         /// </summary>
-        private void PopulateDirectory()
+        private void EnsureImagesPopulated()
         {
-            _images = new List<WzImage>();
+            if (_imagesPopulated)
+                return;
+
+            PopulateImages();
+            _imagesPopulated = true;
+        }
+
+        /// <summary>
+        /// Populates subdirectories from the filesystem WITHOUT loading .img files.
+        /// </summary>
+        private void PopulateSubdirectories()
+        {
             _subDirectories = new List<VirtualWzDirectory>();
 
             if (!Directory.Exists(_filesystemPath))
                 return;
-
-            // Load .img files in this directory
-            foreach (var file in Directory.EnumerateFiles(_filesystemPath, "*.img"))
-            {
-                string imageName = Path.GetFileName(file);
-                string imageRelativePath = string.IsNullOrEmpty(_relativePath)
-                    ? imageName
-                    : Path.Combine(_relativePath, imageName);
-
-                var image = _manager.LoadImage(_categoryName, imageRelativePath);
-                if (image != null)
-                {
-                    image.Parent = this;
-                    _images.Add(image);
-                }
-            }
 
             // Create VirtualWzDirectory for each subdirectory
             foreach (var dir in Directory.EnumerateDirectories(_filesystemPath))
@@ -132,11 +128,38 @@ namespace MapleLib.Img
         }
 
         /// <summary>
+        /// Populates images from the filesystem (loads/parses .img files in this directory)
+        /// </summary>
+        private void PopulateImages()
+        {
+            _images = new List<WzImage>();
+
+            if (!Directory.Exists(_filesystemPath))
+                return;
+
+            foreach (var file in Directory.EnumerateFiles(_filesystemPath, "*.img"))
+            {
+                string imageName = Path.GetFileName(file);
+                string imageRelativePath = string.IsNullOrEmpty(_relativePath)
+                    ? imageName
+                    : Path.Combine(_relativePath, imageName);
+
+                var image = _manager.LoadImage(_categoryName, imageRelativePath);
+                if (image != null)
+                {
+                    image.Parent = this;
+                    _images.Add(image);
+                }
+            }
+        }
+
+        /// <summary>
         /// Forces a refresh of directory contents
         /// </summary>
         public void Refresh()
         {
-            _populated = false;
+            _subDirsPopulated = false;
+            _imagesPopulated = false;
             _images?.Clear();
             _subDirectories?.Clear();
         }
@@ -188,7 +211,7 @@ namespace MapleLib.Img
         {
             get
             {
-                EnsurePopulated();
+                EnsureImagesPopulated();
                 return _images;
             }
         }
@@ -200,7 +223,7 @@ namespace MapleLib.Img
         {
             get
             {
-                EnsurePopulated();
+                EnsureSubdirectoriesPopulated();
                 return _subDirectories.Cast<WzDirectory>().ToList();
             }
         }
@@ -212,7 +235,8 @@ namespace MapleLib.Img
         {
             get
             {
-                EnsurePopulated();
+                EnsureSubdirectoriesPopulated();
+                EnsureImagesPopulated();
 
                 string nameLower = name.ToLower();
 
@@ -239,7 +263,7 @@ namespace MapleLib.Img
         /// </summary>
         public override WzImage GetImageByName(string name)
         {
-            EnsurePopulated();
+            EnsureImagesPopulated();
             string nameLower = name.ToLower();
             return _images.FirstOrDefault(img => img.Name.ToLower() == nameLower);
         }
@@ -249,7 +273,7 @@ namespace MapleLib.Img
         /// </summary>
         public override WzDirectory GetDirectoryByName(string name)
         {
-            EnsurePopulated();
+            EnsureSubdirectoriesPopulated();
             string nameLower = name.ToLower();
             return _subDirectories.FirstOrDefault(dir => dir.Name.ToLower() == nameLower);
         }
@@ -259,7 +283,8 @@ namespace MapleLib.Img
         /// </summary>
         public override int CountImages()
         {
-            EnsurePopulated();
+            EnsureSubdirectoriesPopulated();
+            EnsureImagesPopulated();
 
             int count = _images.Count;
             foreach (var subDir in _subDirectories)
@@ -276,7 +301,8 @@ namespace MapleLib.Img
         /// </summary>
         public IEnumerable<WzImage> GetAllImagesRecursive()
         {
-            EnsurePopulated();
+            EnsureSubdirectoriesPopulated();
+            EnsureImagesPopulated();
 
             foreach (var img in _images)
             {
@@ -386,7 +412,8 @@ namespace MapleLib.Img
         /// <returns>Number of images saved</returns>
         public int SaveAllChangedImages()
         {
-            EnsurePopulated();
+            EnsureSubdirectoriesPopulated();
+            EnsureImagesPopulated();
 
             int savedCount = 0;
             foreach (var image in _images)
@@ -422,7 +449,8 @@ namespace MapleLib.Img
             _subDirectories?.Clear();
             _images = null;
             _subDirectories = null;
-            _populated = false;
+            _subDirsPopulated = false;
+            _imagesPopulated = false;
         }
         #endregion
     }

@@ -229,8 +229,6 @@ namespace MapleLib.Img
         /// <returns>The loaded WzImage or null if not found</returns>
         public WzImage LoadImage(string category, string relativePath)
         {
-            EnsureInitialized();
-
             string cacheKey = $"{category.ToLower()}/{relativePath.ToLower()}";
 
             // Check LRU cache first
@@ -422,8 +420,6 @@ namespace MapleLib.Img
         /// </summary>
         public VirtualWzDirectory GetDirectory(string category)
         {
-            EnsureInitialized();
-
             string categoryLower = category.ToLower();
 
             if (_directoryCache.TryGetValue(categoryLower, out var cached))
