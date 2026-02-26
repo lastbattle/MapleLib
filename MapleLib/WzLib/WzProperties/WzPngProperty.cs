@@ -217,6 +217,11 @@ namespace MapleLib.WzLib.WzProperties
         /// <param name="parseNow"></param>
         internal WzPngProperty(WzBinaryReader reader, bool parseNow)
         {
+            // Keep reader available during eager parse.
+            // In ParseEverything mode we decode inside this constructor, before Parent is assigned.
+            // list.wz-formatted PNGs require WzKey from reader, so set it upfront.
+            this.wzReader = reader;
+
             // Read compressed bytes
             width = reader.ReadCompressedInt();
             height = reader.ReadCompressedInt();
@@ -250,7 +255,6 @@ namespace MapleLib.WzLib.WzProperties
                     else
                         reader.BaseStream.Position += len;
                 }
-                this.wzReader = reader;
             }
         }
         #endregion
