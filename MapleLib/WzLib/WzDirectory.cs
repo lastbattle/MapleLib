@@ -198,7 +198,10 @@ namespace MapleLib.WzLib
                         {
                             int stringOffset = reader.ReadInt32();
                             rememberPos = reader.BaseStream.Position;
-                            reader.BaseStream.Position = reader.Header.FStart + stringOffset;
+
+                            // For 64-bit WZ files (no version header), the string offset needs +1 adjustment
+                            int extraOffset = (wzFile != null && wzFile.Is64BitWzFile) ? 1 : 0;
+                            reader.BaseStream.Position = reader.Header.FStart + stringOffset + extraOffset;
 
                             type = reader.ReadByte();
                             fname = reader.ReadString();
