@@ -21,6 +21,7 @@
     <XnaOutputType>Library</XnaOutputType>
   </PropertyGroup>
   <ItemGroup>
+    <Compile Remove="obj\**\*.cs;artifacts\**\*.cs" />
     <PackageReference Include="MonoGame.Framework.WindowsDX" Version="3.8.2.1105" />
     <PackageReference Include="SharpDX" Version="4.2.0" />
     <PackageReference Include="SharpDX.Direct2D1" Version="4.2.0" />
