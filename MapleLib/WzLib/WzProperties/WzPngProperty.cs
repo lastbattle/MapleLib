@@ -394,11 +394,18 @@ namespace MapleLib.WzLib.WzProperties
 
         public Bitmap GetImage(bool saveInMemory)
         {
-            if (png == null)
+            if (png != null)
             {
-                ParsePng(saveInMemory);
+                return png;
             }
-            return png;
+
+            Bitmap decodedBitmap = DecodeBitmap(saveInMemory);
+            if (saveInMemory)
+            {
+                png = decodedBitmap;
+            }
+
+            return decodedBitmap;
         }
 
         internal static byte[] Decompress(byte[] compressedBuffer, int decompressedSize)
@@ -437,11 +444,24 @@ namespace MapleLib.WzLib.WzProperties
 
         public void ParsePng(bool saveInMemory, Texture2D texture2d = null)
         {
+            Bitmap decodedBitmap = DecodeBitmap(saveInMemory, texture2d);
+
+            if (saveInMemory)
+            {
+                png = decodedBitmap;
+            }
+            else if (decodedBitmap == null)
+            {
+                png = null;
+            }
+        }
+
+        private Bitmap DecodeBitmap(bool saveInMemory, Texture2D texture2d = null)
+        {
             byte[] rawBytes = GetRawImage(saveInMemory);
             if (rawBytes == null)
             {
-                png = null;
-                return;
+                return null;
             }
             try
             {
@@ -533,11 +553,11 @@ namespace MapleLib.WzLib.WzProperties
                     }
                 }
 
-                png = bmp;
+                return bmp;
             }
             catch (InvalidDataException)
             {
-                png = null;
+                return null;
             }
         }
 
