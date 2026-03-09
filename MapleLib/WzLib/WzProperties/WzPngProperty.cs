@@ -174,8 +174,13 @@ namespace MapleLib.WzLib.WzProperties
         {
             set
             {
-                this.png = value;
-                CompressPng(this.png);
+                if (png != null && !ReferenceEquals(png, value))
+                {
+                    png.Dispose();
+                }
+
+                CompressPng(value);
+                png = null;
             }
         }
 
@@ -396,7 +401,12 @@ namespace MapleLib.WzLib.WzProperties
         {
             if (png != null)
             {
-                return png;
+                if (saveInMemory)
+                {
+                    return png;
+                }
+
+                return (Bitmap)png.Clone();
             }
 
             Bitmap decodedBitmap = DecodeBitmap(saveInMemory);
