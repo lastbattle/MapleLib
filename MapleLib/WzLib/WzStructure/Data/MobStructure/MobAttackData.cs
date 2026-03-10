@@ -10,6 +10,9 @@ namespace MapleLib.WzLib.WzStructure.Data.MobStructure
         public byte Magic { get; set; }
         public byte DeadlyAttack { get; set; }
         public byte Knockback { get; set; }
+        public bool Rush { get; set; }
+        public bool JumpAttack { get; set; }
+        public bool Tremble { get; set; }
         public int BulletSpeed { get; set; }
         public int MpBurn { get; set; }
         public int Disease { get; set; }
