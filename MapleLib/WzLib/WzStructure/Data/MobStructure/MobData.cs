@@ -47,6 +47,8 @@ namespace MapleLib.WzLib.WzStructure.Data.MobStructure
         public int PADamage { get; set; }
         public int MADamage { get; set; }
         public int RemoveAfter { get; set; }
+        public int ChargeCount { get; set; }
+        public bool HasAngerGauge { get; set; }
         public int FixedDamage { get; set; } = -1;
         public int Buff { get; set; } = -1;
         public int PDDamage { get; set; }
@@ -161,6 +163,8 @@ namespace MapleLib.WzLib.WzStructure.Data.MobStructure
             data.PADamage = InfoTool.GetInt(info["PADamage"], 0);
             data.MADamage = InfoTool.GetInt(info["MADamage"], 0);
             data.RemoveAfter = InfoTool.GetInt(info["removeAfter"], 0);
+            data.ChargeCount = InfoTool.GetInt(info["ChargeCount"], 0);
+            data.HasAngerGauge = InfoTool.GetInt(info["AngerGauge"], 0) > 0;
             data.FixedDamage = InfoTool.GetInt(info["fixedDamage"], -1);
             data.Buff = InfoTool.GetInt(info["buff"], -1);
             data.PDDamage = InfoTool.GetInt(info["PDDamage"], 0);
