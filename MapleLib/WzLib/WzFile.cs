@@ -382,6 +382,9 @@ namespace MapleLib.WzLib
 
                                     directory.ParseDirectory(lazyParse);
                                     this.wzDir = testDirectory;
+
+                                    Console.WriteLine("[WzFile] Accepted version {0} (hash={1}) for {2}, checkByte=0x{3:X2}",
+                                        mapleStoryPatchVersion, versionHash, Name, checkByte);
                                     return true;
                                 }
                             case 0x30:
@@ -389,11 +392,8 @@ namespace MapleLib.WzLib
                             case 0xBC: // Map002.wz? KMST?
                             default:
                                 {
-                                    string printError = string.Format("[WzFile.cs] New Wz image header found. checkByte = {0}. File Name = {1}", checkByte, Name);
-
-                                    Helpers.ErrorLogger.Log(Helpers.ErrorLevel.MissingFeature,printError);
-                                    Debug.WriteLine(printError);
-                                    // log or something
+                                    // checkByte did not match known image headers (0x73, 0x1b)
+                                    // This version hash produces wrong offsets — reject and try next version
                                     break;
                                 }
                         }
@@ -404,7 +404,7 @@ namespace MapleLib.WzLib
                         reader.BaseStream.Position = fallbackOffsetPosition; // reset
                         return false;
                     }
-                    return true;
+                    return false;
                 }
                 else // if there's no image in the WZ file (new KMST Base.wz), test the directory instead
                 {
