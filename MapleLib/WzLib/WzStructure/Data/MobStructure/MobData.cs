@@ -202,6 +202,7 @@ namespace MapleLib.WzLib.WzStructure.Data.MobStructure
                         Skill = InfoTool.GetInt(skill["skill"], 0),
                         Action = InfoTool.GetInt(skill["action"], 0),
                         Level = InfoTool.GetInt(skill["level"], 0),
+                        Priority = InfoTool.GetInt(skill["priority"], 0),
                         PreSkillIndex = (byte)InfoTool.GetInt(skill["preSkillIndex"], 0),
                         PreSkillCount = (byte)InfoTool.GetInt(skill["preSkillCount"], 0),
                         OnlyFsm = InfoTool.GetInt(skill["onlyFsm"], 0) > 0,

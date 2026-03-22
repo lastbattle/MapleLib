@@ -10,6 +10,7 @@ namespace MapleLib.WzLib.WzStructure.Data.MobStructure
         public int Skill { get; set; }
         public int Action { get; set; }
         public int Level { get; set; }
+        public int Priority { get; set; }
         public byte PreSkillIndex { get; set; }
         public byte PreSkillCount { get; set; }
         public bool OnlyFsm { get; set; }
