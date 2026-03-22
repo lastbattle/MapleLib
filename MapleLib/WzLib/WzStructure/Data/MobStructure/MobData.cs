@@ -26,6 +26,7 @@ namespace MapleLib.WzLib.WzStructure.Data.MobStructure
         public byte PublicReward { get; set; }
         public byte Undead { get; set; }
         public bool Friendly { get; set; }
+        public bool DamagedByMob { get; set; }
         public byte Escort { get; set; }
         public byte GetCP { get; set; }
         public bool PartyBonusMob { get; set; }
@@ -142,7 +143,8 @@ namespace MapleLib.WzLib.WzStructure.Data.MobStructure
             data.ExplosiveReward = (byte)InfoTool.GetInt(info["explosiveReward"], 0);
             data.PublicReward = (byte)InfoTool.GetInt(info["publicReward"], 0);
             data.Undead = (byte)InfoTool.GetInt(info["undead"], 0);
-            data.Friendly = InfoTool.GetInt(info["damagedByMob"], 0) > 0;
+            data.DamagedByMob = InfoTool.GetInt(info["damagedByMob"], 0) > 0;
+            data.Friendly = data.DamagedByMob;
             data.Escort = (byte)InfoTool.GetInt(info["escort"], 0);
             data.GetCP = (byte)InfoTool.GetInt(info["getCP"], 0);
             data.PartyBonusMob = InfoTool.GetInt(info["partyBonusMob"], 0) > 0;
@@ -256,6 +258,7 @@ namespace MapleLib.WzLib.WzStructure.Data.MobStructure
                     var mobAttack = new MobAttackData
                     {
                         AttackNum = attackNum,
+                        Type = InfoTool.GetInt(attack["type"], -1),
                         Action = (byte)InfoTool.GetInt(attack["action"], 0),
                         Magic = (byte)InfoTool.GetInt(attack["magic"], 0),
                         DeadlyAttack = (byte)InfoTool.GetInt(attack["deadlyAttack"], 0),
@@ -302,7 +305,7 @@ namespace MapleLib.WzLib.WzStructure.Data.MobStructure
                 data.HpDisplayType = MobHpDisplayType.DualGauge;
             else if (data.HpTagColor > 0)
                 data.HpDisplayType = MobHpDisplayType.Boss;
-            else if (data.Friendly)
+            else if (data.DamagedByMob)
                 data.HpDisplayType = MobHpDisplayType.Friendly;
             else if (mobId >= 9300184 && mobId <= 9300215) // Mulung TC mobs
                 data.HpDisplayType = MobHpDisplayType.MulungTC;

@@ -93,7 +93,8 @@ namespace MapleLib.WzLib.WzStructure
         public MapleBool zakum2Hack = null; //JQ hack protection
         public MapleBool allMoveCheck = null; //another JQ hack protection
         public MapleBool VRLimit = null; //use vr's as limits?
-        public MapleBool consumeItemCoolTime = null; //cool time of consume item
+        public int? consumeItemCoolTime = null; //cool time of consume item, in seconds
+        public MapleBool nofollowCharacter = null;
         public MapleBool zeroSideOnly = null; // true if its zero's temple map
 
         //Special
@@ -356,11 +357,14 @@ namespace MapleLib.WzLib.WzStructure
                     case "allMoveCheck":
                         allMoveCheck = InfoTool.GetBool(prop);
                         break;
+                    case "nofollowCharacter":
+                        nofollowCharacter = InfoTool.GetBool(prop);
+                        break;
                     case "VRLimit":
                         VRLimit = InfoTool.GetBool(prop);
                         break;
                     case "consumeItemCoolTime":
-                        consumeItemCoolTime = InfoTool.GetBool(prop);
+                        consumeItemCoolTime = InfoTool.GetInt(prop);
                         break;
                     case "zeroSideOnly":
                         zeroSideOnly = InfoTool.GetBool(prop);
@@ -437,7 +441,6 @@ namespace MapleLib.WzLib.WzStructure
                     case "ReviveCurFieldOfNoTransfer":
                     case "ReviveCurFieldOfNoTransferPoint":
                     case "limitUserEffectField":
-                    case "nofollowCharacter":
                     case "functionObjInfo":
                     case "quest":
                     case "ridingMove":
@@ -691,7 +694,8 @@ namespace MapleLib.WzLib.WzStructure
             info["zakum2Hack"] = InfoTool.SetOptionalBool(zakum2Hack);
             info["allMoveCheck"] = InfoTool.SetOptionalBool(allMoveCheck);
             info["VRLimit"] = InfoTool.SetOptionalBool(VRLimit);
-            info["consumeItemCoolTime"] = InfoTool.SetOptionalBool(consumeItemCoolTime);
+            info["consumeItemCoolTime"] = InfoTool.SetOptionalInt(consumeItemCoolTime);
+            info["nofollowCharacter"] = InfoTool.SetOptionalBool(nofollowCharacter);
             info["zeroSideOnly"] = InfoTool.SetOptionalBool(zeroSideOnly);
             foreach (WzImageProperty prop in additionalProps)
             {
