@@ -95,6 +95,7 @@ namespace MapleLib.WzLib.WzStructure
         public MapleBool VRLimit = null; //use vr's as limits?
         public int? consumeItemCoolTime = null; //cool time of consume item, in seconds
         public MapleBool nofollowCharacter = null;
+        public MapleBool vanishDragon = null;
         public MapleBool zeroSideOnly = null; // true if its zero's temple map
 
         //Special
@@ -360,6 +361,9 @@ namespace MapleLib.WzLib.WzStructure
                     case "nofollowCharacter":
                         nofollowCharacter = InfoTool.GetBool(prop);
                         break;
+                    case "vanishDragon":
+                        vanishDragon = InfoTool.GetBool(prop);
+                        break;
                     case "VRLimit":
                         VRLimit = InfoTool.GetBool(prop);
                         break;
@@ -403,7 +407,6 @@ namespace MapleLib.WzLib.WzStructure
                     case "forceUseIndie":
                     case "vanishPet":
                     case "vanishAndroid":
-                    case "vanishDragon":
                     case "limitUI":
                     case "largeSplit":
                     case "qrLimit":
@@ -696,6 +699,7 @@ namespace MapleLib.WzLib.WzStructure
             info["VRLimit"] = InfoTool.SetOptionalBool(VRLimit);
             info["consumeItemCoolTime"] = InfoTool.SetOptionalInt(consumeItemCoolTime);
             info["nofollowCharacter"] = InfoTool.SetOptionalBool(nofollowCharacter);
+            info["vanishDragon"] = InfoTool.SetOptionalBool(vanishDragon);
             info["zeroSideOnly"] = InfoTool.SetOptionalBool(zeroSideOnly);
             foreach (WzImageProperty prop in additionalProps)
             {
