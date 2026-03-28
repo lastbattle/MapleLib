@@ -8,6 +8,7 @@ namespace MapleLib.WzLib.WzStructure.Data.MobStructure
         public byte AttackNum { get; set; }
         public int Type { get; set; } = -1;
         public byte Action { get; set; }
+        public int AttackCount { get; set; }
         public byte Magic { get; set; }
         public byte DeadlyAttack { get; set; }
         public byte Knockback { get; set; }

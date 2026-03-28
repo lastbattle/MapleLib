@@ -260,6 +260,7 @@ namespace MapleLib.WzLib.WzStructure.Data.MobStructure
                         AttackNum = attackNum,
                         Type = InfoTool.GetInt(attack["type"], -1),
                         Action = (byte)InfoTool.GetInt(attack["action"], 0),
+                        AttackCount = InfoTool.GetInt(attack["attackCount"], 0),
                         Magic = (byte)InfoTool.GetInt(attack["magic"], 0),
                         DeadlyAttack = (byte)InfoTool.GetInt(attack["deadlyAttack"], 0),
                         Knockback = (byte)InfoTool.GetInt(attack["knockback"], 0),
