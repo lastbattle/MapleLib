@@ -5,6 +5,7 @@ namespace MapleLib.WzLib.WzStructure.Data.MobStructure
     /// </summary>
     public class MobSkillData
     {
+        public int SourceIndex { get; set; } = -1;
         public int SkillAfter { get; set; }
         public int EffectAfter { get; set; }
         public int Skill { get; set; }

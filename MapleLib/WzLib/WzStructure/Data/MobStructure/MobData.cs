@@ -199,6 +199,7 @@ namespace MapleLib.WzLib.WzStructure.Data.MobStructure
                 {
                     var mobSkill = new MobSkillData
                     {
+                        SourceIndex = int.TryParse(skill.Name, out int sourceIndex) ? sourceIndex : data.SkillData.Count,
                         SkillAfter = InfoTool.GetInt(skill["skillAfter"], 0),
                         EffectAfter = InfoTool.GetInt(skill["effectAfter"], 0),
                         Skill = InfoTool.GetInt(skill["skill"], 0),

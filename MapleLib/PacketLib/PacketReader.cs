@@ -22,6 +22,16 @@ namespace MapleLib.PacketLib
 			get { return (short)_buffer.Length; }
 		}
 
+		public int Position
+		{
+			get { return (int)_buffer.Position; }
+		}
+
+		public int Remaining
+		{
+			get { return (int)(_buffer.Length - _buffer.Position); }
+		}
+
 		/// <summary>
 		/// Creates a new instance of PacketReader
 		/// </summary>
