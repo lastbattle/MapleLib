@@ -487,7 +487,7 @@ namespace MapleLib.WzLib
             {
                 long pos = reader.BaseStream.Position;
                 reader.BaseStream.Position = offset;
-                writer.Write(reader.ReadBytes((int)pos));
+                writer.Write(reader.ReadBytes((int)size));
 
                 reader.BaseStream.Position = pos; // reset
             }
