@@ -272,7 +272,17 @@ namespace MapleLib.WzLib.WzStructure.Data.MobStructure
                         MpBurn = InfoTool.GetInt(attack["mpBurn"], 0),
                         Disease = InfoTool.GetInt(attack["disease"], 0),
                         Level = InfoTool.GetInt(attack["level"], 0),
-                        ConMP = InfoTool.GetInt(attack["conMP"], 0)
+                        ConMP = InfoTool.GetInt(attack["conMP"], 0),
+                        HitEffectPath = InfoTool.GetOptionalString(attack["sHit"])
+                                        ?? InfoTool.GetOptionalString(attack["hit"]),
+                        HasHitAttach = attack["bHitAttach"] != null
+                                       || attack["attach"] != null
+                                       || attack["hitAttach"] != null,
+                        HitAttach = InfoTool.GetInt(
+                                        attack["bHitAttach"]
+                                        ?? attack["attach"]
+                                        ?? attack["hitAttach"],
+                                        0) > 0
                     };
                     data.AttackData.Add(mobAttack);
                 }

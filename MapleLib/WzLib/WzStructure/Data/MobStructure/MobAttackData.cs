@@ -20,5 +20,8 @@ namespace MapleLib.WzLib.WzStructure.Data.MobStructure
         public int Disease { get; set; }
         public int Level { get; set; }
         public int ConMP { get; set; }
+        public string HitEffectPath { get; set; }
+        public bool HasHitAttach { get; set; }
+        public bool HitAttach { get; set; }
     }
 }
