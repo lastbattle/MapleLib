@@ -2,6 +2,7 @@ using MapleLib.WzLib.WzProperties;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.IO;
 using System.Linq;
 using System.Text.RegularExpressions;
 
@@ -125,6 +126,13 @@ namespace MapleLib.WzLib
             foreach (WzImageProperty prop in image.WzProperties)
             {
                 resolvedCount += ResolveLinksInProperty(prop, image.FullPath ?? image.Name);
+            }
+
+            if (resolvedCount > 0)
+            {
+                // Force WzImage.SaveImage to serialize the mutated property tree instead of
+                // copying the original raw IMG bytes from the source reader.
+                image.Changed = true;
             }
 
             return resolvedCount;
@@ -352,6 +360,8 @@ namespace MapleLib.WzLib
                 // The _Canvas WZ files contain the images directly at root level
                 if (isCanvasPath)
                 {
+                    string targetCanvasFolderPath = NormalizePath(subdirPath);
+
                     // Extract the path after "_Canvas/" marker
                     // e.g., "Map/Back/_Canvas/snowyDarkrock.img/back/0" -> "snowyDarkrock.img/back/0"
                     string canvasMarker = "/_Canvas/";
@@ -390,6 +400,12 @@ namespace MapleLib.WzLib
 
                         if (isCanvasWzFile && wzFile.WzDirectory != null)
                         {
+                            string wzFilePath = NormalizePath(wzFile.FilePath ?? wzFile.Name);
+                            if (!MatchesCanvasFolder(wzFilePath, _categoryName, targetCanvasFolderPath))
+                            {
+                                continue;
+                            }
+
                             // Search at root level
                             var img = FindImageInDirectory(wzFile.WzDirectory, imageName, null);
                             if (img != null)
@@ -726,6 +742,34 @@ namespace MapleLib.WzLib
             }
 
             return null;
+        }
+
+        private static string NormalizePath(string path)
+        {
+            return string.IsNullOrEmpty(path)
+                ? string.Empty
+                : path.Replace(Path.DirectorySeparatorChar, '/')
+                      .Replace(Path.AltDirectorySeparatorChar, '/')
+                      .Trim('/');
+        }
+
+        private static bool MatchesCanvasFolder(string wzFilePath, string categoryName, string canvasFolderPath)
+        {
+            if (string.IsNullOrEmpty(wzFilePath) || string.IsNullOrEmpty(categoryName))
+            {
+                return false;
+            }
+
+            if (string.IsNullOrEmpty(canvasFolderPath))
+            {
+                return wzFilePath.Contains("/_Canvas/", StringComparison.OrdinalIgnoreCase);
+            }
+
+            string normalizedCategory = NormalizePath(categoryName);
+            string normalizedCanvasFolder = NormalizePath(canvasFolderPath);
+            string expectedFolder = $"/{normalizedCategory}/{normalizedCanvasFolder}/";
+
+            return wzFilePath.Contains(expectedFolder, StringComparison.OrdinalIgnoreCase);
         }
 
         /// <summary>
