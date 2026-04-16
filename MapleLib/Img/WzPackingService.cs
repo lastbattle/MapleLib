@@ -1118,7 +1118,7 @@ namespace MapleLib.Img
         }
 
         /// <summary>
-        /// Extracts patch version from strings such as "v115", "gms_v230", or "MapleStorySEA v115".
+        /// Extracts patch version from strings 
         /// </summary>
         private static bool TryExtractPatchVersion(string input, out short patchVersion)
         {

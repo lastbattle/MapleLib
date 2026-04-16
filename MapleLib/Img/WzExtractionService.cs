@@ -93,7 +93,8 @@ namespace MapleLib.Img
             WzMapleVersion encryption,
             bool resolveLinks = false,
             CancellationToken cancellationToken = default,
-            IProgress<ExtractionProgress> progress = null)
+            IProgress<ExtractionProgress> progress = null,
+            WzMapleVersion? outputEncryption = null)
         {
             // Discover all WZ files and extract them
             bool is64Bit = WzFileManager.Detect64BitDirectoryWzFileFormat(mapleStoryPath);
@@ -109,7 +110,8 @@ namespace MapleLib.Img
                 allCategories,
                 resolveLinks,
                 cancellationToken,
-                progress);
+                progress,
+                outputEncryption);
         }
 
         /// <summary>
@@ -134,7 +136,8 @@ namespace MapleLib.Img
             IEnumerable<string> categoriesToExtract,
             bool resolveLinks = false,
             CancellationToken cancellationToken = default,
-            IProgress<ExtractionProgress> progress = null)
+            IProgress<ExtractionProgress> progress = null,
+            WzMapleVersion? outputEncryption = null)
         {
             var result = new ExtractionResult
             {
@@ -149,6 +152,7 @@ namespace MapleLib.Img
                 TotalFiles = 0,
                 ProcessedFiles = 0
             };
+            var effectiveOutputEncryption = outputEncryption ?? WzMapleVersion.BMS;
 
             try
             {
@@ -248,6 +252,7 @@ namespace MapleLib.Img
                         outputVersionPath,
                         wzCategory,
                         encryption,
+                        effectiveOutputEncryption,
                         is64Bit,
                         isPreBB,
                         resolveLinks,
@@ -312,7 +317,7 @@ namespace MapleLib.Img
                 var versionInfo = CreateVersionInfo(
                     versionId,
                     displayName,
-                    encryption,
+                    effectiveOutputEncryption,
                     is64Bit,
                     isPreBB,
                     isBetaMs,
@@ -372,6 +377,7 @@ namespace MapleLib.Img
             string outputVersionPath,
             string category,
             WzMapleVersion encryption,
+            WzMapleVersion outputEncryption,
             bool is64Bit,
             bool isPreBB,
             bool resolveLinks,
@@ -408,8 +414,9 @@ namespace MapleLib.Img
                 // Check if this is the Packs category with .ms files
                 bool isPacksCategory = category.Equals("Packs", StringComparison.OrdinalIgnoreCase);
 
-                // Use BMS encryption (all zeroes) for extracted IMG files - plain/unencrypted format
-                var serializer = WzImgSerializer.CreateForImgExtraction();
+                // Default output stays BMS {0,0,0,0}; only use another output encryption when explicitly requested.
+                byte[] outputIv = WzTool.GetIvByMapleVersion(outputEncryption);
+                var serializer = new WzImgSerializer(outputIv);
                 int processedCount = 0;
                 var extractedImageCaseMap = new Dictionary<string, string>(StringComparer.Ordinal);
 

@@ -102,7 +102,11 @@ namespace MapleLib.Img
         /// </summary>
         /// <param name="versionPath">Path to the version directory</param>
         /// <param name="config">Configuration options</param>
-        public ImgFileSystemManager(string versionPath, HaCreatorConfig config = null)
+        public ImgFileSystemManager(
+            string versionPath,
+            HaCreatorConfig config = null,
+            WzMapleVersion? explicitMapleVersion = null,
+            byte[] explicitCustomIv = null)
         {
             if (!Directory.Exists(versionPath))
                 throw new DirectoryNotFoundException($"Version directory not found: {versionPath}");
@@ -137,10 +141,34 @@ namespace MapleLib.Img
                 };
             }
 
-            // IMPORTANT: Extracted .img files are ALWAYS in BMS format (unencrypted/plain)
-            // The manifest's "encryption" field stores the original WZ encryption for reference only
-            _mapleVersion = WzMapleVersion.BMS;
-            _wzIv = WzTool.GetIvByMapleVersion(_mapleVersion);
+            // Default to BMS (IV {0,0,0,0}) so IMG filesystem data remains consistent across versions/localizations.
+            // Respect explicit non-custom versions when provided, and only use custom IV for explicit CUSTOM.
+            if (explicitMapleVersion.HasValue)
+            {
+                if (explicitMapleVersion.Value == WzMapleVersion.CUSTOM &&
+                    explicitCustomIv != null &&
+                    explicitCustomIv.Length == 4)
+                {
+                    _mapleVersion = WzMapleVersion.CUSTOM;
+                    _wzIv = explicitCustomIv.ToArray();
+                }
+                else if (explicitMapleVersion.Value != WzMapleVersion.CUSTOM &&
+                         explicitMapleVersion.Value != WzMapleVersion.GENERATE)
+                {
+                    _mapleVersion = explicitMapleVersion.Value;
+                    _wzIv = WzTool.GetIvByMapleVersion(_mapleVersion);
+                }
+                else
+                {
+                    _mapleVersion = WzMapleVersion.BMS;
+                    _wzIv = WzTool.GetIvByMapleVersion(_mapleVersion);
+                }
+            }
+            else
+            {
+                _mapleVersion = WzMapleVersion.BMS;
+                _wzIv = WzTool.GetIvByMapleVersion(_mapleVersion);
+            }
         }
         #endregion
 
