@@ -71,6 +71,16 @@ namespace MapleLib {
             private set { }
         }
 
+        private readonly bool _bIsMapleStoryClassicWorlds;
+        /// <summary>
+        /// Defines if the currently loaded WZ directory are in the [post-BB 64-bit client + Data\ dir] + [Pre-big bang wz maps] (MapleStory Classic Worlds)
+        /// </summary>
+        public bool IsMapleStoryClassicWorlds
+        {
+            get { return _bIsMapleStoryClassicWorlds; }
+            private set { }
+        }
+
 
         private readonly ReaderWriterLockSlim _readWriteLock = new(); // for '_wzFiles', '_wzFilesUpdated', '_updatedImages', & '_wzDirs'
         private readonly Dictionary<string, WzFile> _wzFiles = [];
@@ -132,11 +142,13 @@ namespace MapleLib {
             {
                 this._bInitAs64Bit = false;
                 this._bIsPreBBDataWzFormat = false;
+                this._bIsMapleStoryClassicWorlds = false;
             }
             else
             {
                 this._bInitAs64Bit = WzFileManager.Detect64BitDirectoryWzFileFormat(this.baseDir); // set
                 this._bIsPreBBDataWzFormat = WzFileManager.DetectIsPreBBDataWZFileFormat(this.baseDir); // set
+                this._bIsMapleStoryClassicWorlds = _bInitAs64Bit && !_bIsPreBBDataWzFormat;
             }
             fileManager = this;
         }
