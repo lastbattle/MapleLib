@@ -7,7 +7,7 @@ namespace MapleLib.PacketLib
 	/// <summary>
 	/// Class to handle reading data from a packet
 	/// </summary>
-	public class PacketReader : AbstractPacket
+	public class PacketReader : AbstractPacket, IDisposable
 	{
 		/// <summary>
 		/// The main reader tool
@@ -25,6 +25,12 @@ namespace MapleLib.PacketLib
 		public int Position
 		{
 			get { return (int)_buffer.Position; }
+			set { _buffer.Position = value; }
+		}
+
+		public Stream BaseStream
+		{
+			get { return _buffer; }
 		}
 
 		public int Remaining
@@ -40,6 +46,28 @@ namespace MapleLib.PacketLib
 		{
 			_buffer = new MemoryStream(arrayOfBytes, false);
 			_binReader = new BinaryReader(_buffer, Encoding.ASCII);
+		}
+
+		public PacketReader(Stream stream)
+			: this(stream, Encoding.ASCII, false)
+		{
+		}
+
+		public PacketReader(Stream stream, Encoding encoding)
+			: this(stream, encoding, false)
+		{
+		}
+
+		public PacketReader(Stream stream, Encoding encoding, bool leaveOpen)
+		{
+			_buffer = stream as MemoryStream ?? new MemoryStream();
+			if (stream is not MemoryStream && stream != null)
+			{
+				stream.CopyTo(_buffer);
+				_buffer.Position = 0;
+			}
+
+			_binReader = new BinaryReader(_buffer, encoding ?? Encoding.ASCII, leaveOpen);
 		}
 
 		/// <summary>
@@ -65,6 +93,11 @@ namespace MapleLib.PacketLib
 			return _binReader.ReadByte();
 		}
 
+		public sbyte ReadSByte()
+		{
+			return _binReader.ReadSByte();
+		}
+
 		/// <summary>
 		/// Reads a byte array from the stream
 		/// </summary>
@@ -84,6 +117,11 @@ namespace MapleLib.PacketLib
 			return _binReader.ReadBoolean();
 		}
 
+		public bool ReadBoolean()
+		{
+			return ReadBool();
+		}
+
 		/// <summary>
 		/// Reads a signed short from the stream
 		/// </summary>
@@ -91,6 +129,21 @@ namespace MapleLib.PacketLib
 		public short ReadShort()
 		{
 			return _binReader.ReadInt16();
+		}
+
+		public short ReadInt16()
+		{
+			return ReadShort();
+		}
+
+		public ushort ReadUShort()
+		{
+			return _binReader.ReadUInt16();
+		}
+
+		public ushort ReadUInt16()
+		{
+			return ReadUShort();
 		}
 
 		/// <summary>
@@ -102,6 +155,21 @@ namespace MapleLib.PacketLib
 			return _binReader.ReadInt32();
 		}
 
+		public int ReadInt32()
+		{
+			return ReadInt();
+		}
+
+		public uint ReadUInt()
+		{
+			return _binReader.ReadUInt32();
+		}
+
+		public uint ReadUInt32()
+		{
+			return ReadUInt();
+		}
+
 		/// <summary>
 		/// Reads a signed long from the stream
 		/// </summary>
@@ -109,6 +177,26 @@ namespace MapleLib.PacketLib
 		public long ReadLong()
 		{
 			return _binReader.ReadInt64();
+		}
+
+		public long ReadInt64()
+		{
+			return ReadLong();
+		}
+
+		public ulong ReadULong()
+		{
+			return _binReader.ReadUInt64();
+		}
+
+		public ulong ReadUInt64()
+		{
+			return ReadULong();
+		}
+
+		public double ReadDouble()
+		{
+			return _binReader.ReadDouble();
 		}
 
 		/// <summary>
@@ -128,6 +216,11 @@ namespace MapleLib.PacketLib
 		public string ReadMapleString()
 		{
 			return ReadString(ReadShort());
+		}
+
+		public void Dispose()
+		{
+			_binReader.Dispose();
 		}
 	}
 }

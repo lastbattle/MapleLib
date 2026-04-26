@@ -7,7 +7,7 @@ namespace MapleLib.PacketLib
 	/// <summary>
 	/// Class to handle writing packets
 	/// </summary>
-	public class PacketWriter : AbstractPacket
+	public class PacketWriter : AbstractPacket, IDisposable
 	{
 		/// <summary>
 		/// The main writer tool
@@ -20,6 +20,11 @@ namespace MapleLib.PacketLib
 		public short Length
 		{
 			get { return (short)_buffer.Length; }
+		}
+
+		public Stream BaseStream
+		{
+			get { return _buffer; }
 		}
 
 		/// <summary>
@@ -46,6 +51,22 @@ namespace MapleLib.PacketLib
 			_binWriter = new BinaryWriter(_buffer, Encoding.ASCII);
 		}
 
+		public PacketWriter(Stream stream)
+			: this(stream, Encoding.ASCII, false)
+		{
+		}
+
+		public PacketWriter(Stream stream, Encoding encoding)
+			: this(stream, encoding, false)
+		{
+		}
+
+		public PacketWriter(Stream stream, Encoding encoding, bool leaveOpen)
+		{
+			_buffer = stream as MemoryStream ?? new MemoryStream();
+			_binWriter = new BinaryWriter(_buffer, encoding ?? Encoding.ASCII, leaveOpen);
+		}
+
 		/// <summary>
 		/// Restart writing from the point specified. This will overwrite data in the packet.
 		/// </summary>
@@ -64,6 +85,16 @@ namespace MapleLib.PacketLib
 			_binWriter.Write((byte)@byte);
 		}
 
+		public void Write(byte @byte)
+		{
+			WriteByte(@byte);
+		}
+
+		public void Write(sbyte @byte)
+		{
+			_binWriter.Write(@byte);
+		}
+
 		/// <summary>
 		/// Writes a byte array to the stream
 		/// </summary>
@@ -71,6 +102,16 @@ namespace MapleLib.PacketLib
 		public void WriteBytes(byte[] @bytes)
 		{
 			_binWriter.Write(@bytes);
+		}
+
+		public void Write(byte[] @bytes)
+		{
+			WriteBytes(@bytes);
+		}
+
+		public void Write(byte[] @bytes, int index, int count)
+		{
+			_binWriter.Write(@bytes, index, count);
 		}
 
 		/// <summary>
@@ -82,6 +123,11 @@ namespace MapleLib.PacketLib
 			_binWriter.Write(@bool);
 		}
 
+		public void Write(bool @bool)
+		{
+			WriteBool(@bool);
+		}
+
 		/// <summary>
 		/// Writes a short to the stream
 		/// </summary>
@@ -91,11 +137,31 @@ namespace MapleLib.PacketLib
 			_binWriter.Write((short)@short);
 		}
 
+		public void Write(short @short)
+		{
+			WriteShort(@short);
+		}
+
+		public void Write(ushort @short)
+		{
+			_binWriter.Write(@short);
+		}
+
 		/// <summary>
 		/// Writes an int to the stream
 		/// </summary>
 		/// <param name="@int">The int to write</param>
 		public void WriteInt(int @int)
+		{
+			_binWriter.Write(@int);
+		}
+
+		public void Write(int @int)
+		{
+			WriteInt(@int);
+		}
+
+		public void Write(uint @int)
 		{
 			_binWriter.Write(@int);
 		}
@@ -109,6 +175,16 @@ namespace MapleLib.PacketLib
 			_binWriter.Write(@long);
 		}
 
+		public void Write(long @long)
+		{
+			WriteLong(@long);
+		}
+
+		public void Write(ulong @long)
+		{
+			_binWriter.Write(@long);
+		}
+
 		/// <summary>
 		/// Writes a string to the stream
 		/// </summary>
@@ -116,6 +192,11 @@ namespace MapleLib.PacketLib
 		public void WriteString(String @string)
 		{
 			_binWriter.Write(@string.ToCharArray());
+		}
+
+		public void Write(string @string)
+		{
+			WriteString(@string);
 		}
 
 		/// <summary>
@@ -252,6 +333,16 @@ namespace MapleLib.PacketLib
 			_buffer.Position = index;
 			WriteHexString(@string);
 			_buffer.Position = oldIndex;
+		}
+
+		public void Flush()
+		{
+			_binWriter.Flush();
+		}
+
+		public void Dispose()
+		{
+			_binWriter.Dispose();
 		}
 
 	}
