@@ -1,5 +1,7 @@
 using MapleLib.WzLib.WzProperties;
+using System;
 using System.Collections.Generic;
+using System.Globalization;
 
 namespace MapleLib.WzLib.WzStructure.Data.MobStructure
 {
@@ -273,8 +275,7 @@ namespace MapleLib.WzLib.WzStructure.Data.MobStructure
                         Disease = InfoTool.GetInt(attack["disease"], 0),
                         Level = InfoTool.GetInt(attack["level"], 0),
                         ConMP = InfoTool.GetInt(attack["conMP"], 0),
-                        HitEffectPath = InfoTool.GetOptionalString(attack["sHit"])
-                                        ?? InfoTool.GetOptionalString(attack["hit"]),
+                        HitEffectPath = GetMobAttackHitEffectPath(attack),
                         HasHitAttach = attack["bHitAttach"] != null
                                        || attack["attach"] != null
                                        || attack["hitAttach"] != null,
@@ -282,7 +283,19 @@ namespace MapleLib.WzLib.WzStructure.Data.MobStructure
                                         attack["bHitAttach"]
                                         ?? attack["attach"]
                                         ?? attack["hitAttach"],
-                                        0) > 0
+                                        0) > 0,
+                        HasFacingAttach = attack["bFacingAttach"] != null
+                                          || attack["bFacingAttatch"] != null
+                                          || attack["attachfacing"] != null
+                                          || attack["facingAttach"] != null,
+                        FacingAttach = InfoTool.GetInt(
+                                           attack["bFacingAttach"]
+                                           ?? attack["bFacingAttatch"]
+                                           ?? attack["attachfacing"]
+                                           ?? attack["facingAttach"],
+                                           0) > 0,
+                        HasHitAfter = attack["hitAfter"] != null,
+                        HitAfterMs = InfoTool.GetInt(attack["hitAfter"], 0)
                     };
                     data.AttackData.Add(mobAttack);
                 }
@@ -327,6 +340,410 @@ namespace MapleLib.WzLib.WzStructure.Data.MobStructure
                 data.HpDisplayType = MobHpDisplayType.None;
 
             return data;
+        }
+
+        private static string GetMobAttackHitEffectPath(WzSubProperty attack)
+        {
+            return GetMobAttackHitEffectPath(attack?["sHit"])
+                   ?? GetMobAttackHitEffectPath(attack?["hit"]);
+        }
+
+        private static string GetMobAttackHitEffectPath(WzImageProperty property)
+        {
+            if (property == null)
+            {
+                return null;
+            }
+
+            if (property is WzUOLProperty uolProperty)
+            {
+                return string.IsNullOrWhiteSpace(uolProperty.Value)
+                    ? null
+                    : uolProperty.Value;
+            }
+
+            if (property is WzStringProperty stringProperty)
+            {
+                string value = stringProperty.GetString();
+                return string.IsNullOrWhiteSpace(value) ? null : value;
+            }
+
+            string sequencePath = GetMobAttackHitEffectSequencePath(property);
+            if (!string.IsNullOrWhiteSpace(sequencePath))
+            {
+                return sequencePath;
+            }
+
+            if (property.WzProperties != null && property.WzProperties.Count > 0)
+            {
+                string[] preferredChildNames =
+                {
+                    "source",
+                    "path",
+                    "sHit",
+                    "hit",
+                    "effect",
+                    "uol",
+                    "value",
+                    "0"
+                };
+
+                for (int i = 0; i < preferredChildNames.Length; i++)
+                {
+                    string value = GetMobAttackHitEffectPath(property[preferredChildNames[i]]);
+                    if (!string.IsNullOrWhiteSpace(value))
+                    {
+                        return value;
+                    }
+                }
+
+                return null;
+            }
+
+            string fallback = property.GetString();
+            return string.IsNullOrWhiteSpace(fallback) ? null : fallback;
+        }
+
+        private static string GetMobAttackHitEffectSequencePath(WzImageProperty property)
+        {
+            if (property?.WzProperties == null || property.WzProperties.Count == 0)
+            {
+                return null;
+            }
+
+            var indexedPaths = new List<KeyValuePair<int, string>>();
+            foreach (WzImageProperty child in property.WzProperties)
+            {
+                if (child == null || !int.TryParse(child.Name, out int frameIndex))
+                {
+                    continue;
+                }
+
+                string childPath = GetMobAttackHitEffectPath(child);
+                if (!string.IsNullOrWhiteSpace(childPath))
+                {
+                    indexedPaths.Add(new KeyValuePair<int, string>(frameIndex, childPath));
+                }
+            }
+
+            if (indexedPaths.Count == 0)
+            {
+                return GetMobAttackHitEffectRecordSequencePath(property)
+                       ?? GetMobAttackHitEffectNamedLeafSequencePath(property);
+            }
+
+            indexedPaths.Sort(static (left, right) => left.Key.CompareTo(right.Key));
+            var paths = new List<string>(indexedPaths.Count);
+            for (int i = 0; i < indexedPaths.Count; i++)
+            {
+                paths.Add(indexedPaths[i].Value);
+            }
+
+            AddMobAttackHitEffectMetadataTokens(property, paths);
+            return string.Join("|", paths);
+        }
+
+        private static void AddMobAttackHitEffectMetadataTokens(WzImageProperty property, List<string> paths)
+        {
+            if (property == null || paths == null)
+            {
+                return;
+            }
+
+            InsertMobAttackHitEffectMetadataToken(property, paths, "hitAfter", "hitAfter");
+            InsertMobAttackHitEffectMetadataToken(property, paths, "attach", "attach");
+            InsertMobAttackHitEffectMetadataToken(property, paths, "bHitAttach", "attach");
+            InsertMobAttackHitEffectMetadataToken(property, paths, "hitAttach", "attach");
+            InsertMobAttackHitEffectMetadataToken(property, paths, "attachfacing", "attachfacing");
+            InsertMobAttackHitEffectMetadataToken(property, paths, "bFacingAttach", "attachfacing");
+            InsertMobAttackHitEffectMetadataToken(property, paths, "bFacingAttatch", "attachfacing");
+            InsertMobAttackHitEffectMetadataToken(property, paths, "facingAttach", "attachfacing");
+        }
+
+        private static void InsertMobAttackHitEffectMetadataToken(
+            WzImageProperty property,
+            List<string> paths,
+            string sourceName,
+            string tokenName)
+        {
+            WzImageProperty metadataProperty = property?[sourceName];
+            if (metadataProperty == null)
+            {
+                return;
+            }
+
+            string value = metadataProperty.GetString();
+            if (string.IsNullOrWhiteSpace(value))
+            {
+                return;
+            }
+
+            paths.Insert(0, $"{tokenName}={value.Trim()}");
+        }
+
+        private static string GetMobAttackHitEffectNamedLeafSequencePath(WzImageProperty property)
+        {
+            if (property?.WzProperties == null || property.WzProperties.Count == 0)
+            {
+                return null;
+            }
+
+            var indexedPaths = new List<KeyValuePair<int, string>>();
+            foreach (WzImageProperty child in property.WzProperties)
+            {
+                if (child == null
+                    || child.WzProperties?.Count > 0 == true
+                    || !TryParseMobAttackHitEffectNamedLeafFrameIndex(child.Name, out int frameIndex))
+                {
+                    continue;
+                }
+
+                string childPath = GetMobAttackHitEffectPath(child);
+                if (!string.IsNullOrWhiteSpace(childPath))
+                {
+                    indexedPaths.Add(new KeyValuePair<int, string>(frameIndex, childPath));
+                }
+            }
+
+            if (indexedPaths.Count == 0)
+            {
+                return null;
+            }
+
+            indexedPaths.Sort(static (left, right) => left.Key.CompareTo(right.Key));
+            var paths = new List<string>(indexedPaths.Count);
+            for (int i = 0; i < indexedPaths.Count; i++)
+            {
+                paths.Add(indexedPaths[i].Value);
+            }
+
+            return string.Join("|", paths);
+        }
+
+        private static bool TryParseMobAttackHitEffectNamedLeafFrameIndex(string name, out int frameIndex)
+        {
+            frameIndex = 0;
+            if (string.IsNullOrWhiteSpace(name))
+            {
+                return false;
+            }
+
+            string normalizedName = name.Trim();
+            string[] prefixes =
+            {
+                "source",
+                "path",
+                "sHit",
+                "hit",
+                "effect",
+                "uol",
+                "value",
+                "target",
+                "targetPath",
+                "sourcePath",
+                "srcPath"
+            };
+
+            for (int i = 0; i < prefixes.Length; i++)
+            {
+                string prefix = prefixes[i];
+                if (!normalizedName.StartsWith(prefix, System.StringComparison.OrdinalIgnoreCase)
+                    || normalizedName.Length <= prefix.Length)
+                {
+                    continue;
+                }
+
+                string suffix = normalizedName.Substring(prefix.Length).Trim();
+                suffix = suffix.TrimStart('_', '-', '.', ':', '=', '[', '(', '{', '<').Trim();
+                suffix = suffix.TrimEnd(']', ')', '}', '>').Trim();
+                if (int.TryParse(suffix, NumberStyles.Integer, CultureInfo.InvariantCulture, out frameIndex)
+                    && frameIndex >= 0)
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private static string GetMobAttackHitEffectRecordSequencePath(WzImageProperty property)
+        {
+            if (property?.WzProperties == null || property.WzProperties.Count == 0)
+            {
+                return null;
+            }
+
+            var indexedPaths = new List<KeyValuePair<int, string>>();
+            foreach (WzImageProperty child in property.WzProperties)
+            {
+                if (child == null || child.WzProperties == null)
+                {
+                    continue;
+                }
+
+                if (!TryGetMobAttackHitEffectRecordFrameIndex(child, out int frameIndex))
+                {
+                    continue;
+                }
+
+                string childPath = GetMobAttackHitEffectRecordValuePath(child);
+                if (!string.IsNullOrWhiteSpace(childPath))
+                {
+                    indexedPaths.Add(new KeyValuePair<int, string>(frameIndex, childPath));
+                }
+            }
+
+            if (indexedPaths.Count == 0)
+            {
+                return null;
+            }
+
+            indexedPaths.Sort(static (left, right) => left.Key.CompareTo(right.Key));
+            var paths = new List<string>(indexedPaths.Count);
+            for (int i = 0; i < indexedPaths.Count; i++)
+            {
+                paths.Add(indexedPaths[i].Value);
+            }
+
+            return string.Join("|", paths);
+        }
+
+        private static bool TryGetMobAttackHitEffectRecordFrameIndex(WzImageProperty record, out int frameIndex)
+        {
+            frameIndex = 0;
+            if (record == null)
+            {
+                return false;
+            }
+
+            if (TryParseMobAttackHitEffectRecordFrameIndex(record.Name, out frameIndex))
+            {
+                return true;
+            }
+
+            string[] frameFieldNames =
+            {
+                "frame",
+                "frameIndex",
+                "hitFrame",
+                "sourceFrame",
+                "index",
+                "idx",
+                "i",
+                "nFrame",
+                "nIndex",
+                "key"
+            };
+
+            for (int i = 0; i < frameFieldNames.Length; i++)
+            {
+                string frameFieldValue = record[frameFieldNames[i]]?.GetString();
+                if (TryParseMobAttackHitEffectRecordFrameIndex(frameFieldValue, out frameIndex))
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private static bool TryParseMobAttackHitEffectRecordFrameIndex(string value, out int frameIndex)
+        {
+            frameIndex = 0;
+            if (string.IsNullOrWhiteSpace(value))
+            {
+                return false;
+            }
+
+            string normalizedValue = value.Trim().Trim('"', '\'');
+            if (int.TryParse(normalizedValue, NumberStyles.Integer, CultureInfo.InvariantCulture, out frameIndex)
+                && frameIndex >= 0)
+            {
+                return true;
+            }
+
+            int digitStart = -1;
+            for (int i = 0; i < normalizedValue.Length; i++)
+            {
+                if (char.IsDigit(normalizedValue[i]))
+                {
+                    digitStart = digitStart < 0 ? i : digitStart;
+                    continue;
+                }
+
+                if (TryParseMobAttackHitEffectRecordFrameIndexToken(
+                        normalizedValue,
+                        digitStart,
+                        i - digitStart,
+                        out frameIndex))
+                {
+                    return true;
+                }
+
+                digitStart = -1;
+            }
+
+            return TryParseMobAttackHitEffectRecordFrameIndexToken(
+                normalizedValue,
+                digitStart,
+                normalizedValue.Length - digitStart,
+                out frameIndex);
+        }
+
+        private static bool TryParseMobAttackHitEffectRecordFrameIndexToken(
+            string value,
+            int tokenStart,
+            int tokenLength,
+            out int frameIndex)
+        {
+            frameIndex = 0;
+            if (string.IsNullOrWhiteSpace(value)
+                || tokenStart < 0
+                || tokenLength <= 0)
+            {
+                return false;
+            }
+
+            return int.TryParse(
+                       value.Substring(tokenStart, tokenLength),
+                       NumberStyles.Integer,
+                       CultureInfo.InvariantCulture,
+                       out frameIndex)
+                   && frameIndex >= 0;
+        }
+
+        private static string GetMobAttackHitEffectRecordValuePath(WzImageProperty record)
+        {
+            if (record?.WzProperties == null)
+            {
+                return null;
+            }
+
+            string[] preferredChildNames =
+            {
+                "source",
+                "path",
+                "sHit",
+                "hit",
+                "effect",
+                "uol",
+                "value",
+                "target",
+                "targetPath",
+                "sourcePath",
+                "srcPath"
+            };
+
+            for (int i = 0; i < preferredChildNames.Length; i++)
+            {
+                string value = GetMobAttackHitEffectPath(record[preferredChildNames[i]]);
+                if (!string.IsNullOrWhiteSpace(value))
+                {
+                    return value;
+                }
+            }
+
+            return null;
         }
         #endregion
     }
