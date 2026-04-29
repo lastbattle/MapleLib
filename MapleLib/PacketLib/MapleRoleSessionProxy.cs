@@ -266,12 +266,12 @@ namespace MapleLib.PacketLib
                     pair.InitCompleted = true;
                     LastStatus = $"{_role} role-session initialized Maple crypto with version {sessionVersion} for {pair.ClientEndpoint} <-> {pair.RemoteEndpoint}.";
                     pair.ClientSession.WaitForData();
-                    RaiseServerPacket(pair.RemoteEndpoint, raw, true);
+                    RaiseServerPacket(pair.RemoteEndpoint, raw, true, pair.Version);
                     return;
                 }
 
                 pair.ClientSession.SendPacket((byte[])raw.Clone());
-                RaiseServerPacket(pair.RemoteEndpoint, raw, false);
+                RaiseServerPacket(pair.RemoteEndpoint, raw, false, pair.Version);
                 ReceivedCount++;
                 LastPacketUtc = DateTime.UtcNow;
             }
@@ -292,7 +292,7 @@ namespace MapleLib.PacketLib
 
                 byte[] raw = packet.ToArray();
                 pair.ServerSession.SendPacket(raw);
-                RaiseClientPacket(pair.ClientEndpoint, raw, false);
+                RaiseClientPacket(pair.ClientEndpoint, raw, false, pair.Version);
                 ClientReceivedCount++;
                 LastPacketUtc = DateTime.UtcNow;
             }
@@ -302,20 +302,20 @@ namespace MapleLib.PacketLib
             }
         }
 
-        private void RaiseServerPacket(string sourceEndpoint, byte[] rawPacket, bool isInit)
+        private void RaiseServerPacket(string sourceEndpoint, byte[] rawPacket, bool isInit, short? sessionVersion)
         {
             int opcode = TryDecodeOpcode(rawPacket, isInit);
             ServerPacketReceived?.Invoke(
                 this,
-                new MapleSessionPacketEventArgs(_role, sourceEndpoint, rawPacket, isInit, opcode));
+                new MapleSessionPacketEventArgs(_role, sourceEndpoint, rawPacket, isInit, opcode, sessionVersion));
         }
 
-        private void RaiseClientPacket(string sourceEndpoint, byte[] rawPacket, bool isInit)
+        private void RaiseClientPacket(string sourceEndpoint, byte[] rawPacket, bool isInit, short? sessionVersion)
         {
             int opcode = TryDecodeOpcode(rawPacket, isInit);
             ClientPacketReceived?.Invoke(
                 this,
-                new MapleSessionPacketEventArgs(_role, sourceEndpoint, rawPacket, isInit, opcode));
+                new MapleSessionPacketEventArgs(_role, sourceEndpoint, rawPacket, isInit, opcode, sessionVersion));
         }
 
         private static int TryDecodeOpcode(byte[] rawPacket, bool isInit)

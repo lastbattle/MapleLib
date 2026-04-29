@@ -9,13 +9,15 @@ namespace MapleLib.PacketLib
             string sourceEndpoint,
             byte[] rawPacket,
             bool isInit,
-            int opcode)
+            int opcode,
+            short? sessionVersion = null)
         {
             Role = role;
             SourceEndpoint = sourceEndpoint ?? string.Empty;
             RawPacket = rawPacket ?? Array.Empty<byte>();
             IsInit = isInit;
             Opcode = opcode;
+            SessionVersion = sessionVersion;
         }
 
         public MapleServerRole Role { get; }
@@ -23,5 +25,6 @@ namespace MapleLib.PacketLib
         public byte[] RawPacket { get; }
         public bool IsInit { get; }
         public int Opcode { get; }
+        public short? SessionVersion { get; }
     }
 }
