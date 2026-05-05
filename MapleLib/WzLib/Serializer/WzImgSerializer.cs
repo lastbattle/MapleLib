@@ -48,7 +48,20 @@ namespace MapleLib.WzLib.Serializer
         {
             if (_outputIv != null)
                 return _outputIv;
-            return ((WzDirectory)img.parent).WzIv;
+
+            if (img == null)
+                throw new ArgumentNullException(nameof(img));
+
+            if (img.Parent is WzDirectory dir && dir.WzIv != null)
+                return dir.WzIv;
+
+            if (img.WzFileParent?.WzIv != null)
+                return img.WzFileParent.WzIv;
+
+            if (img.WzIv != null)
+                return img.WzIv;
+
+            return WzAESConstant.WZ_BMSCLASSIC;
         }
 
         public byte[] SerializeImage(WzImage img)

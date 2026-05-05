@@ -34,6 +34,7 @@ namespace MapleLib.WzLib
         private int checksum;
         internal long offset = 0;
         internal WzBinaryReader reader; // could be a WzBinaryReader or a WzBinaryConcurrentReader
+        internal byte[] WzIv;
         internal WzPropertyCollection properties;
         internal WzObject parent;
         internal int blockStart = 0;
@@ -73,7 +74,8 @@ namespace MapleLib.WzLib
         public WzImage(string name, Stream dataStream, WzMapleVersion mapleVersion)
         {
             this.name = name;
-            this.reader = new WzBinaryReader(dataStream, WzTool.GetIvByMapleVersion(mapleVersion));
+            this.WzIv = WzTool.GetIvByMapleVersion(mapleVersion);
+            this.reader = new WzBinaryReader(dataStream, WzIv);
 
             this.properties = new WzPropertyCollection(this);
         }
