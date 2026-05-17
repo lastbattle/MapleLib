@@ -111,7 +111,7 @@ namespace MapleLib.Img
             if (!Directory.Exists(versionPath))
                 throw new DirectoryNotFoundException($"Version directory not found: {versionPath}");
 
-            _versionPath = versionPath;
+            _versionPath = Path.GetFullPath(versionPath);
             _config = config ?? new HaCreatorConfig();
 
             // Initialize LRU cache with size-based eviction
@@ -122,12 +122,12 @@ namespace MapleLib.Img
             _imageCache = new LRUCache<string, WzImage>(maxCacheBytes, EstimateWzImageSize);
 
             // Load version manifest
-            string manifestPath = Path.Combine(versionPath, MANIFEST_FILENAME);
+            string manifestPath = Path.Combine(_versionPath, MANIFEST_FILENAME);
             if (File.Exists(manifestPath))
             {
                 string json = File.ReadAllText(manifestPath);
                 _versionInfo = Newtonsoft.Json.JsonConvert.DeserializeObject<VersionInfo>(json);
-                _versionInfo.DirectoryPath = versionPath;
+                _versionInfo.DirectoryPath = _versionPath;
             }
             else
             {
@@ -136,7 +136,7 @@ namespace MapleLib.Img
                 {
                     Version = Path.GetFileName(versionPath),
                     DisplayName = Path.GetFileName(versionPath),
-                    DirectoryPath = versionPath,
+                    DirectoryPath = _versionPath,
                     ExtractedDate = DateTime.Now
                 };
             }
@@ -269,9 +269,7 @@ namespace MapleLib.Img
             Interlocked.Increment(ref _cacheMisses);
 
             // Build full path
-            string fullPath = Path.Combine(_versionPath, category, relativePath);
-            if (!fullPath.EndsWith(".img", StringComparison.OrdinalIgnoreCase))
-                fullPath += ".img";
+            string fullPath = GetContainedImagePath(category, relativePath);
 
             if (!File.Exists(fullPath))
                 return null;
@@ -489,10 +487,7 @@ namespace MapleLib.Img
         /// </summary>
         public bool ImageExists(string category, string relativePath)
         {
-            string fullPath = Path.Combine(_versionPath, category, relativePath);
-            if (!fullPath.EndsWith(".img", StringComparison.OrdinalIgnoreCase))
-                fullPath += ".img";
-            return File.Exists(fullPath);
+            return File.Exists(GetContainedImagePath(category, relativePath));
         }
 
         /// <summary>
@@ -500,9 +495,7 @@ namespace MapleLib.Img
         /// </summary>
         public string GetImageDiagnostics(string category, string relativePath)
         {
-            string fullPath = Path.Combine(_versionPath, category, relativePath);
-            if (!fullPath.EndsWith(".img", StringComparison.OrdinalIgnoreCase))
-                fullPath += ".img";
+            string fullPath = GetContainedImagePath(category, relativePath);
 
             string categoryPath = Path.Combine(_versionPath, category);
             bool categoryDirExists = Directory.Exists(categoryPath);
@@ -557,9 +550,7 @@ namespace MapleLib.Img
             if (image == null)
                 throw new ArgumentNullException(nameof(image));
 
-            string fullPath = Path.Combine(_versionPath, category, relativePath);
-            if (!fullPath.EndsWith(".img", StringComparison.OrdinalIgnoreCase))
-                fullPath += ".img";
+            string fullPath = GetContainedImagePath(category, relativePath);
 
             return SaveImageToFile(image, fullPath);
         }
@@ -619,6 +610,29 @@ namespace MapleLib.Img
             }
         }
 
+        private string GetContainedImagePath(string category, string relativePath)
+        {
+            if (string.IsNullOrWhiteSpace(category))
+                throw new ArgumentException("Category is required.", nameof(category));
+            if (string.IsNullOrWhiteSpace(relativePath))
+                throw new ArgumentException("Relative path is required.", nameof(relativePath));
+
+            string fullPath = Path.Combine(_versionPath, category, relativePath);
+            if (!fullPath.EndsWith(".img", StringComparison.OrdinalIgnoreCase))
+                fullPath += ".img";
+
+            fullPath = Path.GetFullPath(fullPath);
+            string root = Path.GetFullPath(_versionPath);
+            string rootWithSeparator = Path.EndsInDirectorySeparator(root)
+                ? root
+                : root + Path.DirectorySeparatorChar;
+
+            if (!fullPath.StartsWith(rootWithSeparator, StringComparison.OrdinalIgnoreCase))
+                throw new InvalidOperationException($"Image path escapes the version directory: {fullPath}");
+
+            return fullPath;
+        }
+
         /// <summary>
         /// Gets the cache key from a full file path
         /// </summary>
@@ -644,9 +658,7 @@ namespace MapleLib.Img
         /// <returns>The created WzImage or null if failed</returns>
         public WzImage CreateImage(string category, string relativePath)
         {
-            string fullPath = Path.Combine(_versionPath, category, relativePath);
-            if (!fullPath.EndsWith(".img", StringComparison.OrdinalIgnoreCase))
-                fullPath += ".img";
+            string fullPath = GetContainedImagePath(category, relativePath);
 
             // Check if file already exists
             if (File.Exists(fullPath))
@@ -689,9 +701,7 @@ namespace MapleLib.Img
         /// <returns>True if deleted successfully</returns>
         public bool DeleteImage(string category, string relativePath)
         {
-            string fullPath = Path.Combine(_versionPath, category, relativePath);
-            if (!fullPath.EndsWith(".img", StringComparison.OrdinalIgnoreCase))
-                fullPath += ".img";
+            string fullPath = GetContainedImagePath(category, relativePath);
 
             try
             {
@@ -724,10 +734,7 @@ namespace MapleLib.Img
         /// </summary>
         public string GetImagePath(string category, string relativePath)
         {
-            string fullPath = Path.Combine(_versionPath, category, relativePath);
-            if (!fullPath.EndsWith(".img", StringComparison.OrdinalIgnoreCase))
-                fullPath += ".img";
-            return fullPath;
+            return GetContainedImagePath(category, relativePath);
         }
         #endregion
 

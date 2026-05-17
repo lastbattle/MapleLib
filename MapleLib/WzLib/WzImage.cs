@@ -247,7 +247,13 @@ namespace MapleLib.WzLib
         {
             if (reader != null) if (!parsed) ParseImage();
 
+            if (string.IsNullOrWhiteSpace(path))
+                return null;
+
             string[] segments = path.Split(new char[1] { '/' }, System.StringSplitOptions.RemoveEmptyEntries);
+
+            if (segments.Length == 0)
+                return null;
 
             // If the first segment is "..", return null
             if (segments[0] == "..")
