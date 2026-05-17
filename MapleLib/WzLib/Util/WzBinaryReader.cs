@@ -191,7 +191,7 @@ namespace MapleLib.WzLib.Util
                     ? stackalloc byte[length]
                     : (pooledArray = s_bytePool.Rent(length)).AsSpan(0, length);
 
-                BaseStream.Read(buffer);
+                BaseStream.ReadExactly(buffer);
                 return Encoding.ASCII.GetString(buffer);
             }
             finally
