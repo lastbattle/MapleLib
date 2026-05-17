@@ -385,7 +385,7 @@ namespace MapleLib.WzLib
             
             lock (reader) // for multi threaded XMLWZ export. 
             {
-                long originalPos = reader.BaseStream.Position;
+                //long originalPos = reader.BaseStream.Position;
                 reader.BaseStream.Position = offset;
 
                 byte b = reader.ReadByte();
