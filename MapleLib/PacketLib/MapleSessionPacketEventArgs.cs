@@ -10,7 +10,8 @@ namespace MapleLib.PacketLib
             byte[] rawPacket,
             bool isInit,
             int opcode,
-            short? sessionVersion = null)
+            short? sessionVersion = null,
+            long? proxySessionId = null)
         {
             Role = role;
             SourceEndpoint = sourceEndpoint ?? string.Empty;
@@ -18,6 +19,7 @@ namespace MapleLib.PacketLib
             IsInit = isInit;
             Opcode = opcode;
             SessionVersion = sessionVersion;
+            ProxySessionId = proxySessionId;
         }
 
         public MapleServerRole Role { get; }
@@ -26,5 +28,6 @@ namespace MapleLib.PacketLib
         public bool IsInit { get; }
         public int Opcode { get; }
         public short? SessionVersion { get; }
+        public long? ProxySessionId { get; }
     }
 }

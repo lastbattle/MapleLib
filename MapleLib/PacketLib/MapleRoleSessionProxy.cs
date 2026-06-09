@@ -10,8 +10,9 @@ namespace MapleLib.PacketLib
     {
         private sealed class BridgePair
         {
-            public BridgePair(TcpClient clientTcpClient, TcpClient serverTcpClient, Session clientSession, Session serverSession)
+            public BridgePair(long proxySessionId, TcpClient clientTcpClient, TcpClient serverTcpClient, Session clientSession, Session serverSession)
             {
+                ProxySessionId = proxySessionId;
                 ClientTcpClient = clientTcpClient;
                 ServerTcpClient = serverTcpClient;
                 ClientSession = clientSession;
@@ -20,6 +21,7 @@ namespace MapleLib.PacketLib
                 ClientEndpoint = clientTcpClient.Client.RemoteEndPoint?.ToString() ?? "unknown-client";
             }
 
+            public long ProxySessionId { get; }
             public TcpClient ClientTcpClient { get; }
             public TcpClient ServerTcpClient { get; }
             public Session ClientSession { get; }
@@ -57,6 +59,7 @@ namespace MapleLib.PacketLib
         private CancellationTokenSource _listenerCancellation;
         private Task _listenerTask;
         private BridgePair _activePair;
+        private long _nextProxySessionId;
 
         public MapleRoleSessionProxy(MapleServerRole role, MapleHandshakePolicy handshakePolicy = null)
         {
@@ -76,6 +79,8 @@ namespace MapleLib.PacketLib
         public bool IsRunning => _listenerTask != null && !_listenerTask.IsCompleted;
         public bool HasAttachedClient => _activePair != null;
         public bool HasConnectedSession => _activePair?.InitCompleted == true;
+        public short? CurrentSessionVersion => _activePair?.InitCompleted == true ? _activePair.Version : null;
+        public long? CurrentProxySessionId => _activePair?.InitCompleted == true ? _activePair.ProxySessionId : null;
         public int ReceivedCount { get; private set; }
         public int ClientReceivedCount { get; private set; }
         public int SentCount { get; private set; }
@@ -215,7 +220,8 @@ namespace MapleLib.PacketLib
 
                 Session clientSession = new(client.Client, SessionType.SERVER_TO_CLIENT);
                 Session serverSession = new(server.Client, SessionType.CLIENT_TO_SERVER);
-                pair = new BridgePair(client, server, clientSession, serverSession);
+                long proxySessionId = Interlocked.Increment(ref _nextProxySessionId);
+                pair = new BridgePair(proxySessionId, client, server, clientSession, serverSession);
 
                 clientSession.OnPacketReceived += (packet, isInit) => HandleClientPacket(pair, packet, isInit);
                 clientSession.OnClientDisconnected += _ => ClearActivePair(pair, $"{_role} role-session client disconnected: {pair.ClientEndpoint}.");
@@ -266,12 +272,12 @@ namespace MapleLib.PacketLib
                     pair.InitCompleted = true;
                     LastStatus = $"{_role} role-session initialized Maple crypto with version {sessionVersion} for {pair.ClientEndpoint} <-> {pair.RemoteEndpoint}.";
                     pair.ClientSession.WaitForData();
-                    RaiseServerPacket(pair.RemoteEndpoint, raw, true, pair.Version);
+                    RaiseServerPacket(pair.RemoteEndpoint, raw, true, pair.Version, pair.ProxySessionId);
                     return;
                 }
 
                 pair.ClientSession.SendPacket((byte[])raw.Clone());
-                RaiseServerPacket(pair.RemoteEndpoint, raw, false, pair.Version);
+                RaiseServerPacket(pair.RemoteEndpoint, raw, false, pair.Version, pair.ProxySessionId);
                 ReceivedCount++;
                 LastPacketUtc = DateTime.UtcNow;
             }
@@ -292,7 +298,7 @@ namespace MapleLib.PacketLib
 
                 byte[] raw = packet.ToArray();
                 pair.ServerSession.SendPacket(raw);
-                RaiseClientPacket(pair.ClientEndpoint, raw, false, pair.Version);
+                RaiseClientPacket(pair.ClientEndpoint, raw, false, pair.Version, pair.ProxySessionId);
                 ClientReceivedCount++;
                 LastPacketUtc = DateTime.UtcNow;
             }
@@ -302,20 +308,20 @@ namespace MapleLib.PacketLib
             }
         }
 
-        private void RaiseServerPacket(string sourceEndpoint, byte[] rawPacket, bool isInit, short? sessionVersion)
+        private void RaiseServerPacket(string sourceEndpoint, byte[] rawPacket, bool isInit, short? sessionVersion, long? proxySessionId)
         {
             int opcode = TryDecodeOpcode(rawPacket, isInit);
             ServerPacketReceived?.Invoke(
                 this,
-                new MapleSessionPacketEventArgs(_role, sourceEndpoint, rawPacket, isInit, opcode, sessionVersion));
+                new MapleSessionPacketEventArgs(_role, sourceEndpoint, rawPacket, isInit, opcode, sessionVersion, proxySessionId));
         }
 
-        private void RaiseClientPacket(string sourceEndpoint, byte[] rawPacket, bool isInit, short? sessionVersion)
+        private void RaiseClientPacket(string sourceEndpoint, byte[] rawPacket, bool isInit, short? sessionVersion, long? proxySessionId)
         {
             int opcode = TryDecodeOpcode(rawPacket, isInit);
             ClientPacketReceived?.Invoke(
                 this,
-                new MapleSessionPacketEventArgs(_role, sourceEndpoint, rawPacket, isInit, opcode, sessionVersion));
+                new MapleSessionPacketEventArgs(_role, sourceEndpoint, rawPacket, isInit, opcode, sessionVersion, proxySessionId));
         }
 
         private static int TryDecodeOpcode(byte[] rawPacket, bool isInit)
