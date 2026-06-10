@@ -521,7 +521,7 @@ namespace MapleLib.WzLib.WzProperties
                         {
                             BitmapData bmpData = bmp.LockBits(rect_, ImageLockMode.WriteOnly, PixelFormat.Format16bppRgb565);
 
-                            Marshal.Copy(rawBytes, 0, bmpData.Scan0, rawBytes.Length);
+                            PngUtility.CopyBmpDataWithStride(rawBytes, bmp.Width * 2, bmpData);
                             bmp.UnlockBits(bmpData);
                             break;
                         }
