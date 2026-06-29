@@ -409,6 +409,7 @@ namespace MapleLib.WzLib.WzProperties
                 WzPngFormat.Format517 => width * height / 128,
                 WzPngFormat.Format1026 => width * height * 4,
                 WzPngFormat.Format2050 => width * height * 4,
+                WzPngFormat.Format4098 => ((width + 3) / 4) * ((height + 3) / 4) * 16,
                 _ => width * height * 4
             };
         }
@@ -499,6 +500,7 @@ namespace MapleLib.WzLib.WzProperties
             {
                 Bitmap bmp = new(width, height, Format.GetPixelFormat());
                 Rectangle rect_ = new(0, 0, width, height);
+                byte[] textureBytes = rawBytes;
 
                 switch (Format)
                 {
@@ -571,6 +573,14 @@ namespace MapleLib.WzLib.WzProperties
                             bmp.UnlockBits(bmpData2050);
                             break;
                         }
+                    case WzPngFormat.Format4098:
+                        {
+                            textureBytes = PngUtility.DecompressImageBC7(rawBytes, width, height);
+                            BitmapData bmpData4098 = bmp.LockBits(rect_, ImageLockMode.WriteOnly, PixelFormat.Format32bppArgb);
+                            PngUtility.CopyBmpDataWithStride(textureBytes, width * 4, bmpData4098);
+                            bmp.UnlockBits(bmpData4098);
+                            break;
+                        }
                     default:
                         Helpers.ErrorLogger.Log(Helpers.ErrorLevel.MissingFeature, $"Unknown PNG format {Format}");
                         break;
@@ -581,7 +591,7 @@ namespace MapleLib.WzLib.WzProperties
                     {
                         Microsoft.Xna.Framework.Rectangle rect = new Microsoft.Xna.Framework.Rectangle(Microsoft.Xna.Framework.Point.Zero,
                             new Microsoft.Xna.Framework.Point(width, height));
-                        texture2d.SetData(0, 0, rect, rawBytes, 0, rawBytes.Length);
+                        texture2d.SetData(0, 0, rect, textureBytes, 0, textureBytes.Length);
                     }
                 }
 
@@ -696,6 +706,12 @@ namespace MapleLib.WzLib.WzProperties
                     case WzPngFormat.Format2050: // 0x800 + 2? new
                         {
                             uncompressedSize = width * height;
+                            decBuf = new byte[uncompressedSize];
+                            break;
+                        }
+                    case WzPngFormat.Format4098: // 0x1000 + 2, BC7
+                        {
+                            uncompressedSize = ((width + 3) / 4) * ((height + 3) / 4) * 16;
                             decBuf = new byte[uncompressedSize];
                             break;
                         }

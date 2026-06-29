@@ -35,6 +35,21 @@ namespace MapleLib.Helpers
         #endregion
 
         #region Decode
+        /// <summary>
+        /// Decodes BC7 blocks to BGRA32 pixels for System.Drawing and MonoGame textures.
+        /// </summary>
+        public static byte[] DecompressImageBC7(byte[] rawData, int width, int height)
+        {
+            if (width <= 0 || height <= 0)
+                throw new ArgumentException("Width and height must be positive.");
+
+            int expectedSize = ((width + 3) / 4) * ((height + 3) / 4) * 16;
+            if (rawData == null || rawData.Length < expectedSize)
+                throw new ArgumentException($"Raw data length ({rawData?.Length ?? 0}) is insufficient for the specified dimensions ({width}x{height}).");
+
+            return Bc7Decoder.DecodeToBgra32(rawData, width, height);
+        }
+
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static Color RGB565ToColor(ushort val)
         {

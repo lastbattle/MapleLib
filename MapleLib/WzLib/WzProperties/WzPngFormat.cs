@@ -44,7 +44,12 @@ namespace MapleLib.WzLib.WzProperties
         /// <summary>
         /// DXT5 compression
         /// </summary>
-        Format2050 = 2050
+        Format2050 = 2050,
+
+        /// <summary>
+        /// BC7 block compression
+        /// </summary>
+        Format4098 = 4098
     }
 
 }

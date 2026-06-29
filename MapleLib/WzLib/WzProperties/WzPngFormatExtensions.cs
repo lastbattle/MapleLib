@@ -20,6 +20,7 @@ namespace MapleLib.WzLib.WzProperties
                 WzPngFormat.Format517 => PixelFormat.Format16bppRgb565,
                 WzPngFormat.Format1026 => PixelFormat.Format32bppArgb,
                 WzPngFormat.Format2050 => PixelFormat.Format32bppArgb,
+                WzPngFormat.Format4098 => PixelFormat.Format32bppArgb,
                 _ => PixelFormat.Format32bppArgb
             };
         }
@@ -43,6 +44,8 @@ namespace MapleLib.WzLib.WzProperties
                 WzPngFormat.Format517 => SurfaceFormat.Bgr565,
                 WzPngFormat.Format1026 => SurfaceFormat.Dxt3,
                 WzPngFormat.Format2050 => SurfaceFormat.Dxt5,
+                // MonoGame does not expose BC7, so format 4098 is CPU-decoded to BGRA32.
+                WzPngFormat.Format4098 => SurfaceFormat.Bgra32,
                 _ => SurfaceFormat.Bgra32
             };
         }
@@ -62,6 +65,7 @@ namespace MapleLib.WzLib.WzProperties
                 WzPngFormat.Format517 => width * height / 128,
                 WzPngFormat.Format1026 => width * height * 4,
                 WzPngFormat.Format2050 => width * height,
+                WzPngFormat.Format4098 => ((width + 3) / 4) * ((height + 3) / 4) * 16,
                 _ => width * height * 4
             };
         }
