@@ -441,26 +441,61 @@ namespace MapleLib.Img
         }
 
         /// <summary>
-        /// Renames a version
+        /// Renames a version folder and updates its manifest metadata.
         /// </summary>
         public bool RenameVersion(string oldVersionId, string newVersionId)
         {
+            return RenameVersion(oldVersionId, newVersionId, newVersionId, out _);
+        }
+
+        /// <summary>
+        /// Renames a version folder and updates its manifest metadata.
+        /// </summary>
+        public bool RenameVersion(string oldVersionId, string newVersionId, string displayName, out VersionInfo renamedVersion)
+        {
+            renamedVersion = null;
+
             var version = GetVersion(oldVersionId);
             if (version == null)
                 return false;
 
-            if (VersionExists(newVersionId))
-                return false; // New name already exists
+            if (_availableVersions.Any(v =>
+                !ReferenceEquals(v, version) &&
+                v.Version.Equals(newVersionId, StringComparison.OrdinalIgnoreCase)))
+            {
+                return false;
+            }
 
             try
             {
-                string newPath = Path.Combine(_rootPath, newVersionId);
-                Directory.Move(version.DirectoryPath, newPath);
+                string parentPath = Path.GetDirectoryName(version.DirectoryPath);
+                if (string.IsNullOrEmpty(parentPath))
+                    return false;
+
+                string newPath = Path.Combine(parentPath, newVersionId);
+                if (!version.DirectoryPath.Equals(newPath, StringComparison.OrdinalIgnoreCase) && Directory.Exists(newPath))
+                    return false;
+
+                if (version.DirectoryPath.Equals(newPath, StringComparison.OrdinalIgnoreCase) &&
+                    !version.DirectoryPath.Equals(newPath, StringComparison.Ordinal))
+                {
+                    string tempPath = Path.Combine(parentPath, $"{newVersionId}_{Guid.NewGuid():N}.tmp");
+                    Directory.Move(version.DirectoryPath, tempPath);
+                    Directory.Move(tempPath, newPath);
+                }
+                else if (!version.DirectoryPath.Equals(newPath, StringComparison.OrdinalIgnoreCase))
+                {
+                    Directory.Move(version.DirectoryPath, newPath);
+                }
 
                 version.Version = newVersionId;
+                version.DisplayName = string.IsNullOrWhiteSpace(displayName) ? newVersionId : displayName;
                 version.DirectoryPath = newPath;
                 SaveVersionManifest(version);
 
+                _availableVersions.Sort((a, b) => string.Compare(a.Version, b.Version, StringComparison.OrdinalIgnoreCase));
+                renamedVersion = version;
+                OnVersionsChanged(VersionChangeType.Refreshed, version);
                 return true;
             }
             catch (Exception)
