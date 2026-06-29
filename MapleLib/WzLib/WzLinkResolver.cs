@@ -159,14 +159,17 @@ namespace MapleLib.WzLib
             WzPngProperty sourcePng = srcCanvas.PngProperty;
             WzPngProperty destPng = destCanvas.PngProperty;
 
-            if (sourcePng != null && destPng != null)
-            {
-                // Use GetCompressedBytesForExtraction to convert listWz format to standard zlib format.
-                // This is critical because SetCompressedBytes clears the wzReader reference,
-                // so we must convert while the source still has access to the WzKey.
-                byte[] compressedBytes = sourcePng.GetCompressedBytesForExtraction(false);
-                destPng.SetCompressedBytes(compressedBytes, sourcePng.Width, sourcePng.Height, sourcePng.Format);
-            }
+            if (sourcePng == null || destPng == null)
+                return false;
+
+            // Use GetCompressedBytesForExtraction to convert listWz format to standard zlib format.
+            // This is critical because SetCompressedBytes clears the wzReader reference,
+            // so we must convert while the source still has access to the WzKey.
+            byte[] compressedBytes = sourcePng.GetCompressedBytesForExtraction(false);
+            if (compressedBytes == null || compressedBytes.Length == 0)
+                return false;
+
+            destPng.SetCompressedBytes(compressedBytes, sourcePng.Width, sourcePng.Height, sourcePng.Format);
 
             // Remove the link property
             if (hasInlink)
@@ -178,6 +181,15 @@ namespace MapleLib.WzLib
                 destCanvas.RemoveProperty(WzCanvasProperty.OutlinkPropertyName);
             }
             return true;
+        }
+
+        private static bool CanvasHasImageData(WzImageProperty property)
+        {
+            if (property is not WzCanvasProperty canvas || canvas.PngProperty == null)
+                return false;
+
+            byte[] compressedBytes = canvas.PngProperty.GetCompressedBytesForExtraction(false);
+            return compressedBytes != null && compressedBytes.Length > 0;
         }
 
         /// <summary>
@@ -631,8 +643,12 @@ namespace MapleLib.WzLib
                     } // end if propertyPath
 
                     // If found, break out of image search loop
-                    if (targetProperty is WzCanvasProperty)
+                    if (CanvasHasImageData(targetProperty))
                         break;
+
+                    // An image name can occur in several segmented _Canvas WZ files. Keep
+                    // searching when this shard only contains an empty canvas placeholder.
+                    targetProperty = null;
                 } // end foreach searchImage
 
                 if (string.IsNullOrEmpty(propertyPath))
