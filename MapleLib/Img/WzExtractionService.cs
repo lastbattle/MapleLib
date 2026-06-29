@@ -841,7 +841,8 @@ namespace MapleLib.Img
                 string packsPath = Path.Combine(mapleStoryPath, "Data", "Packs");
                 if (Directory.Exists(packsPath))
                 {
-                    files.AddRange(Directory.EnumerateFiles(packsPath, "*.ms", SearchOption.AllDirectories));
+                    files.AddRange(Directory.EnumerateFiles(packsPath, "*.ms", SearchOption.AllDirectories)
+                        .OrderBy(path => path, StringComparer.OrdinalIgnoreCase));
                 }
                 return files;
             }
@@ -851,7 +852,8 @@ namespace MapleLib.Img
                 string dataPath = Path.Combine(mapleStoryPath, "Data", category);
                 if (Directory.Exists(dataPath))
                 {
-                    files.AddRange(Directory.EnumerateFiles(dataPath, "*.wz", SearchOption.AllDirectories));
+                    files.AddRange(Directory.EnumerateFiles(dataPath, "*.wz", SearchOption.AllDirectories)
+                        .OrderBy(path => path, StringComparer.OrdinalIgnoreCase));
                 }
             }
             else
@@ -868,7 +870,8 @@ namespace MapleLib.Img
                     $@"^{System.Text.RegularExpressions.Regex.Escape(category)}\d+\.wz$",
                     System.Text.RegularExpressions.RegexOptions.IgnoreCase);
 
-                foreach (var file in Directory.EnumerateFiles(mapleStoryPath, "*.wz"))
+                foreach (var file in Directory.EnumerateFiles(mapleStoryPath, "*.wz")
+                    .OrderBy(path => path, StringComparer.OrdinalIgnoreCase))
                 {
                     string fileName = Path.GetFileName(file);
                     if (pattern.IsMatch(fileName) && !files.Contains(file))
@@ -895,7 +898,8 @@ namespace MapleLib.Img
 
             // Scan .ms files and extract category names from filenames
             // Format: "Mob_00000.ms" -> "Mob"
-            foreach (var msFile in Directory.EnumerateFiles(packsPath, "*.ms", SearchOption.AllDirectories))
+            foreach (var msFile in Directory.EnumerateFiles(packsPath, "*.ms", SearchOption.AllDirectories)
+                .OrderBy(path => path, StringComparer.OrdinalIgnoreCase))
             {
                 string fileName = Path.GetFileNameWithoutExtension(msFile);
                 int underscoreIndex = fileName.IndexOf('_');
@@ -1374,11 +1378,15 @@ namespace MapleLib.Img
                             var categoryWzFiles = new List<WzFile>();
 
                             // Find all _Canvas directories recursively
-                            var canvasDirs = Directory.EnumerateDirectories(categoryPath, "_Canvas", SearchOption.AllDirectories).ToList();
+                            var canvasDirs = Directory.EnumerateDirectories(categoryPath, "_Canvas", SearchOption.AllDirectories)
+                                .OrderBy(path => path, StringComparer.OrdinalIgnoreCase)
+                                .ToList();
 
                             foreach (var canvasDir in canvasDirs)
                             {
-                                var canvasWzFiles = Directory.EnumerateFiles(canvasDir, "*.wz", SearchOption.AllDirectories).ToList();
+                                var canvasWzFiles = Directory.EnumerateFiles(canvasDir, "*.wz", SearchOption.AllDirectories)
+                                    .OrderBy(path => path, StringComparer.OrdinalIgnoreCase)
+                                    .ToList();
 
                                 foreach (var canvasWzPath in canvasWzFiles)
                                 {

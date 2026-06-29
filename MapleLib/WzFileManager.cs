@@ -87,6 +87,7 @@ namespace MapleLib {
         private readonly Dictionary<WzFile, bool> _wzFilesUpdated = []; // key = WzFile, flag for the list of WZ files changed to be saved later via Repack
         private readonly Dictionary<string, bool> _wzCanvasSectionLoaded = []; // key = "map/_canvas", value = true if loaded
         private readonly Dictionary<string, WzMainDirectory> _wzDirs = [];
+        private readonly object _canvasSectionLoadLock = new();
 
         private readonly Dictionary<string, WzImage> _wzImages = []; // The raw wz images loaded in memory.. Hotfix Data.wz or raw .img
         private readonly Dictionary<WzImage, bool> _wzImagesUpdated = [];
@@ -741,33 +742,36 @@ namespace MapleLib {
         /// <param name="encVersion"></param>
         public void LoadCanvasSection(string canvasFolder, WzMapleVersion encVersion)
         {
-            if (_wzCanvasSectionLoaded.ContainsKey(canvasFolder) && _wzCanvasSectionLoaded[canvasFolder] == true)
-                return; // already loaded
-
-            string canvasDirectory = Path.Combine(this.WzBaseDirectory, canvasFolder, CANVAS_DIRECTORY_NAME); // "C://Nexon/MapleStory/Data/Map/Back/_Canvas"
-            (string iniFileName, int wzFileIndex) = GetIniWzIndexInfo(canvasDirectory);
-            if (iniFileName == null)
-                return;
-
-            string canvasFileBase = string.Format(@"{0}/{1}/{2}_0", canvasFolder, CANVAS_DIRECTORY_NAME.ToLower(), CANVAS_DIRECTORY_NAME.ToLower()); // "map/_canvas/_canvas_0"
-            for (int canvasNumber = 0; canvasNumber <= wzFileIndex; canvasNumber++)
+            lock (_canvasSectionLoadLock)
             {
-                string canvasFileBase_ = string.Format("{0}{1:D2}", canvasFileBase, canvasNumber); // "map/_canvas/_canvas_001.wz"
-                if (!IsWzFileLoaded(canvasFileBase_))
+                if (_wzCanvasSectionLoaded.ContainsKey(canvasFolder) && _wzCanvasSectionLoaded[canvasFolder] == true)
+                    return; // already loaded
+
+                string canvasDirectory = Path.Combine(this.WzBaseDirectory, canvasFolder, CANVAS_DIRECTORY_NAME); // "C://Nexon/MapleStory/Data/Map/Back/_Canvas"
+                (string iniFileName, int wzFileIndex) = GetIniWzIndexInfo(canvasDirectory);
+                if (iniFileName == null)
+                    return;
+
+                string canvasFileBase = string.Format(@"{0}/{1}/{2}_0", canvasFolder, CANVAS_DIRECTORY_NAME.ToLower(), CANVAS_DIRECTORY_NAME.ToLower()); // "map/_canvas/_canvas_0"
+                for (int canvasNumber = 0; canvasNumber <= wzFileIndex; canvasNumber++)
                 {
-                    WzFile loadedWzFile = LoadWzFile(canvasFileBase_, encVersion);
+                    string canvasFileBase_ = string.Format("{0}{1:D2}", canvasFileBase, canvasNumber); // "map/_canvas/_canvas_001.wz"
+                    if (!IsWzFileLoaded(canvasFileBase_))
+                    {
+                        WzFile loadedWzFile = LoadWzFile(canvasFileBase_, encVersion);
+                    }
                 }
-            }
 
-            // flag section loaded once it has past through here once.
-            _readWriteLock.EnterWriteLock();
-            try
-            {
-                _wzCanvasSectionLoaded[canvasFolder] = true;
-            }
-            finally
-            {
-                _readWriteLock.ExitWriteLock();
+                // flag section loaded once it has past through here once.
+                _readWriteLock.EnterWriteLock();
+                try
+                {
+                    _wzCanvasSectionLoaded[canvasFolder] = true;
+                }
+                finally
+                {
+                    _readWriteLock.ExitWriteLock();
+                }
             }
         }
 

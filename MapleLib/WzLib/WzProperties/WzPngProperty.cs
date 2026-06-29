@@ -32,6 +32,7 @@ namespace MapleLib.WzLib.WzProperties
 
         internal WzBinaryReader wzReader;
         internal long offs;
+        private readonly object imageLock = new();
         #endregion
 
         #region Inherited Members
@@ -156,14 +157,20 @@ namespace MapleLib.WzLib.WzProperties
         {
             get
             {
-                return listWzUsed;
+                lock (imageLock)
+                {
+                    return listWzUsed;
+                }
             }
             set
             {
-                if (value != listWzUsed)
+                lock (imageLock)
                 {
-                    listWzUsed = value;
-                    CompressPng(GetImage(false));
+                    if (value != listWzUsed)
+                    {
+                        listWzUsed = value;
+                        CompressPng(GetImage(false));
+                    }
                 }
             }
         }
@@ -174,13 +181,16 @@ namespace MapleLib.WzLib.WzProperties
         {
             set
             {
-                if (png != null && !ReferenceEquals(png, value))
+                lock (imageLock)
                 {
-                    png.Dispose();
-                }
+                    if (png != null && !ReferenceEquals(png, value))
+                    {
+                        png.Dispose();
+                    }
 
-                CompressPng(value);
-                png = null;
+                    CompressPng(value);
+                    png = null;
+                }
             }
         }
 
@@ -199,20 +209,23 @@ namespace MapleLib.WzLib.WzProperties
         /// <param name="format">Image format</param>
         public void SetCompressedBytes(byte[] bytes, int width, int height, WzPngFormat format)
         {
-            this.compressedImageBytes = bytes;
-            this.width = width;
-            this.height = height;
-            this.format = format;
-
-            // Clear any cached bitmap since we're replacing the data
-            if (this.png != null)
+            lock (imageLock)
             {
-                this.png.Dispose();
-                this.png = null;
-            }
+                this.compressedImageBytes = bytes;
+                this.width = width;
+                this.height = height;
+                this.format = format;
 
-            // Clear reader reference since we now have the data in memory
-            this.wzReader = null;
+                // Clear any cached bitmap since we're replacing the data
+                if (this.png != null)
+                {
+                    this.png.Dispose();
+                    this.png = null;
+                }
+
+                // Clear reader reference since we now have the data in memory
+                this.wzReader = null;
+            }
         }
 
         /// <summary>
@@ -267,32 +280,35 @@ namespace MapleLib.WzLib.WzProperties
         #region Parsing Methods
         public byte[] GetCompressedBytes(bool saveInMemory)
         {
-            if (compressedImageBytes == null)
+            lock (imageLock)
             {
-                lock (wzReader)// lock WzBinaryReader, allowing it to be loaded from multiple threads at once
+                if (compressedImageBytes == null)
                 {
-                    long pos = this.wzReader.BaseStream.Position;
-                    this.wzReader.BaseStream.Position = offs;
-                    int len = this.wzReader.ReadInt32() - 1;
-                    if (len <= 0) // possibility an image written with the wrong wzIv
-                        throw new Exception("The length of the image is negative. WzPngProperty. Wrong WzIV?");
+                    lock (wzReader)// lock WzBinaryReader, allowing it to be loaded from multiple threads at once
+                    {
+                        long pos = this.wzReader.BaseStream.Position;
+                        this.wzReader.BaseStream.Position = offs;
+                        int len = this.wzReader.ReadInt32() - 1;
+                        if (len <= 0) // possibility an image written with the wrong wzIv
+                            throw new Exception("The length of the image is negative. WzPngProperty. Wrong WzIV?");
 
-                    this.wzReader.BaseStream.Position += 1;
+                        this.wzReader.BaseStream.Position += 1;
 
-                    if (len > 0)
-                        compressedImageBytes = this.wzReader.ReadBytes(len);
-                    this.wzReader.BaseStream.Position = pos;
+                        if (len > 0)
+                            compressedImageBytes = this.wzReader.ReadBytes(len);
+                        this.wzReader.BaseStream.Position = pos;
+                    }
+
+                    if (!saveInMemory)
+                    {
+                        //were removing the reference to compressedBytes, so a backup for the ret value is needed
+                        byte[] returnBytes = compressedImageBytes;
+                        compressedImageBytes = null;
+                        return returnBytes;
+                    }
                 }
-
-                if (!saveInMemory)
-                {
-                    //were removing the reference to compressedBytes, so a backup for the ret value is needed
-                    byte[] returnBytes = compressedImageBytes;
-                    compressedImageBytes = null;
-                    return returnBytes;
-                }
+                return compressedImageBytes;
             }
-            return compressedImageBytes;
         }
 
         /// <summary>
@@ -399,23 +415,26 @@ namespace MapleLib.WzLib.WzProperties
 
         public Bitmap GetImage(bool saveInMemory)
         {
-            if (png != null)
+            lock (imageLock)
             {
-                if (saveInMemory)
+                if (png != null)
                 {
-                    return png;
+                    if (saveInMemory)
+                    {
+                        return png;
+                    }
+
+                    return (Bitmap)png.Clone();
                 }
 
-                return (Bitmap)png.Clone();
-            }
+                Bitmap decodedBitmap = DecodeBitmap(saveInMemory);
+                if (saveInMemory)
+                {
+                    png = decodedBitmap;
+                }
 
-            Bitmap decodedBitmap = DecodeBitmap(saveInMemory);
-            if (saveInMemory)
-            {
-                png = decodedBitmap;
+                return decodedBitmap;
             }
-
-            return decodedBitmap;
         }
 
         internal static byte[] Decompress(byte[] compressedBuffer, int decompressedSize)
@@ -454,15 +473,18 @@ namespace MapleLib.WzLib.WzProperties
 
         public void ParsePng(bool saveInMemory, Texture2D texture2d = null)
         {
-            Bitmap decodedBitmap = DecodeBitmap(saveInMemory, texture2d);
+            lock (imageLock)
+            {
+                Bitmap decodedBitmap = DecodeBitmap(saveInMemory, texture2d);
 
-            if (saveInMemory)
-            {
-                png = decodedBitmap;
-            }
-            else if (decodedBitmap == null)
-            {
-                png = null;
+                if (saveInMemory)
+                {
+                    png = decodedBitmap;
+                }
+                else if (decodedBitmap == null)
+                {
+                    png = null;
+                }
             }
         }
 
