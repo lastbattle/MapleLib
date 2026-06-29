@@ -27,7 +27,6 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using static MapleLib.WzDataReader;
@@ -49,7 +48,6 @@ namespace MapleLib.WzLib.Spine
             {
                 return null;
             }
-            atlasData = NormalizeAtlasDataForSpine21(atlasData);
             StringReader atlasReader = new StringReader(atlasData);
 
             Atlas atlas = new Atlas(atlasReader, string.Empty, textureLoader);
@@ -148,100 +146,5 @@ namespace MapleLib.WzLib.Spine
             }
         }
 
-        private static string NormalizeAtlasDataForSpine21(string atlasData)
-        {
-            string[] rawLines = atlasData.Replace("\r\n", "\n").Replace('\r', '\n').Split('\n');
-            bool usesModernBounds = rawLines.Any(line => line.TrimStart().StartsWith("bounds:", StringComparison.OrdinalIgnoreCase));
-            bool hasFormatLine = rawLines.Any(line => line.TrimStart().StartsWith("format:", StringComparison.OrdinalIgnoreCase));
-            if (!usesModernBounds && hasFormatLine)
-            {
-                return atlasData;
-            }
-
-            StringBuilder output = new StringBuilder();
-            int i = 0;
-            int convertedRegions = 0;
-
-            while (i < rawLines.Length)
-            {
-                string pageName = rawLines[i].Trim();
-                i++;
-                if (pageName.Length == 0)
-                {
-                    continue;
-                }
-
-                if (!pageName.EndsWith(".png", StringComparison.OrdinalIgnoreCase))
-                {
-                    output.AppendLine(pageName);
-                    continue;
-                }
-
-                string sizeLine = i < rawLines.Length ? rawLines[i++].Trim() : "size:0,0";
-                string filterLine = i < rawLines.Length ? rawLines[i++].Trim() : "filter:Linear,Linear";
-                if (i < rawLines.Length && rawLines[i].TrimStart().StartsWith("pma:", StringComparison.OrdinalIgnoreCase))
-                {
-                    i++;
-                }
-
-                output.AppendLine(pageName);
-                output.AppendLine(sizeLine);
-                output.AppendLine("format: RGBA8888");
-                output.AppendLine(filterLine);
-                output.AppendLine("repeat: none");
-
-                while (i < rawLines.Length)
-                {
-                    string regionName = rawLines[i].Trim();
-                    if (regionName.Length == 0)
-                    {
-                        output.AppendLine();
-                        i++;
-                        break;
-                    }
-                    if (regionName.EndsWith(".png", StringComparison.OrdinalIgnoreCase))
-                    {
-                        break;
-                    }
-
-                    i++;
-                    string boundsLine = i < rawLines.Length ? rawLines[i++].Trim() : null;
-                    if (boundsLine == null || !boundsLine.StartsWith("bounds:", StringComparison.OrdinalIgnoreCase))
-                    {
-                        continue;
-                    }
-
-                    string[] bounds = boundsLine.Substring(boundsLine.IndexOf(':') + 1).Split(',');
-                    if (bounds.Length < 4)
-                    {
-                        continue;
-                    }
-
-                    bool rotate = false;
-                    if (i < rawLines.Length && rawLines[i].TrimStart().StartsWith("rotate:", StringComparison.OrdinalIgnoreCase))
-                    {
-                        string rotateValue = rawLines[i].Substring(rawLines[i].IndexOf(':') + 1).Trim();
-                        rotate = rotateValue.Equals("true", StringComparison.OrdinalIgnoreCase) || rotateValue == "90";
-                        i++;
-                    }
-
-                    string x = bounds[0].Trim();
-                    string y = bounds[1].Trim();
-                    string width = bounds[2].Trim();
-                    string height = bounds[3].Trim();
-
-                    output.AppendLine(regionName);
-                    output.AppendLine($"  rotate: {rotate.ToString().ToLowerInvariant()}");
-                    output.AppendLine($"  xy: {x}, {y}");
-                    output.AppendLine($"  size: {width}, {height}");
-                    output.AppendLine($"  orig: {width}, {height}");
-                    output.AppendLine("  offset: 0, 0");
-                    output.AppendLine("  index: -1");
-                    convertedRegions++;
-                }
-            }
-
-            return output.ToString();
-        }
     }
 }
