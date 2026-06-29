@@ -50,7 +50,16 @@ namespace MapleLib.WzLib.Spine
             }
             StringReader atlasReader = new StringReader(atlasData);
 
-            Atlas atlas = new Atlas(atlasReader, string.Empty, textureLoader);
+            Atlas atlas;
+            try
+            {
+                atlas = new Atlas(atlasReader, string.Empty, textureLoader);
+            }
+            catch (ArgumentException)
+            {
+                return null;
+            }
+
             SkeletonData skeletonData;
 
             if (!TryLoadSkeletonJsonOrBinary(atlasNode, atlas, skeletonPropertyName, out skeletonData))
