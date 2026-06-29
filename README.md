@@ -252,7 +252,7 @@ writer.WriteMapleString("Hello Maple");
 
 ## Dependencies
  - .NET 10.0 runtime
- - [spine-runtime 2.1.25 (ported to .net 7.0)](https://github.com/EsotericSoftware/spine-runtimes)
+ - [spine-runtime 2.1.25 and namespaced 4.1](https://github.com/EsotericSoftware/spine-runtimes)
  - [lz4net 1.0.15.93+](https://github.com/MiloszKrajewski/lz4net)
  - [MonoGame.Framework.DesktopGL 3.8.2.1105+](https://www.nuget.org/packages/MonoGame.Framework.DesktopGL)
  - [NAudio 2.2.0+](https://www.nuget.org/packages/NAudio)

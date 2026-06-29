@@ -100,12 +100,12 @@ namespace MapleLib.WzLib.WzProperties
 		/// </summary>
 		public bool IsSpineRelatedResources
 		{
-			get { return (name.EndsWith(".atlas") || name.EndsWith(".json") || name.EndsWith(".skel")); }
+			get { return (name.EndsWith(".atlas") || name.Equals("atlas", StringComparison.OrdinalIgnoreCase) || name.EndsWith(".json") || name.EndsWith(".skel")); }
 		}
 
 		public bool IsSpineAtlasResources
 		{
-			get { return (name.EndsWith(".atlas")); }
+			get { return (name.EndsWith(".atlas") || name.Equals("atlas", StringComparison.OrdinalIgnoreCase)); }
         }
 
         /// <summary>

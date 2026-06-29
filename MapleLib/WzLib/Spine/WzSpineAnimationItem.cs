@@ -52,15 +52,17 @@ namespace MapleLib.WzLib.Spine
 
         // pre-loading
         private readonly WzStringProperty wzSpineAtlasPropertyNode;
+        private readonly string skeletonPropertyName;
 
         /// <summary>
         /// SpineAnimationItem Constructor
         /// </summary>
         /// <param name="wzSpineAtlasPropertyNode">.atlas WzStringProperty</param>
         /// <param name="loadWithJson"></param>
-        public WzSpineAnimationItem(WzStringProperty wzSpineAtlasPropertyNode)
+        public WzSpineAnimationItem(WzStringProperty wzSpineAtlasPropertyNode, string skeletonPropertyName = null)
         {
             this.wzSpineAtlasPropertyNode = wzSpineAtlasPropertyNode;
+            this.skeletonPropertyName = skeletonPropertyName;
         }
 
         /// <summary>
@@ -71,7 +73,7 @@ namespace MapleLib.WzLib.Spine
         {
             var textureLoader = new WzSpineTextureLoader(wzSpineAtlasPropertyNode.Parent, graphicsDevice);
 
-            SkeletonData skeletonData = WzSpineAtlasLoader.LoadSkeleton(wzSpineAtlasPropertyNode, textureLoader);
+            SkeletonData skeletonData = WzSpineAtlasLoader.LoadSkeleton(wzSpineAtlasPropertyNode, textureLoader, skeletonPropertyName);
             if (skeletonData == null)
             {
                 return;
