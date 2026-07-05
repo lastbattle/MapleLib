@@ -22,17 +22,15 @@ namespace MapleLib
         /// <returns></returns>
         public static string ReadString(this WzImageProperty value, string fallback)
         {
-            if (value == null || value.GetType() == typeof(WzNullProperty))
+            if (value == null || value is WzNullProperty)
                 return fallback;
 
-            if (value != null)
+            return value.PropertyType switch
             {
-                if (value.PropertyType == WzPropertyType.String)
-                    return ((WzStringProperty)value).Value;
-                else if (value.PropertyType == WzPropertyType.Int)
-                    return ((WzIntProperty)value).Value.ToString();
-            }
-            return ((WzStringProperty)value).Value;
+                WzPropertyType.String => ((WzStringProperty)value).Value,
+                WzPropertyType.Int => ((WzIntProperty)value).Value.ToString(),
+                _ => ((WzStringProperty)value).Value
+            };
         }
 
         /// <summary>
@@ -62,15 +60,15 @@ namespace MapleLib
             else if (value.PropertyType == WzPropertyType.Long)
                 return ((WzLongProperty)value).Value;
             else if (value.PropertyType == WzPropertyType.String)
-                try
+            {
+                string stringValue = ((WzStringProperty)value).Value;
+                if (long.TryParse(stringValue, out long parsedValue))
                 {
-                    return long.Parse(((WzStringProperty)value).Value);
+                    return parsedValue;
                 }
-                catch
-                {
-                    Debug.WriteLine("Error parsing string to long: " + ((WzStringProperty)value).Value);
-                    return def;
-                }
+                Debug.WriteLine("Error parsing string to long: " + stringValue);
+                return def;
+            }
             return 0;
         }
 
@@ -121,17 +119,15 @@ namespace MapleLib
             else if (value.PropertyType == WzPropertyType.String)
             {
                 string strdata = ((WzStringProperty)value).Value;
-                try
+                if (int.TryParse(strdata, out int parsedValue))
                 {
-                    return int.Parse(strdata);
+                    return parsedValue;
                 }
-                catch
+                if (strdata.EndsWith('%') &&
+                    int.TryParse(strdata.AsSpan(0, strdata.Length - 1), out parsedValue))
                 {
-                    if (strdata.EndsWith("%"))
-                    { // Stupid nexon, see <imgdir name="02040016">
-                        // It have a scroll success rate of 10% instead of 10
-                        return int.Parse(strdata.Substring(0, strdata.Length - 1));
-                    }
+                    // Some item data stores rates as "10%" instead of "10".
+                    return parsedValue;
                 }
             }
             return def;

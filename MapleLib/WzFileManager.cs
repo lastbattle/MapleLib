@@ -83,13 +83,13 @@ namespace MapleLib {
 
 
         private readonly ReaderWriterLockSlim _readWriteLock = new(); // for '_wzFiles', '_wzFilesUpdated', '_updatedImages', & '_wzDirs'
-        private readonly Dictionary<string, WzFile> _wzFiles = [];
+        private readonly Dictionary<string, WzFile> _wzFiles = new(StringComparer.OrdinalIgnoreCase);
         private readonly Dictionary<WzFile, bool> _wzFilesUpdated = []; // key = WzFile, flag for the list of WZ files changed to be saved later via Repack
-        private readonly Dictionary<string, bool> _wzCanvasSectionLoaded = []; // key = "map/_canvas", value = true if loaded
-        private readonly Dictionary<string, WzMainDirectory> _wzDirs = [];
+        private readonly Dictionary<string, bool> _wzCanvasSectionLoaded = new(StringComparer.OrdinalIgnoreCase); // key = "map/_canvas", value = true if loaded
+        private readonly Dictionary<string, WzMainDirectory> _wzDirs = new(StringComparer.OrdinalIgnoreCase);
         private readonly object _canvasSectionLoadLock = new();
 
-        private readonly Dictionary<string, WzImage> _wzImages = []; // The raw wz images loaded in memory.. Hotfix Data.wz or raw .img
+        private readonly Dictionary<string, WzImage> _wzImages = new(StringComparer.OrdinalIgnoreCase); // The raw wz images loaded in memory.. Hotfix Data.wz or raw .img
         private readonly Dictionary<WzImage, bool> _wzImagesUpdated = [];
 
         private readonly HashSet<WzImage> _updatedWzImages = [];
@@ -107,13 +107,13 @@ namespace MapleLib {
         ///
         /// {[Map\Map\Map4, Count = 1]}
         /// </summary>
-        private readonly Dictionary<string, List<string>> _wzFilesList = [];
+        private readonly Dictionary<string, List<string>> _wzFilesList = new(StringComparer.OrdinalIgnoreCase);
         /// <summary>
         /// The list of directory where the wz file residues
         /// </summary>
-        private readonly Dictionary<string, string> _wzFilesDirectoryList = [];
+        private readonly Dictionary<string, string> _wzFilesDirectoryList = new(StringComparer.OrdinalIgnoreCase);
 
-        private readonly Dictionary<string, WzMsFile> _msFiles = new(); // key = ms file name, value = MsFile instance
+        private readonly Dictionary<string, WzMsFile> _msFiles = new(StringComparer.OrdinalIgnoreCase); // key = ms file name, value = MsFile instance
 
         #endregion
 
@@ -676,8 +676,7 @@ namespace MapleLib {
                 bIsCanvasDir = ContainsCanvasDirectory(baseName);
                 // TODO
             }
-            string fileName_ = baseName.ToLower().Replace(".wz", "");
-            return _wzFiles.ContainsKey(fileName_);
+            return _wzFiles.ContainsKey(GetWzKey(baseName));
         }
 
         /// <summary>
@@ -712,7 +711,7 @@ namespace MapleLib {
         /// <exception cref="Exception"></exception>
         public WzFile LoadWzFile(string baseName, WzFile wzf)
         {
-            string fileName_ = baseName.ToLower().Replace(".wz", "");
+            string fileName_ = GetWzKey(baseName);
 
             if (_wzFilesUpdated.ContainsKey(wzf)) // some safety check
                 throw new Exception(string.Format("Wz {0} at the path {1} has already been loaded, and cannot be loaded again. Remove it from memory first.", fileName_, wzf.FilePath));
@@ -790,7 +789,7 @@ namespace MapleLib {
                 return false;
             }
 
-            baseName = baseName.ToLower();
+            baseName = GetWzKey(baseName);
 
             if (_wzFilesUpdated.ContainsKey(wzf)) // some safety check
                 throw new Exception(string.Format("Wz file {0} at the path {1} has already been loaded, and cannot be loaded again.", baseName, wzf.FilePath));
@@ -886,12 +885,15 @@ namespace MapleLib {
         /// </summary>
         /// <returns></returns>
         public List<WzFile> GetUpdatedWzFiles() {
-            List<WzFile> updatedWzFiles = new();
+            List<WzFile> updatedWzFiles = new(_wzFilesUpdated.Count);
             // readlock
             _readWriteLock.EnterReadLock();
             try {
-                IEnumerable<WzFile> changedList = _wzFilesUpdated.Where(keyPair => keyPair.Value == true).Select(keyPair => keyPair.Key).AsEnumerable();
-                updatedWzFiles.AddRange(changedList);
+                foreach (KeyValuePair<WzFile, bool> entry in _wzFilesUpdated)
+                {
+                    if (entry.Value)
+                        updatedWzFiles.Add(entry.Key);
+                }
             }
             finally {
                 _readWriteLock.ExitReadLock();
@@ -904,7 +906,7 @@ namespace MapleLib {
         /// </summary>
         /// <param name="wzFile"></param>
         public void UnloadWzFile(WzFile wzFile, string wzFilePath) {
-            string baseName = wzFilePath.ToLower().Replace(".wz", "");
+            string baseName = GetWzKey(wzFilePath);
             if (_wzFiles.ContainsKey(baseName)) {
                 // write lock to begin adding to the dictionary
                 _readWriteLock.EnterWriteLock();
@@ -928,7 +930,7 @@ namespace MapleLib {
         {
             string baseName = _wzImages.FirstOrDefault(kvp => kvp.Value == wzImage).Key;
 
-            if (_wzImages.ContainsKey(baseName))
+            if (baseName != null)
             {
                 // write lock to begin adding to the dictionary
                 _readWriteLock.EnterWriteLock();
@@ -971,7 +973,7 @@ namespace MapleLib {
         #region Custom Members
         public WzDirectory this[string name] {
             get {
-                return _wzDirs.ContainsKey(name.ToLower()) ? _wzDirs[name.ToLower()].MainDir : null;
+                return _wzDirs.TryGetValue(GetWzKey(name), out WzMainDirectory directory) ? directory.MainDir : null;
             } //really not very useful to return null in this case
         }
 
@@ -1014,11 +1016,25 @@ namespace MapleLib {
         /// <returns></returns>
         public static bool ContainsCanvasDirectory(string path)
         {
-            path = path.ToLower();
-            string canvasDirLower = CANVAS_DIRECTORY_NAME.ToLower();
-            return Path.GetDirectoryName(path)?
-                .Split(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
-                .Any(dir => dir == canvasDirLower) ?? false;
+            if (string.IsNullOrEmpty(path))
+                return false;
+
+            int directoryEnd = path.AsSpan().LastIndexOfAny(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            if (directoryEnd < 0)
+                return false;
+
+            ReadOnlySpan<char> directoryPath = path.AsSpan(0, directoryEnd);
+            while (!directoryPath.IsEmpty)
+            {
+                int separator = directoryPath.IndexOfAny(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+                ReadOnlySpan<char> segment = separator < 0 ? directoryPath : directoryPath[..separator];
+                if (segment.Equals(CANVAS_DIRECTORY_NAME, StringComparison.OrdinalIgnoreCase))
+                    return true;
+                if (separator < 0)
+                    break;
+                directoryPath = directoryPath[(separator + 1)..];
+            }
+            return false;
         }
 
         /// <summary>
@@ -1027,9 +1043,9 @@ namespace MapleLib {
         /// <param name="filePathOrBaseFileName"></param>
         /// <returns></returns>
         public static string NormaliseWzCanvasDirectory(string filePathOrBaseFileName) {
-            // Step 1: Extract the part before "_Canvas"
-            string beforeCanvasPath = Regex.Match(filePathOrBaseFileName, string.Format(@"^.*?(?=)/{0}", CANVAS_DIRECTORY_NAME)).Value.ToLower();
-            return beforeCanvasPath; // "map/_canvas"
+            string canvasMarker = "/" + CANVAS_DIRECTORY_NAME;
+            int markerIndex = filePathOrBaseFileName.IndexOf(canvasMarker, StringComparison.OrdinalIgnoreCase);
+            return markerIndex < 0 ? string.Empty : filePathOrBaseFileName[..markerIndex].ToLowerInvariant();
         }
 
         /// <summary>
@@ -1038,12 +1054,7 @@ namespace MapleLib {
         /// <param name="name"></param>
         /// <returns></returns>
         public WzMainDirectory GetMainDirectoryByName(string name) {
-            name = name.ToLower();
-
-            if (name.EndsWith(".wz"))
-                name = name.Replace(".wz", "");
-
-            return _wzDirs[name];
+            return _wzDirs[GetWzKey(name)];
         }
 
         /// <summary>
@@ -1074,28 +1085,35 @@ namespace MapleLib {
         /// <returns></returns>
         public List<WzDirectory> GetWzDirectoriesFromBase(string baseName, bool isCanvas = false) {
             List<string> wzDirs = GetWzFileNameListFromBase(baseName); // {[character\pants\_canvas, Count = 1]}
-            // Use Select() and Where() to transform the WzDirectory list
+            var results = new List<WzDirectory>(wzDirs.Count);
             if (_bIsPreBBDataWzFormat) {
-                return wzDirs
-                    .Select(name => this["data"][baseName] as WzDirectory)
-                    .Where(dir => dir != null)
-                    .ToList();
+                WzDirectory dataDirectory = this["data"];
+                foreach (string _ in wzDirs)
+                {
+                    if (dataDirectory?[baseName] is WzDirectory directory)
+                        results.Add(directory);
+                }
             }
             else {
                 if (isCanvas)
                 {
                     string canvasDir = baseName.Replace(@"\", @"/") + @"/";
-                    return wzDirs
-                        .Select(name => this[canvasDir + name])
-                        .Where(dir => dir != null)
-                        .ToList();
+                    foreach (string name in wzDirs)
+                    {
+                        WzDirectory directory = this[canvasDir + name];
+                        if (directory != null)
+                            results.Add(directory);
+                    }
                 } else {
-                    return wzDirs
-                        .Select(name => this[name])
-                        .Where(dir => dir != null)
-                        .ToList();
+                    foreach (string name in wzDirs)
+                    {
+                        WzDirectory directory = this[name];
+                        if (directory != null)
+                            results.Add(directory);
+                    }
                 }
             }
+            return results;
         }
 
         /// <summary>
@@ -1105,23 +1123,17 @@ namespace MapleLib {
         /// <param name="imageName">Matches any if string.empty.</param>
         /// <returns></returns>
         public WzObject FindWzImageByName(string baseWzName, string imageName) {
-            baseWzName = baseWzName.ToLower();
-
             List<WzDirectory> dirs = GetWzDirectoriesFromBase(baseWzName);
-            WzObject image;
             if (imageName != string.Empty) {
-                image = dirs
-                        .Where(wzFile => wzFile != null && wzFile[imageName] != null)
-                        .Select(wzFile => wzFile[imageName])
-                        .FirstOrDefault();
+                foreach (WzDirectory directory in dirs)
+                {
+                    WzObject image = directory?[imageName];
+                    if (image != null)
+                        return image;
+                }
+                return null;
             }
-            else {
-                image = dirs
-                        .Where(wzFile => wzFile != null)
-                        .FirstOrDefault();
-            }
-
-            return image;
+            return dirs.FirstOrDefault(directory => directory != null);
         }
 
         /// <summary>
@@ -1131,15 +1143,15 @@ namespace MapleLib {
         /// <param name="imageName">Matches any if string.empty.</param>
         /// <returns></returns>
         public List<WzObject> FindWzImagesByName(string baseWzName, string imageName) {
-            baseWzName = baseWzName.ToLower();
             var results = new List<WzObject>();
 
             List<WzDirectory> dirs = GetWzDirectoriesFromBase(baseWzName);
-            results.AddRange(
-                dirs
-                .Where(wzFile => wzFile != null && wzFile[imageName] != null)
-                .Select(wzFile => wzFile[imageName])
-            );
+            foreach (WzDirectory directory in dirs)
+            {
+                WzObject image = directory?[imageName];
+                if (image != null)
+                    results.Add(image);
+            }
             return results;
         }
         #endregion
@@ -1180,6 +1192,11 @@ namespace MapleLib {
 
             }
             throw new Exception(string.Format("Canvas directory at '{0}' does not exist.", filePathOrBaseFileName));
+        }
+
+        private static string GetWzKey(string name)
+        {
+            return name.EndsWith(".wz", StringComparison.OrdinalIgnoreCase) ? name[..^3] : name;
         }
     }
 }

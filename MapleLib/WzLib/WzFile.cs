@@ -106,16 +106,16 @@ namespace MapleLib.WzLib
         {
             _isUnloaded = true; // flag first
 
-            if (wzDir == null || wzDir.reader == null)
-                return;
-
-            wzDir.reader.Close();
-            wzDir.reader = null;
+            if (wzDir?.reader != null)
+            {
+                wzDir.reader.Close();
+                wzDir.reader = null;
+            }
             Header = null;
             path = null;
             name = null;
             _pathCache.Clear();
-            WzDirectory.Dispose();
+            wzDir?.Dispose();
         }
 
         private bool _isUnloaded = false;
@@ -383,7 +383,7 @@ namespace MapleLib.WzLib
                                     directory.ParseDirectory(lazyParse);
                                     this.wzDir = testDirectory;
 
-                                    Console.WriteLine("[WzFile] Accepted version {0} (hash={1}) for {2}, checkByte=0x{3:X2}",
+                                    Debug.WriteLine("[WzFile] Accepted version {0} (hash={1}) for {2}, checkByte=0x{3:X2}",
                                         mapleStoryPatchVersion, versionHash, Name, checkByte);
                                     return true;
                                 }
@@ -576,9 +576,9 @@ namespace MapleLib.WzLib
             Debug.WriteLine(string.Format("bSaveAs64BitWz: {0}", bSaveAs64BitWz));
             Debug.WriteLine("----------------------------------------");
 
+            string tempFile = Path.GetFileNameWithoutExtension(path) + ".TEMP";
             try
             {
-                string tempFile = Path.GetFileNameWithoutExtension(path) + ".TEMP";
                 File.Create(tempFile).Close();
                 using (FileStream fs = new FileStream(tempFile, FileMode.Append, FileAccess.Write))
                 {
@@ -617,15 +617,13 @@ namespace MapleLib.WzLib
                     {
                         wzDir.SaveImages(wzWriter, fs);
                     }
-                    File.Delete(tempFile);
-
                     wzWriter.StringCache.Clear();
                 }
             }
             finally
             {
-                GC.Collect();
-                GC.WaitForPendingFinalizers();
+                if (File.Exists(tempFile))
+                    File.Delete(tempFile);
             }
         }
 
@@ -659,7 +657,7 @@ namespace MapleLib.WzLib
         /// <returns>An array of IWzObjects containing the found objects</returns>
         public List<WzObject> GetObjectsFromWildcardPath(string path)
         {
-            if (path.ToLower() == name.ToLower())
+            if (string.Equals(path, name, StringComparison.OrdinalIgnoreCase))
                 return new List<WzObject> { WzDirectory };
             else if (path == "*")
             {
@@ -674,65 +672,70 @@ namespace MapleLib.WzLib
             if (seperatedNames.Length == 2 && seperatedNames[1] == "*")
                 return GetObjectsFromDirectory(WzDirectory);
 
-            // Use Linq to flatten the sequence of paths returned by the GetPathsFromImage and GetPathsFromDirectory methods
-            // and filter the paths that match the given wildcard pattern
-            var objList = WzDirectory.WzImages.SelectMany(img => GetPathsFromImage(img, name + "/" + img.Name))
-                .Concat(wzDir.WzDirectories.SelectMany(dir => GetPathsFromDirectory(dir, name + "/" + dir.Name)))
-                .Where(spath => StringMatch(path, spath)) // filter the paths that match the pattern
-                .Select(spath => GetObjectFromPath(spath)) // convert the filtered paths into WzObjects
-                .ToList();
-
-            GC.Collect();
-            GC.WaitForPendingFinalizers();
+            var objList = new List<WzObject>();
+            foreach (WzImage image in WzDirectory.WzImages)
+            {
+                foreach (string objectPath in GetPathsFromImage(image, name + "/" + image.Name))
+                {
+                    if (StringMatch(path, objectPath))
+                        objList.Add(GetObjectFromPath(objectPath));
+                }
+            }
+            foreach (WzDirectory directory in wzDir.WzDirectories)
+            {
+                foreach (string objectPath in GetPathsFromDirectory(directory, name + "/" + directory.Name))
+                {
+                    if (StringMatch(path, objectPath))
+                        objList.Add(GetObjectFromPath(objectPath));
+                }
+            }
             return objList;
         }
 
         public List<WzObject> GetObjectsFromRegexPath(string path)
         {
-            if (path.ToLower() == name.ToLower())
+            if (string.Equals(path, name, StringComparison.OrdinalIgnoreCase))
                 return new List<WzObject> { WzDirectory };
 
-            // Use Linq to flatten the sequence of paths returned by the GetPathsFromImage and GetPathsFromDirectory methods
-            // and filter the paths that match the given regular expression
-            var objList = WzDirectory.WzImages.SelectMany(img => GetPathsFromImage(img, name + "/" + img.Name))
-                .Concat(wzDir.WzDirectories.SelectMany(dir => GetPathsFromDirectory(dir, name + "/" + dir.Name)))
-                .Where(spath => Regex.Match(spath, path).Success)
-                .Select(spath => GetObjectFromPath(spath)) // convert the filtered paths into WzObjects
-                .ToList();
-
-            GC.Collect();
-            GC.WaitForPendingFinalizers();
+            Regex regex = new Regex(path);
+            var objList = new List<WzObject>();
+            foreach (WzImage image in WzDirectory.WzImages)
+            {
+                foreach (string objectPath in GetPathsFromImage(image, name + "/" + image.Name))
+                {
+                    if (regex.IsMatch(objectPath))
+                        objList.Add(GetObjectFromPath(objectPath));
+                }
+            }
+            foreach (WzDirectory directory in wzDir.WzDirectories)
+            {
+                foreach (string objectPath in GetPathsFromDirectory(directory, name + "/" + directory.Name))
+                {
+                    if (regex.IsMatch(objectPath))
+                        objList.Add(GetObjectFromPath(objectPath));
+                }
+            }
             return objList;
         }
 
         public List<WzObject> GetObjectsFromDirectory(WzDirectory dir)
         {
-            // Create a list to store the objects
             List<WzObject> objList = new List<WzObject>();
-
-            // Get the objects from the WzImages in the directory
-            // and add them to the list
-            objList.AddRange(dir.WzImages.SelectMany(img => GetObjectsFromImage(img)));
-
-            // Get the objects from the WzDirectories in the directory
-            // and add them to the list
-            objList.AddRange(dir.WzDirectories.SelectMany(subdir => GetObjectsFromDirectory(subdir)));
-
-            // Return the list of objects
+            foreach (WzImage image in dir.WzImages)
+                objList.AddRange(GetObjectsFromImage(image));
+            foreach (WzDirectory subDirectory in dir.WzDirectories)
+                objList.AddRange(GetObjectsFromDirectory(subDirectory));
             return objList;
         }
 
         public List<WzObject> GetObjectsFromImage(WzImage img)
         {
-            // Use Linq to flatten the sequence of WzObjects returned by the GetObjectsFromProperty method
-            // and convert the results into a List<WzObject>
-            var objList = img.WzProperties.SelectMany(prop =>
+            var objList = new List<WzObject>();
+            foreach (WzImageProperty property in img.WzProperties)
             {
-                var objects = new List<WzObject> { prop }; // initialize the list with the current property
-                objects.AddRange(GetObjectsFromProperty(prop)); // add the objects from the property
-                return objects; // return the list of objects
-            }).ToList();
-
+                objList.Add(property);
+                objList.AddRange(GetObjectsFromProperty(property));
+            }
             return objList;
         }
 
@@ -762,42 +765,44 @@ namespace MapleLib.WzLib
             }
 
             if (bAddRange)
-                objList.AddRange(subProperties.SelectMany(p => GetObjectsFromProperty(p)));
+            {
+                foreach (WzImageProperty subProperty in subProperties)
+                {
+                    objList.AddRange(GetObjectsFromProperty(subProperty));
+                }
+            }
 
             return objList;
         }
 
         internal List<string> GetPathsFromDirectory(WzDirectory dir, string curPath)
         {
-            // Use Linq to flatten the sequence of paths returned by the GetPathsFromImage and GetPathsFromDirectory methods
-            // and convert the results into a List<string>
-            var objList = dir.WzImages.SelectMany(img =>
+            var objList = new List<string>();
+            foreach (WzImage image in dir.WzImages)
             {
-                var paths = new List<string> { curPath + "/" + img.Name }; // initialize the list with the current path
-                paths.AddRange(GetPathsFromImage(img, curPath + "/" + img.Name)); // add the paths from the image
-                return paths; // return the list of paths
-            }).Concat(dir.WzDirectories.SelectMany(subdir =>
+                string imagePath = curPath + "/" + image.Name;
+                objList.Add(imagePath);
+                objList.AddRange(GetPathsFromImage(image, imagePath));
+            }
+            foreach (WzDirectory subDirectory in dir.WzDirectories)
             {
-                var paths = new List<string> { curPath + "/" + subdir.Name }; // initialize the list with the current path
-                paths.AddRange(GetPathsFromDirectory(subdir, curPath + "/" + subdir.Name)); // add the paths from the subdirectory
-                return paths; // return the list of paths
-            })).ToList();
-
+                string directoryPath = curPath + "/" + subDirectory.Name;
+                objList.Add(directoryPath);
+                objList.AddRange(GetPathsFromDirectory(subDirectory, directoryPath));
+            }
             return objList;
         }
 
 
         internal List<string> GetPathsFromImage(WzImage img, string curPath)
         {
-            // Use Linq to flatten the sequence of paths returned by the GetPathsFromProperty method
-            // and convert the results into a List<string>
-            var objList = img.WzProperties.SelectMany(prop =>
+            var objList = new List<string>();
+            foreach (WzImageProperty property in img.WzProperties)
             {
-                var paths = new List<string> { curPath + "/" + prop.Name }; // initialize the list with the current path
-                paths.AddRange(GetPathsFromProperty(prop, curPath + "/" + prop.Name)); // add the paths from the property
-                return paths; // return the list of paths
-            }).ToList();
-
+                string propertyPath = curPath + "/" + property.Name;
+                objList.Add(propertyPath);
+                objList.AddRange(GetPathsFromProperty(property, propertyPath));
+            }
             return objList;
         }
 
@@ -827,7 +832,13 @@ namespace MapleLib.WzLib
             }
 
             if (bAddRange)
-                objList.AddRange(subProperties.SelectMany(p => GetPathsFromProperty(p, curPath + "/" + p.Name)));
+            {
+                foreach (WzImageProperty subProperty in subProperties)
+                {
+                    string propertyPath = curPath + "/" + subProperty.Name;
+                    objList.AddRange(GetPathsFromProperty(subProperty, propertyPath));
+                }
+            }
 
             return objList;
         }
@@ -1011,9 +1022,13 @@ namespace MapleLib.WzLib
         /// <returns></returns>
         public static WzObject GetObjectFromMultipleWzFilePath(string path, IReadOnlyCollection<WzFile> wzFiles)
         {
-            // Use Select() and FirstOrDefault() to transform and find the first matching WzObject
-            return wzFiles.Select(file => file.GetObjectFromPath(path, false))
-                          .FirstOrDefault(obj => obj != null);
+            foreach (WzFile file in wzFiles)
+            {
+                WzObject result = file.GetObjectFromPath(path, false);
+                if (result != null)
+                    return result;
+            }
+            return null;
         }
 
 

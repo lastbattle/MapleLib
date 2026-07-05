@@ -223,8 +223,12 @@ namespace MapleLib.WzLib
                     if (!parsed) 
                         ParseImage();
                 
-                // Find the first WzImageProperty with a matching name (case-insensitive)
-                return properties.FirstOrDefault(iwp => iwp.Name.ToLower() == name.ToLower());
+                foreach (WzImageProperty property in properties)
+                {
+                    if (string.Equals(property.Name, name, StringComparison.OrdinalIgnoreCase))
+                        return property;
+                }
+                return null;
             }
             set
             {
@@ -243,32 +247,41 @@ namespace MapleLib.WzLib
 		/// </summary>
 		/// <param name="path">path to object</param>
 		/// <returns>the selected WzImageProperty</returns>
-		public WzImageProperty GetFromPath(string path)
+        public WzImageProperty GetFromPath(string path)
         {
             if (reader != null) if (!parsed) ParseImage();
 
             if (string.IsNullOrWhiteSpace(path))
                 return null;
 
-            string[] segments = path.Split(new char[1] { '/' }, System.StringSplitOptions.RemoveEmptyEntries);
-
-            if (segments.Length == 0)
-                return null;
-
-            // If the first segment is "..", return null
-            if (segments[0] == "..")
-                return null;
-
             WzImageProperty ret = null;
-
-            foreach (string segment in segments)
+            WzPropertyCollection currentProperties = properties;
+            ReadOnlySpan<char> remainingPath = path.AsSpan();
+            bool isFirstSegment = true;
+            while (!remainingPath.IsEmpty)
             {
-                // Check if the current property has a child with the matching name
-                ret = (ret == null ? this.properties : ret.WzProperties)
-                    .FirstOrDefault(iwp => iwp.Name == segment);
+                int separatorIndex = remainingPath.IndexOf('/');
+                ReadOnlySpan<char> segment = separatorIndex < 0 ? remainingPath : remainingPath[..separatorIndex];
+                remainingPath = separatorIndex < 0 ? default : remainingPath[(separatorIndex + 1)..];
+                if (segment.IsEmpty)
+                    continue;
+                if (isFirstSegment && segment.SequenceEqual(".."))
+                    return null;
+                isFirstSegment = false;
 
-                // If no matching child was found, return null
+                ret = null;
+                foreach (WzImageProperty property in currentProperties)
+                {
+                    if (property.Name.AsSpan().SequenceEqual(segment))
+                    {
+                        ret = property;
+                        break;
+                    }
+                }
                 if (ret == null)
+                    return null;
+                currentProperties = ret.WzProperties;
+                if (currentProperties == null && !remainingPath.IsEmpty)
                     return null;
             }
 
@@ -396,11 +409,7 @@ namespace MapleLib.WzLib
                             if (IsLuaWzImage)
                             {
                                 WzLuaProperty lua = WzImageProperty.ParseLuaProperty(offset, reader, this, this);
-                                List<WzImageProperty> luaImage = new List<WzImageProperty>
-                                {
-                                    lua
-                                };
-                                properties.AddRange(luaImage);
+                                properties.Add(lua);
                                 parsed = true; // test
                                 return true;
                             }

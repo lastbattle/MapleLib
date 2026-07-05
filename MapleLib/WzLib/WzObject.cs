@@ -38,28 +38,14 @@ namespace MapleLib.WzLib
         {
             get
             {
-                WzObject wzObject = this;
-                
-                if (wzObject is WzFile)
+                return this switch
                 {
-                    return ((WzFile)this)[name];
-                } 
-                else if (wzObject is WzDirectory)
-                {
-                    return ((WzDirectory)this)[name];
-                }
-                else if (wzObject is WzImage)
-                {
-                    return ((WzImage)this)[name];
-                }
-                else if (wzObject is WzImageProperty)
-                {
-                    return ((WzImageProperty)this)[name];
-                }
-                else
-                {
-                    throw new NotImplementedException();
-                }
+                    WzFile file => file[name],
+                    WzDirectory directory => directory[name],
+                    WzImage image => image[name],
+                    WzImageProperty property => property[name],
+                    _ => throw new NotImplementedException()
+                };
             }
         }
 
@@ -92,7 +78,7 @@ namespace MapleLib.WzLib
 
             while (parent.Parent != null) {
                 parent = parent.Parent;
-                if (parent.GetType() == typeof(WzImage))
+                if (parent is WzImage)
                     return parent;
             }
             return parent;
@@ -104,15 +90,41 @@ namespace MapleLib.WzLib
             {
                 if (this is WzFile file) 
                     return file.WzDirectory.Name;
-                
-                string result = this.Name;
-                WzObject currObj = this;
-                while (currObj.Parent != null)
+
+                WzObject parent = Parent;
+                if (parent == null)
+                    return Name;
+                WzObject grandParent = parent.Parent;
+                if (grandParent == null)
+                    return $"{parent.Name}\\{Name}";
+                WzObject greatGrandParent = grandParent.Parent;
+                if (greatGrandParent == null)
+                    return $"{grandParent.Name}\\{parent.Name}\\{Name}";
+                if (greatGrandParent.Parent == null)
+                    return $"{greatGrandParent.Name}\\{grandParent.Name}\\{parent.Name}\\{Name}";
+
+                int length = Name?.Length ?? 0;
+                WzObject current = this;
+                while (current.Parent != null)
                 {
-                    currObj = currObj.Parent;
-                    result = currObj.Name + @"\" + result;
+                    current = current.Parent;
+                    length += 1 + (current.Name?.Length ?? 0);
                 }
-                return result;
+
+                Span<char> destination = length <= 512 ? stackalloc char[length] : new char[length];
+                int writeAt = destination.Length;
+                current = this;
+                while (true)
+                {
+                    string currentName = current.Name ?? string.Empty;
+                    writeAt -= currentName.Length;
+                    currentName.AsSpan().CopyTo(destination.Slice(writeAt));
+                    current = current.Parent;
+                    if (current == null)
+                        break;
+                    destination[--writeAt] = '\\';
+                }
+                return new string(destination);
             }
         }
 

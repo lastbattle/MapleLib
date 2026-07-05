@@ -7,6 +7,7 @@ using MapleLib.PacketLib;
 using MapleLib.WzLib.WzStructure.Enums;
 using MapleLib.WzLib.WzProperties;
 using System.Linq;
+using System.Buffers;
 
 namespace MapleLib.WzLib
 {
@@ -54,12 +55,18 @@ namespace MapleLib.WzLib
         {
             name = null;
             reader = null;
-            foreach (WzImage img in images)
-                img.Dispose();
-            foreach (WzDirectory dir in subDirs)
-                dir.Dispose();
-            images.Clear();
-            subDirs.Clear();
+            if (images != null)
+            {
+                foreach (WzImage img in images)
+                    img.Dispose();
+                images.Clear();
+            }
+            if (subDirs != null)
+            {
+                foreach (WzDirectory dir in subDirs)
+                    dir.Dispose();
+                subDirs.Clear();
+            }
             images = null;
             subDirs = null;
         }
@@ -95,13 +102,11 @@ namespace MapleLib.WzLib
         {
             get
             {
-                string nameLower = name.ToLower();
-
                 foreach (WzImage i in images)
-                    if (i.Name.ToLower() == nameLower)
+                    if (string.Equals(i.Name, name, StringComparison.OrdinalIgnoreCase))
                         return i;
                 foreach (WzDirectory d in subDirs)
-                    if (d.Name.ToLower() == nameLower)
+                    if (string.Equals(d.Name, name, StringComparison.OrdinalIgnoreCase))
                         return d;
 
                 //throw new KeyNotFoundException("No wz image or directory was found with the specified name");
@@ -286,25 +291,36 @@ namespace MapleLib.WzLib
                 if (img.Changed)
                 {
                     fs.Position = img.tempFileStart;
-
-                    //byte[] buffer = new byte[size];
-                    //fs.Read(buffer, 0, size);
-                    byte[] buffer = new byte[img.size];
-                    fs.Read(buffer, 0, img.size);
-
-                    wzWriter.Write(buffer);
+                    CopyBytes(fs, wzWriter, img.size);
                 }
                 else
                 {
-                    //reader.BaseStream.Position = img.tempFileStart;
-                    //wzWriter.Write(reader.ReadBytes((int)(img.tempFileEnd - img.tempFileStart)));
                     img.reader.BaseStream.Position = img.tempFileStart;
-                    wzWriter.Write(img.reader.ReadBytes((int)(img.tempFileEnd - img.tempFileStart)));
+                    CopyBytes(img.reader.BaseStream, wzWriter, img.tempFileEnd - img.tempFileStart);
                 }
             }
             foreach (WzDirectory dir in subDirs)
             {
                 dir.SaveImages(wzWriter, fs);
+            }
+        }
+
+        private static void CopyBytes(Stream source, BinaryWriter destination, long byteCount)
+        {
+            byte[] buffer = ArrayPool<byte>.Shared.Rent((int)Math.Min(81920, byteCount));
+            try
+            {
+                while (byteCount > 0)
+                {
+                    int bytesToRead = (int)Math.Min(buffer.Length, byteCount);
+                    source.ReadExactly(buffer, 0, bytesToRead);
+                    destination.Write(buffer, 0, bytesToRead);
+                    byteCount -= bytesToRead;
+                }
+            }
+            finally
+            {
+                ArrayPool<byte>.Shared.Return(buffer);
             }
         }
 
@@ -342,10 +358,11 @@ namespace MapleLib.WzLib
                         {
                             img.SaveImage(imgWriter, bIsWzUserKeyDefault, useCustomIv);
 
-                            img.CalculateAndSetImageChecksum(memStream.ToArray()); // checksum
+                            byte[] imageBytes = memStream.ToArray();
+                            img.CalculateAndSetImageChecksum(imageBytes); // checksum
 
                             img.tempFileStart = prevOpenedStream.Position;
-                            prevOpenedStream.Write(memStream.ToArray(), 0, (int)memStream.Length);
+                            prevOpenedStream.Write(imageBytes, 0, imageBytes.Length);
                             img.tempFileEnd = prevOpenedStream.Position;
                         }
                     }
@@ -368,13 +385,6 @@ namespace MapleLib.WzLib
                 offsetSize += WzTool.GetCompressedIntLength(imgLen);
                 offsetSize += WzTool.GetCompressedIntLength(img.Checksum);
                 offsetSize += 4;
-
-                // otherwise Item.wz (300MB) probably uses > 4GB
-                if (useCustomIv || !bIsWzUserKeyDefault) // when using custom IV, or changing IVs, all images have to be re-read and re-written..
-                {
-                    GC.Collect(); // GC slows down writing of maps in HaCreator
-                    GC.WaitForPendingFinalizers();
-                }
 
                 //Debug.WriteLine("Writing image :" + img.FullPath);
             }
@@ -555,8 +565,12 @@ namespace MapleLib.WzLib
         /// <returns>The wz image that has the specified name or null if none was found</returns>
         public virtual WzImage GetImageByName(string name)
         {
-            // Find the first WzImage with a matching name (case-insensitive)
-            return images.FirstOrDefault(wzI => wzI.Name.ToLower() == name.ToLower());
+            foreach (WzImage image in images)
+            {
+                if (string.Equals(image.Name, name, StringComparison.OrdinalIgnoreCase))
+                    return image;
+            }
+            return null;
         }
 
         /// <summary>
@@ -566,8 +580,12 @@ namespace MapleLib.WzLib
         /// <returns>The wz directory that has the specified name or null if none was found</returns>
         public virtual WzDirectory GetDirectoryByName(string name)
         {
-            // Find the first WzDirectory with a matching name (case-insensitive)
-            return subDirs.FirstOrDefault(dir => dir.Name.ToLower() == name.ToLower());
+            foreach (WzDirectory directory in subDirs)
+            {
+                if (string.Equals(directory.Name, name, StringComparison.OrdinalIgnoreCase))
+                    return directory;
+            }
+            return null;
         }
 
         /// <summary>
@@ -592,12 +610,12 @@ namespace MapleLib.WzLib
         public WzDirectory DeepClone()
         {
             WzDirectory result = (WzDirectory)MemberwiseClone();
-            result.WzDirectories.Clear();
-            result.WzImages.Clear();
+            result.subDirs = new List<WzDirectory>(subDirs.Count);
+            result.images = new List<WzImage>(images.Count);
             foreach (WzDirectory dir in WzDirectories)
-                result.WzDirectories.Add(dir.DeepClone());
+                result.AddDirectory(dir.DeepClone());
             foreach (WzImage img in WzImages)
-                result.WzImages.Add(img.DeepClone());
+                result.AddImage(img.DeepClone());
             return result;
         }
 

@@ -35,7 +35,7 @@ namespace MapleLib.WzLib
         /// <summary>
         /// All loaded WZ files for the current category, used for cross-file outlink resolution
         /// </summary>
-        private List<WzFile> _categoryWzFiles = new List<WzFile>();
+        private readonly List<WzFile> _categoryWzFiles = new List<WzFile>();
 
         /// <summary>
         /// Category name (e.g., "Mob", "Npc") for path matching
@@ -45,7 +45,7 @@ namespace MapleLib.WzLib
         /// <summary>
         /// Temporary storage for all canvas images with matching name during resolution
         /// </summary>
-        private List<WzImage> _currentCanvasImages = new List<WzImage>();
+        private readonly List<WzImage> _currentCanvasImages = new List<WzImage>();
         #endregion
 
         #region Public Methods
@@ -57,7 +57,9 @@ namespace MapleLib.WzLib
         /// <param name="categoryName">Category name (e.g., "Mob")</param>
         public void SetCategoryWzFiles(IEnumerable<WzFile> wzFiles, string categoryName)
         {
-            _categoryWzFiles = wzFiles?.ToList() ?? new List<WzFile>();
+            _categoryWzFiles.Clear();
+            if (wzFiles != null)
+                _categoryWzFiles.AddRange(wzFiles);
             _categoryName = categoryName;
         }
 
@@ -123,9 +125,10 @@ namespace MapleLib.WzLib
             int resolvedCount = 0;
 
             // Recursively process all properties
+            string imagePath = image.FullPath ?? image.Name;
             foreach (WzImageProperty prop in image.WzProperties)
             {
-                resolvedCount += ResolveLinksInProperty(prop, image.FullPath ?? image.Name);
+                resolvedCount += ResolveLinksInProperty(prop, imagePath);
             }
 
             if (resolvedCount > 0)
@@ -181,15 +184,6 @@ namespace MapleLib.WzLib
                 destCanvas.RemoveProperty(WzCanvasProperty.OutlinkPropertyName);
             }
             return true;
-        }
-
-        private static bool CanvasHasImageData(WzImageProperty property)
-        {
-            if (property is not WzCanvasProperty canvas || canvas.PngProperty == null)
-                return false;
-
-            byte[] compressedBytes = canvas.PngProperty.GetCompressedBytesForExtraction(false);
-            return compressedBytes != null && compressedBytes.Length > 0;
         }
 
         /// <summary>
@@ -403,7 +397,7 @@ namespace MapleLib.WzLib
 
                     // Collect ALL matching images from ALL _Canvas WZ files
                     // The same image name might exist in multiple _Canvas_xxx.wz files with different frame content
-                    var canvasImages = new List<WzImage>();
+                    _currentCanvasImages.Clear();
 
                     foreach (var wzFile in _categoryWzFiles)
                     {
@@ -421,7 +415,7 @@ namespace MapleLib.WzLib
                             // Search at root level
                             var img = FindImageInDirectory(wzFile.WzDirectory, imageName, null);
                             if (img != null)
-                                canvasImages.Add(img);
+                                _currentCanvasImages.Add(img);
 
                             // Also search subdirectories
                             if (wzFile.WzDirectory.WzDirectories != null)
@@ -431,17 +425,14 @@ namespace MapleLib.WzLib
                                     if (subDir == null) continue;
                                     img = FindImageInDirectory(subDir, imageName, null);
                                     if (img != null)
-                                        canvasImages.Add(img);
+                                        _currentCanvasImages.Add(img);
                                 }
                             }
                         }
                     }
 
                     // Use first found image for now (will search all in property resolution)
-                    targetImage = canvasImages.FirstOrDefault();
-
-                    // Store all canvas images for later search
-                    _currentCanvasImages = canvasImages;
+                    targetImage = _currentCanvasImages.Count > 0 ? _currentCanvasImages[0] : null;
                 }
                 else
                 {
@@ -470,9 +461,18 @@ namespace MapleLib.WzLib
                 // Navigate to the property within the image
                 // For _Canvas paths, search ALL canvas images with matching name (frames may be split across files)
                 WzImageProperty targetProperty = null;
-                var imagesToSearch = isCanvasPath && _currentCanvasImages.Count > 0
-                    ? _currentCanvasImages
-                    : (targetImage != null ? new List<WzImage> { targetImage } : new List<WzImage>());
+                if (!isCanvasPath)
+                {
+                    _currentCanvasImages.Clear();
+                    _currentCanvasImages.Add(targetImage);
+                }
+                List<WzImage> imagesToSearch = _currentCanvasImages;
+
+                if (string.IsNullOrEmpty(propertyPath))
+                {
+                    Debug.WriteLine($"[WzLinkResolver] Outlink has no property path, only image: {imageName}");
+                    return false;
+                }
 
                 foreach (var searchImage in imagesToSearch)
                 {
@@ -642,37 +642,19 @@ namespace MapleLib.WzLib
                         } // end isCanvasPath strategies
                     } // end if propertyPath
 
-                    // If found, break out of image search loop
-                    if (CanvasHasImageData(targetProperty))
-                        break;
+                    if (targetProperty is WzCanvasProperty targetCanvas &&
+                        CopyCanvasData(canvas, targetCanvas, false, true))
+                    {
+                        return true;
+                    }
 
                     // An image name can occur in several segmented _Canvas WZ files. Keep
                     // searching when this shard only contains an empty canvas placeholder.
                     targetProperty = null;
                 } // end foreach searchImage
 
-                if (string.IsNullOrEmpty(propertyPath))
-                {
-                    // No property path - the outlink points to the image itself, which is unusual
-                    Debug.WriteLine($"[WzLinkResolver] Outlink has no property path, only image: {imageName}");
-                    return false;
-                }
-
-                if (targetProperty == null)
-                {
-                    Debug.WriteLine($"[WzLinkResolver] Could not find property path '{propertyPath}' in image '{imageName}' (searched {imagesToSearch.Count} _Canvas images)");
-                    return false;
-                }
-
-                // Must be a canvas property
-                if (!(targetProperty is WzCanvasProperty targetCanvas))
-                {
-                    Debug.WriteLine($"[WzLinkResolver] Target property is not a canvas: {targetProperty.PropertyType}");
-                    return false;
-                }
-
-                // Copy the data
-                return CopyCanvasData(canvas, targetCanvas, false, true);
+                Debug.WriteLine($"[WzLinkResolver] Could not find property path '{propertyPath}' in image '{imageName}' (searched {imagesToSearch.Count} _Canvas images)");
+                return false;
             }
             catch (Exception ex)
             {

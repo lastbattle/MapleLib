@@ -124,6 +124,7 @@ namespace MapleLib.WzLib
         {
             int entryCount = reader.ReadCompressedInt();
             WzPropertyCollection properties = new WzPropertyCollection(parent);
+            properties.Capacity = entryCount;
             for (int i = 0; i < entryCount; i++)
             {
                 string name = reader.ReadStringBlock(offset);
