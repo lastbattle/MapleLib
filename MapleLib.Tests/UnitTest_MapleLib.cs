@@ -19,6 +19,16 @@ namespace UnitTest_WzFile {
     [TestClass]
     [SupportedOSPlatform("windows")]
     public class UnitTest_MapleLib {
+        private static readonly IReadOnlyDictionary<string, SurfaceFormat> ExpectedImageFormats =
+            new Dictionary<string, SurfaceFormat>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["bgra32_effect.aran.wakeup2.0.7.png"] = SurfaceFormat.Bgra32,
+                ["bgra4444_icon.png"] = SurfaceFormat.Bgra4444,
+                ["bgra4444_potionicon.png"] = SurfaceFormat.Bgra4444,
+                ["dxt3_back.blackheaven.98.png"] = SurfaceFormat.Dxt5,
+                ["dxt3_shieldLoop.2.png"] = SurfaceFormat.Dxt5,
+                ["dxt5_11.png"] = SurfaceFormat.Dxt5,
+            };
 
 
         public UnitTest_MapleLib() {
@@ -48,7 +58,8 @@ namespace UnitTest_WzFile {
         /// </summary>
         [TestMethod]
         public void TestImageSurfaceFormatDetection() {
-            string[] imageFiles = Directory.GetFiles("Assets/Images", "*.*", SearchOption.TopDirectoryOnly)
+            string imageDirectory = Path.Combine(AppContext.BaseDirectory, "Assets", "Images");
+            string[] imageFiles = Directory.GetFiles(imageDirectory, "*.*", SearchOption.TopDirectoryOnly)
             .Where(file => new[] { ".png", ".jpg", ".bmp" }.Contains(Path.GetExtension(file).ToLower()))
             .ToArray();
 
@@ -99,25 +110,12 @@ namespace UnitTest_WzFile {
         }
 
         private SurfaceFormat GetExpectedFormat(string imagePath) {
-            // This is a placeholder. You should replace this with actual logic to determine
-            // the expected format based on the image file name or properties.
-            string fileName = Path.GetFileNameWithoutExtension(imagePath).ToLower();
-            if (fileName.StartsWith("dxt5")) {
-                return SurfaceFormat.Dxt5;
+            string fileName = Path.GetFileName(imagePath);
+            if (ExpectedImageFormats.TryGetValue(fileName, out SurfaceFormat expectedFormat)) {
+                return expectedFormat;
             }
-            else if (fileName.StartsWith("dxt3")) {
-                return SurfaceFormat.Dxt3;
-            }
-            else if (fileName.StartsWith("bgra32") || fileName.StartsWith("bga32")) {
-                return SurfaceFormat.Bgra32;
-            }
-            else if (fileName.StartsWith("bgr565")) {
-                return SurfaceFormat.Bgr565;
-            } 
-            else if (fileName.StartsWith("bgra4444")) 
-                return SurfaceFormat.Bgra4444;
 
-            // Default case
+            Assert.Fail($"No expected surface format configured for image fixture '{fileName}'.");
             return SurfaceFormat.Color;
         }
 

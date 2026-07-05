@@ -59,16 +59,14 @@ namespace UnitTest_WzFile
         [SupportedOSPlatform("windows7.0")] // Fix for CA1416: Specify platform support
         public void FromCode_NullCode_ThrowsArgumentNullException()
         {
-            // expected ArgumentException
-            PortalTypeExtensions.FromCode(null);
+            Assert.Throws<ArgumentNullException>(() => PortalTypeExtensions.FromCode(null!));
         }
 
         [TestMethod]
         [SupportedOSPlatform("windows7.0")] // Fix for CA1416: Specify platform support
         public void FromCode_InvalidCode_ThrowsArgumentException()
         {
-            // expected ArgumentException
-            PortalTypeExtensions.FromCode("invalid");
+            Assert.Throws<ArgumentException>(() => PortalTypeExtensions.FromCode("invalid"));
         }
 
         [TestMethod]

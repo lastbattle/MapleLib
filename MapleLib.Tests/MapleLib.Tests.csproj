@@ -36,9 +36,9 @@
     <None Update="WzFiles\**\*.wz">
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
     </None>
-    <Content Update="Assets\Images\*.png">
+    <None Update="Assets\Images\*.png">
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
-    </Content>
+    </None>
   </ItemGroup>
 
 </Project>
