@@ -1,0 +1,44 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+    <UseWPF>true</UseWPF>
+    <UseWindowsForms>true</UseWindowsForms>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="coverlet.collector" Version="6.0.0" />
+    <PackageReference Include="Microsoft.ApplicationInsights" Version="2.23.0" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.0.1" />
+    <PackageReference Include="Microsoft.Testing.Extensions.Telemetry" Version="2.0.2" />
+    <PackageReference Include="Microsoft.Testing.Extensions.TrxReport.Abstractions" Version="2.0.2" />
+    <PackageReference Include="Microsoft.Testing.Extensions.VSTestBridge" Version="2.0.2" />
+    <PackageReference Include="Microsoft.Testing.Platform" Version="2.0.2" />
+    <PackageReference Include="Microsoft.Testing.Platform.MSBuild" Version="2.0.2" />
+    <PackageReference Include="Microsoft.TestPlatform.ObjectModel" Version="18.0.1" />
+    <PackageReference Include="Moq" Version="4.20.70" />
+    <PackageReference Include="MSTest.TestAdapter" Version="4.0.2" />
+    <PackageReference Include="MSTest.TestFramework" Version="4.0.2" />
+    <PackageReference Include="xunit" Version="2.6.2" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="2.5.4" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\MapleLib\MapleLib.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Update="WzFiles\**\*.wz">
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+    </None>
+    <Content Update="Assets\Images\*.png">
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+    </Content>
+  </ItemGroup>
+
+</Project>

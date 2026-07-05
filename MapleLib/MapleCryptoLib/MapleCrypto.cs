@@ -1,5 +1,5 @@
 using System;
-using System.Numerics;
+using System.Buffers.Binary;
 
 namespace MapleLib.MapleCryptoLib
 {
@@ -17,7 +17,7 @@ namespace MapleLib.MapleCryptoLib
 		/// <summary>
 		/// Version of MapleStory used in encryption
 		/// </summary>
-		private short _mapleVersion;
+		private readonly short _mapleVersion;
 
 		/// <summary>
 		/// (public) IV used in the packet encryption
@@ -108,12 +108,10 @@ namespace MapleLib.MapleCryptoLib
 			c >>= 0x1D;
 			d <<= 0x03;
 			c |= d;
-			start[0] = (byte)(c % 0x100);
-			c /= 0x100;
-			start[1] = (byte)(c % 0x100);
-			c /= 0x100;
-			start[2] = (byte)(c % 0x100);
-			start[3] = (byte)(c / 0x100);
+			start[0] = (byte)c;
+			start[1] = (byte)(c >> 8);
+			start[2] = (byte)(c >> 16);
+			start[3] = (byte)(c >> 24);
 
 			return start;
 		}
@@ -129,10 +127,10 @@ namespace MapleLib.MapleCryptoLib
 			int a = _IV[3] * 0x100 + _IV[2];
 			a ^= -(_mapleVersion + 1);
 			int b = a ^ size;
-			header[0] = (byte)(a % 0x100);
-			header[1] = (byte)((a - header[0]) / 0x100);
-			header[2] = (byte)(b ^ 0x100);
-			header[3] = (byte)((b - header[2]) / 0x100);
+			header[0] = (byte)a;
+			header[1] = (byte)(a >> 8);
+			header[2] = (byte)b;
+			header[3] = (byte)(b >> 8);
 			return header;
 		}
 
@@ -161,7 +159,7 @@ namespace MapleLib.MapleCryptoLib
 		/// <returns>The length of the packet</returns>
 		public static int GetPacketLength(int packetHeader)
 		{
-			return GetPacketLength(BitConverter.GetBytes(packetHeader));
+			return (packetHeader & 0xFFFF) ^ (int)((uint)packetHeader >> 16);
 		}
 
 		/// <summary>
@@ -175,7 +173,8 @@ namespace MapleLib.MapleCryptoLib
 			{
 				return -1;
 			}
-			return (packetHeader[0] + (packetHeader[1] << 8)) ^ (packetHeader[2] + (packetHeader[3] << 8));
+			return BinaryPrimitives.ReadUInt16LittleEndian(packetHeader) ^
+				BinaryPrimitives.ReadUInt16LittleEndian(packetHeader.AsSpan(2));
 
 		}
 
@@ -203,43 +202,22 @@ namespace MapleLib.MapleCryptoLib
 		public static byte[] MultiplyBytes(byte[] input, int count, int mult)
 		{
 			byte[] ret = new byte[count * mult];
-			for (int x = 0; x < ret.Length; x++)
+			if (ret.Length == 0)
 			{
-				ret[x] = input[x % count];
+				return ret;
+			}
+
+			ReadOnlySpan<byte> pattern = input.AsSpan(0, count);
+			for (int offset = 0; offset < ret.Length; offset += count)
+			{
+				pattern.CopyTo(ret.AsSpan(offset, count));
 			}
 			return ret;
 		}
 
         public static byte[] MultiplyBytes_SIMD(byte[] input, int count, int mult)
         {
-            byte[] ret = new byte[count * mult];
-            int simdWidth = Vector<byte>.Count;
-
-            // Process input in blocks of simdWidth elements
-            int blockCount = count / simdWidth;
-            for (int i = 0; i < blockCount; i++)
-            {
-                // Load simdWidth elements from input into a vector
-                Vector<byte> vec = new Vector<byte>(input, i * simdWidth);
-
-                // Replicate the vector mult times and store it in the output
-                for (int j = 0; j < mult; j++)
-                {
-                    vec.CopyTo(ret, (i * simdWidth * mult) + (j * simdWidth));
-                }
-            }
-
-            // Process any remaining elements
-            int remainder = count % simdWidth;
-            if (remainder > 0)
-            {
-                for (int x = 0; x < ret.Length; x++)
-                {
-                    ret[x] = input[x % count];
-                }
-            }
-
-            return ret;
+            return MultiplyBytes(input, count, mult);
         }
         #endregion
 

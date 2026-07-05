@@ -1,4 +1,5 @@
-using System.Linq;
+using System;
+using System.Threading;
 
 namespace MapleLib.MapleCryptoLib
 {
@@ -26,7 +27,8 @@ namespace MapleLib.MapleCryptoLib
 		/// <summary>
 		/// The default AES UserKey to be used by HaRepacker or HaCreator.
 		/// </summary>
-		public static byte[] UserKey_WzLib = MAPLESTORY_USERKEY_DEFAULT.ToArray();
+		public static byte[] UserKey_WzLib = (byte[])MAPLESTORY_USERKEY_DEFAULT.Clone();
+		private static byte[] _trimmedWzUserKey = GetTrimmedUserKey(ref UserKey_WzLib);
 
 
 		/// <summary>
@@ -35,7 +37,7 @@ namespace MapleLib.MapleCryptoLib
 		/// <returns></returns>
 		public static bool IsDefaultMapleStoryUserKey()
         {
-			return MAPLESTORY_USERKEY_DEFAULT.SequenceEqual(UserKey_WzLib);
+			return MAPLESTORY_USERKEY_DEFAULT.AsSpan().SequenceEqual(UserKey_WzLib);
 		}
 		#endregion
 
@@ -78,11 +80,32 @@ namespace MapleLib.MapleCryptoLib
 		public static byte[] GetTrimmedUserKey(ref byte[] UserKey)
 		{
 			byte[] key = new byte[32];
-			for (int i = 0; i < 128; i += 16)
-			{
-				key[i / 4] = UserKey[i]; // the userkey to use by WzLib.
-			}
+			key[0] = UserKey[0];
+			key[4] = UserKey[16];
+			key[8] = UserKey[32];
+			key[12] = UserKey[48];
+			key[16] = UserKey[64];
+			key[20] = UserKey[80];
+			key[24] = UserKey[96];
+			key[28] = UserKey[112];
 			return key;
+		}
+
+		internal static byte[] GetTrimmedWzUserKey()
+		{
+			byte[] userKey = UserKey_WzLib;
+			byte[] cached = Volatile.Read(ref _trimmedWzUserKey);
+			if (cached[0] == userKey[0] && cached[4] == userKey[16] &&
+				cached[8] == userKey[32] && cached[12] == userKey[48] &&
+				cached[16] == userKey[64] && cached[20] == userKey[80] &&
+				cached[24] == userKey[96] && cached[28] == userKey[112])
+			{
+				return cached;
+			}
+
+			byte[] refreshed = GetTrimmedUserKey(ref userKey);
+			Volatile.Write(ref _trimmedWzUserKey, refreshed);
+			return refreshed;
 		}
 	}
 }

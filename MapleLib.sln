@@ -7,6 +7,12 @@ Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "MapleLib", "MapleLib\MapleL
 EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "spine-csharp 2.1.25", "spine-runtimes-2.1.25\spine-csharp\spine-csharp 2.1.25.csproj", "{94144E22-2431-4A8F-AC04-DEC22F7EDD8F}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "MapleLib.Tests", "MapleLib.Tests\MapleLib.Tests.csproj", "{827E13FE-EE45-4861-A71F-60FE96B4A70D}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "benchmarks", "benchmarks", "{66320409-64EC-F7C5-3DEF-65E7510DAAD1}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "MapleCrypto.Benchmarks", "benchmarks\MapleCrypto.Benchmarks\MapleCrypto.Benchmarks.csproj", "{83365C5F-8AA3-4644-A107-7B6109450117}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -41,9 +47,36 @@ Global
 		{94144E22-2431-4A8F-AC04-DEC22F7EDD8F}.Release|x64.Build.0 = Release|Any CPU
 		{94144E22-2431-4A8F-AC04-DEC22F7EDD8F}.Release|x86.ActiveCfg = Release|Any CPU
 		{94144E22-2431-4A8F-AC04-DEC22F7EDD8F}.Release|x86.Build.0 = Release|Any CPU
+		{827E13FE-EE45-4861-A71F-60FE96B4A70D}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{827E13FE-EE45-4861-A71F-60FE96B4A70D}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{827E13FE-EE45-4861-A71F-60FE96B4A70D}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{827E13FE-EE45-4861-A71F-60FE96B4A70D}.Debug|x64.Build.0 = Debug|Any CPU
+		{827E13FE-EE45-4861-A71F-60FE96B4A70D}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{827E13FE-EE45-4861-A71F-60FE96B4A70D}.Debug|x86.Build.0 = Debug|Any CPU
+		{827E13FE-EE45-4861-A71F-60FE96B4A70D}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{827E13FE-EE45-4861-A71F-60FE96B4A70D}.Release|Any CPU.Build.0 = Release|Any CPU
+		{827E13FE-EE45-4861-A71F-60FE96B4A70D}.Release|x64.ActiveCfg = Release|Any CPU
+		{827E13FE-EE45-4861-A71F-60FE96B4A70D}.Release|x64.Build.0 = Release|Any CPU
+		{827E13FE-EE45-4861-A71F-60FE96B4A70D}.Release|x86.ActiveCfg = Release|Any CPU
+		{827E13FE-EE45-4861-A71F-60FE96B4A70D}.Release|x86.Build.0 = Release|Any CPU
+		{83365C5F-8AA3-4644-A107-7B6109450117}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{83365C5F-8AA3-4644-A107-7B6109450117}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{83365C5F-8AA3-4644-A107-7B6109450117}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{83365C5F-8AA3-4644-A107-7B6109450117}.Debug|x64.Build.0 = Debug|Any CPU
+		{83365C5F-8AA3-4644-A107-7B6109450117}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{83365C5F-8AA3-4644-A107-7B6109450117}.Debug|x86.Build.0 = Debug|Any CPU
+		{83365C5F-8AA3-4644-A107-7B6109450117}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{83365C5F-8AA3-4644-A107-7B6109450117}.Release|Any CPU.Build.0 = Release|Any CPU
+		{83365C5F-8AA3-4644-A107-7B6109450117}.Release|x64.ActiveCfg = Release|Any CPU
+		{83365C5F-8AA3-4644-A107-7B6109450117}.Release|x64.Build.0 = Release|Any CPU
+		{83365C5F-8AA3-4644-A107-7B6109450117}.Release|x86.ActiveCfg = Release|Any CPU
+		{83365C5F-8AA3-4644-A107-7B6109450117}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(NestedProjects) = preSolution
+		{83365C5F-8AA3-4644-A107-7B6109450117} = {66320409-64EC-F7C5-3DEF-65E7510DAAD1}
 	EndGlobalSection
 	GlobalSection(ExtensibilityGlobals) = postSolution
 		SolutionGuid = {22AD4825-0442-44AB-9664-EF87337834E1}
