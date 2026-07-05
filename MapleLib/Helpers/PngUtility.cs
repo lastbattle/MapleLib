@@ -24,8 +24,6 @@ namespace MapleLib.Helpers
     public class PngUtility
     {
         private static readonly ushort[] Bgra4444ExpandedBytes = BuildBgra4444ExpandedBytes();
-        private static readonly byte[] Quantize5 = BuildQuantizeTable(31);
-        private static readonly byte[] Quantize6 = BuildQuantizeTable(63);
 
         #region Common
         public static byte[] BitmapToByteArray(Bitmap bitmap)
@@ -50,16 +48,46 @@ namespace MapleLib.Helpers
             return table;
         }
 
-        private static byte[] BuildQuantizeTable(int maxValue)
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private static uint QuantizeTo5(uint value)
         {
-            byte[] table = new byte[256];
-            for (int i = 0; i < table.Length; i++)
-            {
-                table[i] = (byte)((i * maxValue) / 255);
-            }
-
-            return table;
+            uint scaled = value * 31 + 1;
+            return (scaled + (scaled >> 8)) >> 8;
         }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private static uint QuantizeTo6(uint value)
+        {
+            uint scaled = value * 63 + 1;
+            return (scaled + (scaled >> 8)) >> 8;
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private static Vector128<uint> QuantizeVector(Vector128<uint> value, Vector128<uint> multiplier, Vector128<uint> one)
+        {
+            Vector128<uint> scaled = Sse2.Add(Sse41.MultiplyLow(value.AsInt32(), multiplier.AsInt32()).AsUInt32(), one);
+            return Sse2.ShiftRightLogical(Sse2.Add(scaled, Sse2.ShiftRightLogical(scaled, 8)), 8);
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private static ushort PackBgra4444(uint pixel) => (ushort)(
+            ((pixel >> 4) & 0x000F) |
+            ((pixel >> 8) & 0x00F0) |
+            ((pixel >> 12) & 0x0F00) |
+            ((pixel >> 16) & 0xF000));
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private static ushort PackBgra5551(uint pixel) => (ushort)(
+            ((pixel >> 16) & 0x8000u) |
+            (QuantizeTo5((pixel >> 16) & 0xFF) << 10) |
+            (QuantizeTo5((pixel >> 8) & 0xFF) << 5) |
+            QuantizeTo5(pixel & 0xFF));
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private static ushort PackBgr565(uint pixel) => (ushort)(
+            (QuantizeTo5((pixel >> 16) & 0xFF) << 11) |
+            (QuantizeTo6((pixel >> 8) & 0xFF) << 5) |
+            QuantizeTo5(pixel & 0xFF));
         #endregion
 
         #region Decode
@@ -178,7 +206,6 @@ namespace MapleLib.Helpers
         /// <param name="height"></param>
         /// <param name="bmp"></param>
         /// <param name="bmpData"></param>
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static unsafe void DecompressImageDXT3(byte[] rawData, int width, int height, BitmapData bmpData)
         {
             if (width <= 0 || height <= 0)
@@ -193,7 +220,7 @@ namespace MapleLib.Helpers
             int stride = bmpData.Stride;
             byte* pDecoded = (byte*)bmpData.Scan0;
 
-            if (Sse2.IsSupported && Ssse3.IsSupported)
+            if (Sse2.IsSupported && Ssse3.IsSupported && (long)width * height >= 1024 * 1024)
             {
                 Parallel.For(0, blockCountY, () => (
                     new Color[4], new int[16], new byte[16]
@@ -333,10 +360,17 @@ namespace MapleLib.Helpers
                     byte b1 = rawData[sourceOffset++];
                     int startX = blockX * 16;
                     int startY = blockY * 16;
+                    ushort pixel = (ushort)(b0 | (b1 << 8));
 
                     for (int y = 0; y < 16; y++)
                     {
                         byte* destination = destinationBase + (startY + y) * bmpData.Stride + startX * 2;
+                        if (Avx2.IsSupported)
+                        {
+                            Avx.Store((ushort*)destination, Vector256.Create(pixel));
+                            continue;
+                        }
+
                         for (int x = 0; x < 16; x++)
                         {
                             destination[0] = b0;
@@ -356,7 +390,6 @@ namespace MapleLib.Helpers
         /// <param name="height"></param>
         /// <param name="bmp"></param>
         /// <param name="bmpData"></param>
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static unsafe void DecompressImageDXT5(byte[] rawData, int width, int height, BitmapData bmpData)
         {
             int blockCountX = (width + 3) / 4;  // Round up to cover partial blocks
@@ -373,7 +406,6 @@ namespace MapleLib.Helpers
 
             if (Sse2.IsSupported)
             {
-                byte* pRawData = (byte*)rawData.AsSpan().GetPinnableReference();
                 byte* pDecoded = (byte*)bmpData.Scan0;
 
                 // Parallelize across rows of blocks to leverage multiple CPU cores.
@@ -760,28 +792,44 @@ namespace MapleLib.Helpers
             try
             {
                 byte[] buf = new byte[bmp.Width * bmp.Height * 2];
-                int index = 0;
                 unsafe
                 {
                     byte* scan0 = (byte*)bmpData.Scan0;
-                    for (int y = 0; y < bmp.Height; y++)
+                    fixed (byte* output = buf)
                     {
-                        byte* row = scan0 + y * bmpData.Stride;
-                        for (int x = 0; x < bmp.Width; x++)
+                        Vector128<uint> maskB = Vector128.Create(0x0000000Fu);
+                        Vector128<uint> maskG = Vector128.Create(0x000000F0u);
+                        Vector128<uint> maskR = Vector128.Create(0x00000F00u);
+                        Vector128<uint> maskA = Vector128.Create(0x0000F000u);
+                        for (int y = 0; y < bmp.Height; y++)
                         {
-                            int pixel = *(int*)(row + x * 4);
-                            byte b = (byte)((pixel >> 0) & 0xFF);
-                            byte g = (byte)((pixel >> 8) & 0xFF);
-                            byte r = (byte)((pixel >> 16) & 0xFF);
-                            byte a = (byte)((pixel >> 24) & 0xFF);
-
-                            byte b4 = (byte)(b >> 4);
-                            byte g4 = (byte)(g >> 4);
-                            byte r4 = (byte)(r >> 4);
-                            byte a4 = (byte)(a >> 4);
-
-                            buf[index++] = (byte)((g4 << 4) | b4); // Low byte: B4|G4<<4
-                            buf[index++] = (byte)((a4 << 4) | r4); // High byte: R4|A4<<4
+                            byte* row = scan0 + y * bmpData.Stride;
+                            byte* destination = output + y * bmp.Width * 2;
+                            int x = 0;
+                            if (Sse41.IsSupported)
+                            {
+                                for (; x <= bmp.Width - 4; x += 4)
+                                {
+                                    Vector128<uint> pixels = Sse2.LoadVector128((uint*)(row + x * 4));
+                                    Vector128<uint> packed = Sse2.Or(
+                                        Sse2.Or(Sse2.And(Sse2.ShiftRightLogical(pixels, 4), maskB), Sse2.And(Sse2.ShiftRightLogical(pixels, 8), maskG)),
+                                        Sse2.Or(Sse2.And(Sse2.ShiftRightLogical(pixels, 12), maskR), Sse2.And(Sse2.ShiftRightLogical(pixels, 16), maskA)));
+                                    Vector128<ushort> packed16 = Sse41.PackUnsignedSaturate(packed.AsInt32(), Vector128<int>.Zero);
+                                    Sse2.StoreScalar((ulong*)(destination + x * 2), packed16.AsUInt64());
+                                }
+                            }
+                            for (; x <= bmp.Width - 4; x += 4)
+                            {
+                                uint* source = (uint*)(row + x * 4);
+                                ((ushort*)destination)[x] = PackBgra4444(source[0]);
+                                ((ushort*)destination)[x + 1] = PackBgra4444(source[1]);
+                                ((ushort*)destination)[x + 2] = PackBgra4444(source[2]);
+                                ((ushort*)destination)[x + 3] = PackBgra4444(source[3]);
+                            }
+                            for (; x < bmp.Width; x++)
+                            {
+                                ((ushort*)destination)[x] = PackBgra4444(*(uint*)(row + x * 4));
+                            }
                         }
                     }
                 }
@@ -827,29 +875,46 @@ namespace MapleLib.Helpers
             try
             {
                 byte[] buf = new byte[bmp.Width * bmp.Height * 2];
-                int index = 0;
                 unsafe
                 {
                     byte* scan0 = (byte*)bmpData.Scan0;
-                    for (int y = 0; y < bmp.Height; y++)
+                    fixed (byte* output = buf)
                     {
-                        byte* row = scan0 + y * bmpData.Stride;
-                        for (int x = 0; x < bmp.Width; x++)
+                        for (int y = 0; y < bmp.Height; y++)
                         {
-                            int pixel = *(int*)(row + x * 4);
-                            byte b = (byte)((pixel >> 0) & 0xFF);
-                            byte g = (byte)((pixel >> 8) & 0xFF);
-                            byte r = (byte)((pixel >> 16) & 0xFF);
-                            byte a = (byte)((pixel >> 24) & 0xFF);
-
-                            byte a1 = (byte)(a >= 128 ? 1 : 0); // 1-bit alpha
-                            byte r5 = Quantize5[r];
-                            byte g5 = Quantize5[g];
-                            byte b5 = Quantize5[b];
-
-                            ushort argb1555 = (ushort)((a1 << 15) | (r5 << 10) | (g5 << 5) | b5);
-                            buf[index++] = (byte)(argb1555 & 0xFF);
-                            buf[index++] = (byte)((argb1555 >> 8) & 0xFF);
+                            byte* row = scan0 + y * bmpData.Stride;
+                            ushort* destination = (ushort*)(output + y * bmp.Width * 2);
+                            int x = 0;
+                            if (Sse41.IsSupported)
+                            {
+                                Vector128<uint> multiplier5 = Vector128.Create(31u);
+                                Vector128<uint> one = Vector128.Create(1u);
+                                Vector128<uint> channelMask = Vector128.Create(0xFFu);
+                                Vector128<uint> alphaMask = Vector128.Create(0x8000u);
+                                for (; x <= bmp.Width - 4; x += 4)
+                                {
+                                    Vector128<uint> pixels = Sse2.LoadVector128((uint*)(row + x * 4));
+                                    Vector128<uint> blue = QuantizeVector(Sse2.And(pixels, channelMask), multiplier5, one);
+                                    Vector128<uint> green = Sse2.ShiftLeftLogical(QuantizeVector(Sse2.And(Sse2.ShiftRightLogical(pixels, 8), channelMask), multiplier5, one), 5);
+                                    Vector128<uint> red = Sse2.ShiftLeftLogical(QuantizeVector(Sse2.And(Sse2.ShiftRightLogical(pixels, 16), channelMask), multiplier5, one), 10);
+                                    Vector128<uint> alpha = Sse2.And(Sse2.ShiftRightLogical(pixels, 16), alphaMask);
+                                    Vector128<uint> packed = Sse2.Or(Sse2.Or(blue, green), Sse2.Or(red, alpha));
+                                    Vector128<ushort> packed16 = Sse41.PackUnsignedSaturate(packed.AsInt32(), Vector128<int>.Zero);
+                                    Sse2.StoreScalar((ulong*)(destination + x), packed16.AsUInt64());
+                                }
+                            }
+                            for (; x <= bmp.Width - 4; x += 4)
+                            {
+                                uint* source = (uint*)(row + x * 4);
+                                destination[x] = PackBgra5551(source[0]);
+                                destination[x + 1] = PackBgra5551(source[1]);
+                                destination[x + 2] = PackBgra5551(source[2]);
+                                destination[x + 3] = PackBgra5551(source[3]);
+                            }
+                            for (; x < bmp.Width; x++)
+                            {
+                                destination[x] = PackBgra5551(*(uint*)(row + x * 4));
+                            }
                         }
                     }
                 }
@@ -867,27 +932,45 @@ namespace MapleLib.Helpers
             try
             {
                 byte[] buf = new byte[bmp.Width * bmp.Height * 2];
-                int index = 0;
                 unsafe
                 {
                     byte* scan0 = (byte*)bmpData.Scan0;
-                    for (int y = 0; y < bmp.Height; y++)
+                    fixed (byte* output = buf)
                     {
-                        byte* row = scan0 + y * bmpData.Stride;
-                        for (int x = 0; x < bmp.Width; x++)
+                        for (int y = 0; y < bmp.Height; y++)
                         {
-                            int pixel = *(int*)(row + x * 4);
-                            byte b = (byte)((pixel >> 0) & 0xFF);
-                            byte g = (byte)((pixel >> 8) & 0xFF);
-                            byte r = (byte)((pixel >> 16) & 0xFF);
-
-                            byte r5 = Quantize5[r];
-                            byte g6 = Quantize6[g];
-                            byte b5 = Quantize5[b];
-
-                            ushort rgb565 = (ushort)((r5 << 11) | (g6 << 5) | b5);
-                            buf[index++] = (byte)(rgb565 & 0xFF);
-                            buf[index++] = (byte)((rgb565 >> 8) & 0xFF);
+                            byte* row = scan0 + y * bmpData.Stride;
+                            ushort* destination = (ushort*)(output + y * bmp.Width * 2);
+                            int x = 0;
+                            if (Sse41.IsSupported)
+                            {
+                                Vector128<uint> multiplier5 = Vector128.Create(31u);
+                                Vector128<uint> multiplier6 = Vector128.Create(63u);
+                                Vector128<uint> one = Vector128.Create(1u);
+                                Vector128<uint> channelMask = Vector128.Create(0xFFu);
+                                for (; x <= bmp.Width - 4; x += 4)
+                                {
+                                    Vector128<uint> pixels = Sse2.LoadVector128((uint*)(row + x * 4));
+                                    Vector128<uint> blue = QuantizeVector(Sse2.And(pixels, channelMask), multiplier5, one);
+                                    Vector128<uint> green = Sse2.ShiftLeftLogical(QuantizeVector(Sse2.And(Sse2.ShiftRightLogical(pixels, 8), channelMask), multiplier6, one), 5);
+                                    Vector128<uint> red = Sse2.ShiftLeftLogical(QuantizeVector(Sse2.And(Sse2.ShiftRightLogical(pixels, 16), channelMask), multiplier5, one), 11);
+                                    Vector128<uint> packed = Sse2.Or(blue, Sse2.Or(green, red));
+                                    Vector128<ushort> packed16 = Sse41.PackUnsignedSaturate(packed.AsInt32(), Vector128<int>.Zero);
+                                    Sse2.StoreScalar((ulong*)(destination + x), packed16.AsUInt64());
+                                }
+                            }
+                            for (; x <= bmp.Width - 4; x += 4)
+                            {
+                                uint* source = (uint*)(row + x * 4);
+                                destination[x] = PackBgr565(source[0]);
+                                destination[x + 1] = PackBgr565(source[1]);
+                                destination[x + 2] = PackBgr565(source[2]);
+                                destination[x + 3] = PackBgr565(source[3]);
+                            }
+                            for (; x < bmp.Width; x++)
+                            {
+                                destination[x] = PackBgr565(*(uint*)(row + x * 4));
+                            }
                         }
                     }
                 }
@@ -927,9 +1010,9 @@ namespace MapleLib.Helpers
                                 byte g = (byte)((pixel >> 8) & 0xFF);
                                 byte r = (byte)((pixel >> 16) & 0xFF);
 
-                                byte r5 = Quantize5[r];
-                                byte g6 = Quantize6[g];
-                                byte b5 = Quantize5[b];
+                                uint r5 = QuantizeTo5(r);
+                                uint g6 = QuantizeTo6(g);
+                                uint b5 = QuantizeTo5(b);
 
                                 ushort rgb565 = (ushort)((r5 << 11) | (g6 << 5) | b5);
                                 buf[index++] = (byte)(rgb565 & 0xFF);
@@ -988,11 +1071,7 @@ namespace MapleLib.Helpers
                                 {
                                     int x = bx * 4 + i;
                                     int pixel = *(int*)(row + x * 4);
-                                    byte b = (byte)(pixel & 0xFF);
-                                    byte g = (byte)((pixel >> 8) & 0xFF);
-                                    byte r = (byte)((pixel >> 16) & 0xFF);
-                                    byte a = (byte)((pixel >> 24) & 0xFF);
-                                    block[j * 4 + i] = Color.FromArgb(a, r, g, b);
+                                    block[j * 4 + i] = Color.FromArgb(pixel);
                                 }
                             }
 
@@ -1066,11 +1145,7 @@ namespace MapleLib.Helpers
                                 {
                                     int x = bx * 4 + i;
                                     int pixel = *(int*)(row + x * 4);
-                                    byte b = (byte)(pixel & 0xFF);
-                                    byte g = (byte)((pixel >> 8) & 0xFF);
-                                    byte r = (byte)((pixel >> 16) & 0xFF);
-                                    byte a = (byte)((pixel >> 24) & 0xFF);
-                                    block[j * 4 + i] = Color.FromArgb(a, r, g, b);
+                                    block[j * 4 + i] = Color.FromArgb(pixel);
                                 }
                             }
 
@@ -1147,9 +1222,9 @@ namespace MapleLib.Helpers
 
         private static ushort ColorToRGB565(byte r, byte g, byte b)
         {
-            byte r5 = Quantize5[r];
-            byte g6 = Quantize6[g];
-            byte b5 = Quantize5[b];
+            uint r5 = QuantizeTo5(r);
+            uint g6 = QuantizeTo6(g);
+            uint b5 = QuantizeTo5(b);
             return (ushort)((r5 << 11) | (g6 << 5) | b5);
         }
 
@@ -1162,10 +1237,10 @@ namespace MapleLib.Helpers
                 {
                     Color pixel = block[j * 4 + i];
                     int bestIndex = 0;
-                    double minDist = double.MaxValue;
+                    int minDist = int.MaxValue;
                     for (int k = 0; k < 4; k++)
                     {
-                        double dist = ColorDistance(pixel, colors[k]);
+                        int dist = ColorDistance(pixel, colors[k]);
                         if (dist < minDist)
                         {
                             minDist = dist;
@@ -1178,7 +1253,7 @@ namespace MapleLib.Helpers
             }
         }
 
-        private static double ColorDistance(Color c1, Color c2)
+        private static int ColorDistance(Color c1, Color c2)
         {
             int dr = c1.R - c2.R;
             int dg = c1.G - c2.G;
