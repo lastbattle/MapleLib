@@ -2,6 +2,7 @@ using MapleLib.WzLib;
 using MapleLib.WzLib.Util;
 using Microsoft.VisualBasic;
 using System;
+using System.Buffers;
 using System.Collections;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -94,10 +95,8 @@ namespace MapleLib.WzLib.MSFile
         /// </summary>
         /// <param name="fileNameWithSalt">The concatenated file name and salt.</param>
         /// <param name="isEntryKey">If true, uses the alternate derivation formula for entry encryption.</param>
-        /// <returns>A 16-byte key as byte[].</returns>
-        private byte[] DeriveSnowKey(ReadOnlySpan<char> fileNameWithSalt, bool isEntryKey = false)
+        private static void DeriveSnowKey(ReadOnlySpan<char> fileNameWithSalt, Span<byte> key, bool isEntryKey = false)
         {
-            Span<byte> key = stackalloc byte[WzMsConstants.SnowKeyLength];
             if (!isEntryKey)
             {
                 // Header key: char + index
@@ -114,7 +113,6 @@ namespace MapleLib.WzLib.MSFile
                     key[i] = (byte)(i + (i % 3 + 2) * fileNameWithSalt[fileNameWithSalt.Length - 1 - i % fileNameWithSalt.Length]);
                 }
             }
-            return key.ToArray();
         }
         #endregion
 
@@ -130,7 +128,8 @@ namespace MapleLib.WzLib.MSFile
             this.BaseStream.Position = 0;
             using var bReader = new BinaryReader(this.BaseStream, Encoding.ASCII, true);
 
-            int randByteCount = fileName.Sum(c => (int)c) % 312 + 30;
+            int fileNameCharSum = SumChars(fileName);
+            int randByteCount = fileNameCharSum % WzMsConstants.RandByteMod + WzMsConstants.RandByteOffset;
             byte[] randBytes = bReader.ReadBytes(randByteCount);
 
             int hashedSaltLen = bReader.ReadInt32();
@@ -144,7 +143,8 @@ namespace MapleLib.WzLib.MSFile
             string saltStr = new(saltChars);
 
             string fileNameWithSalt = fileName + saltStr;
-            byte[] snowCipherKey = DeriveSnowKey(fileNameWithSalt, false); // Replaces inline loop
+            Span<byte> snowCipherKey = stackalloc byte[WzMsConstants.SnowKeyLength];
+            DeriveSnowKey(fileNameWithSalt, snowCipherKey, false);
 
             long headerStartPos = this.BaseStream.Position;
             using var snowCipher = new Snow2CryptoTransform(snowCipherKey, null, false);
@@ -155,7 +155,7 @@ namespace MapleLib.WzLib.MSFile
                 //Debug.WriteLine($"Last 16 bytes: {BitConverter.ToString(last4)}");
 
                 var (entryCount, headerHash) = ReadAndValidateHeader(snowReader, hashedSaltLen, saltBytes, saltLen);
-                int padAmount = fileName.Sum(v => (int)v * 3) % WzMsConstants.HeaderPadMod + WzMsConstants.HeaderPadOffset;
+                int padAmount = (fileNameCharSum * 3) % WzMsConstants.HeaderPadMod + WzMsConstants.HeaderPadOffset;
                 long entryStartPos = headerStartPos + 9 + padAmount;
 
                 var header = new WzMsHeader(fullFileName, saltStr, fileNameWithSalt, headerHash, WzMsConstants.SupportedVersion, entryCount, headerStartPos, entryStartPos);
@@ -213,7 +213,8 @@ namespace MapleLib.WzLib.MSFile
                 this.Entries.Capacity = entryCount;
 
             string fileNameWithSalt = this.Header.FileNameWithSalt;
-            byte[] snowKey = DeriveSnowKey(fileNameWithSalt, true); // Replaces inline loop
+            Span<byte> snowKey = stackalloc byte[WzMsConstants.SnowKeyLength];
+            DeriveSnowKey(fileNameWithSalt, snowKey, true);
 
             using var snowCipher = new Snow2CryptoTransform(snowKey, null, false);
             this.BaseStream.Position = this.Header.EntryStartPosition;
@@ -223,7 +224,18 @@ namespace MapleLib.WzLib.MSFile
             for (int i = 0; i < entryCount; i++)
             {
                 int entryNameLen = snowReader.ReadInt32();
-                string entryName = new string(snowReader.ReadChars(entryNameLen)); // "Mob/0100000.img"
+                char[] entryNameBuffer = ArrayPool<char>.Shared.Rent(entryNameLen);
+                string entryName;
+                try
+                {
+                    ReadCharsExactly(snowReader, entryNameBuffer, entryNameLen);
+                    entryName = new string(entryNameBuffer, 0, entryNameLen); // "Mob/0100000.img"
+                }
+                finally
+                {
+                    ArrayPool<char>.Shared.Return(entryNameBuffer);
+                }
+
                 int checkSum = snowReader.ReadInt32();
                 int flags = snowReader.ReadInt32();
                 int startPos = snowReader.ReadInt32();
@@ -255,6 +267,42 @@ namespace MapleLib.WzLib.MSFile
         /// <returns>Aligned position.</returns>
         private static long AlignToPage(long pos) => (pos + WzMsConstants.PageAlignmentMask) & ~WzMsConstants.PageAlignmentMask;
 
+        private static int SumChars(ReadOnlySpan<char> chars)
+        {
+            int sum = 0;
+            for (int i = 0; i < chars.Length; i++)
+            {
+                sum += chars[i];
+            }
+
+            return sum;
+        }
+
+        private static int SumUInt16Bytes(ReadOnlySpan<byte> bytes)
+        {
+            int sum = 0;
+            ReadOnlySpan<ushort> values = MemoryMarshal.Cast<byte, ushort>(bytes);
+            for (int i = 0; i < values.Length; i++)
+            {
+                sum += values[i];
+            }
+
+            return sum;
+        }
+
+        private static void ReadCharsExactly(BinaryReader reader, char[] buffer, int count)
+        {
+            int offset = 0;
+            while (offset < count)
+            {
+                int read = reader.Read(buffer, offset, count - offset);
+                if (read == 0)
+                    throw new EndOfStreamException();
+
+                offset += read;
+            }
+        }
+
         /// <summary>
         /// Loads a .ms file and returns a WzFile containing all WzImages from this .ms file.
         /// </summary>
@@ -277,14 +325,8 @@ namespace MapleLib.WzLib.MSFile
 
             foreach (WzMsEntry entry in Entries)
             {
-                if (entry.Data == null)
-                {
-                    BaseStream.Position = entry.StartPos;
-                    var buffer = new byte[entry.Size];
-                    BaseStream.ReadExactly(buffer);
-                    entry.Data = buffer;
-                }
-                Stream decrypted = DecryptData(entry); // dont close this stream!
+                byte[] decryptedData = DecryptDataToArray(entry);
+                Stream decrypted = new MemoryStream(decryptedData, writable: false); // dont close this stream!
                 WzBinaryReader reader = new(decrypted, WzTool.GetIvByMapleVersion(mapleVersion));
 
                 int lastSlashIndex = entry.Name.LastIndexOf('/'); // Mob/0100000.img
@@ -388,7 +430,7 @@ namespace MapleLib.WzLib.MSFile
                 return this.BaseStream;
 
             // Encrypt data and update entry fields
-            var encryptedDatas = new List<byte[]>();
+            var encryptedDatas = new List<byte[]>(this.Entries.Count);
             long currentBlockIndex = 0;
             foreach (var entry in this.Entries)
             {
@@ -397,7 +439,7 @@ namespace MapleLib.WzLib.MSFile
 
                 byte[] encrypted = this.EncryptData(entry, entry.Data); // Encrypt each WzImage
                 int size = encrypted.Length;
-                int sizeAligned = ((size + 1023) / 1024) * 1024;
+                int sizeAligned = (size + WzMsConstants.PageAlignmentMask) & ~WzMsConstants.PageAlignmentMask;
                 entry.Size = size;
                 entry.SizeAligned = sizeAligned;
                 entry.StartPos = currentBlockIndex;
@@ -416,7 +458,8 @@ namespace MapleLib.WzLib.MSFile
             string fileName = Path.GetFileName(this.originalFileName).ToLower();
 
             Random rng = new();
-            int randByteCount = fileName.Sum(c => (int)c) % 312 + 30;
+            int fileNameCharSum = SumChars(fileName);
+            int randByteCount = fileNameCharSum % WzMsConstants.RandByteMod + WzMsConstants.RandByteOffset;
             byte[] randBytes = new byte[randByteCount];
             for (int i = 0; i < randByteCount; i++)
             {
@@ -424,7 +467,6 @@ namespace MapleLib.WzLib.MSFile
             }
 
             string saltStr = this.Header.Salt;
-            char[] saltChars = saltStr.ToCharArray();
             int saltLen = saltStr.Length;
             byte xorVal = randBytes[0];
             byte lowByte = (byte)(saltLen ^ xorVal);
@@ -433,16 +475,11 @@ namespace MapleLib.WzLib.MSFile
             byte[] saltBytes = new byte[saltLen * 2];
             for (int i = 0; i < saltLen; i++)
             {
-                saltBytes[i * 2] = (byte)(randBytes[i] ^ (byte)saltChars[i]);
+                saltBytes[i * 2] = (byte)(randBytes[i] ^ (byte)saltStr[i]);
                 saltBytes[i * 2 + 1] = 0;
             }
 
-            ReadOnlySpan<ushort> u16SaltBytes = MemoryMarshal.Cast<byte, ushort>(saltBytes);
-            int sumSalt = 0;
-            foreach (ushort u in u16SaltBytes)
-            {
-                sumSalt += u;
-            }
+            int sumSalt = SumUInt16Bytes(saltBytes);
 
             byte version = this.Header.Version;
             int entryCount = this.Entries.Count;
@@ -458,7 +495,8 @@ namespace MapleLib.WzLib.MSFile
             long headerStartPos = this.BaseStream.Position;
 
             // Header encryption key
-            byte[] snowKey = DeriveSnowKey(fileNameWithSalt, false); // Replaces inline loop
+            Span<byte> snowKey = stackalloc byte[WzMsConstants.SnowKeyLength];
+            DeriveSnowKey(fileNameWithSalt, snowKey, false);
 
             // Write encrypted header
             using (var snowCipher = new Snow2CryptoTransform(snowKey, null, true))
@@ -472,20 +510,21 @@ namespace MapleLib.WzLib.MSFile
                         snowWriter.Write((int)entryCount); // TODO: verify if its reading and writing back in the same format
 
                         snowWriter.Flush();
-                        snowEncoderStream.FlushFinalBlock();   // © explicitly force it
+                        snowEncoderStream.FlushFinalBlock();
                     }
                 }
             }
 
             // Padding after header
-            int padAmount = fileName.Select(v => (int)v * 3).Sum() % 212 + 33;
+            int padAmount = (fileNameCharSum * 3) % WzMsConstants.HeaderPadMod + WzMsConstants.HeaderPadOffset;
             byte[] padHeader = new byte[padAmount];
             rng.NextBytes(padHeader); // randomize the pad header
 
             bWriter.Write(padHeader);
 
             // Entries encryption key
-            byte[] snowCipherKey2 = DeriveSnowKey(fileNameWithSalt, true); // Replaces inline loop
+            Span<byte> snowCipherKey2 = stackalloc byte[WzMsConstants.SnowKeyLength];
+            DeriveSnowKey(fileNameWithSalt, snowCipherKey2, true);
 
             // Write encrypted entries
             using (var snowCipher2 = new Snow2CryptoTransform(snowCipherKey2, null, true))
@@ -562,27 +601,29 @@ namespace MapleLib.WzLib.MSFile
         /// Derives the per-entry image key from salt, name, and entry key.
         /// </summary>
         /// <returns>16-byte imgKey.</returns>
-        private byte[] DeriveImgKey(WzMsEntry entry)
+        private void DeriveImgKey(WzMsEntry entry, Span<byte> imgKey)
         {
             uint keyHash = WzMsConstants.InitialKeyHash;
             foreach (char c in Header.Salt)
             {
                 keyHash = (keyHash ^ c) * WzMsConstants.KeyHashMultiplier;
             }
-            ReadOnlySpan<byte> keyHashDigits = keyHash.ToString().Select(static c => (byte)(c - '0')).ToArray().AsSpan(); // Temp array, but minimal
 
-            Span<byte> imgKey = stackalloc byte[WzMsConstants.SnowKeyLength];
+            Span<char> keyHashChars = stackalloc char[10];
+            keyHash.TryFormat(keyHashChars, out int keyHashLength);
+
             ReadOnlySpan<char> entryNameSpan = entry.Name.AsSpan();
             ReadOnlySpan<byte> entryKeySpan = entry.EntryKey;
             for (int i = 0; i < imgKey.Length; i++)
             {
-                int digitIdx = i % keyHashDigits.Length;
-                int entryKeyIdx = (keyHashDigits[(i + 2) % keyHashDigits.Length] + i) % entryKeySpan.Length;
+                int digit = keyHashChars[i % keyHashLength] - '0';
+                int nextDigit = keyHashChars[(i + 1) % keyHashLength] - '0';
+                int entryKeyDigit = keyHashChars[(i + 2) % keyHashLength] - '0';
+                int entryKeyIdx = (entryKeyDigit + i) % entryKeySpan.Length;
                 imgKey[i] = (byte)(i + entryNameSpan[i % entryNameSpan.Length] * (
-                    (keyHashDigits[digitIdx] % 2) + entryKeySpan[entryKeyIdx] + ((keyHashDigits[(i + 1) % keyHashDigits.Length] + i) % 5)
+                    (digit % 2) + entryKeySpan[entryKeyIdx] + ((nextDigit + i) % 5)
                 ));
             }
-            return imgKey.ToArray();
         }
 
         /// <summary>
@@ -592,32 +633,38 @@ namespace MapleLib.WzLib.MSFile
         /// <returns>Decrypted data as a byte array.</returns>
         private Stream DecryptData(WzMsEntry entry)
         {
-            byte[] imgKey = DeriveImgKey(entry);
+            return new MemoryStream(DecryptDataToArray(entry), writable: false);
+        }
 
-            // Read
-            using var ps = new PartialStream(this.BaseStream, entry.StartPos, entry.SizeAligned, true);
-            var buffer = new byte[entry.Size];
-            Span<byte> span = buffer;
-            ps.Position = 0;
+        private byte[] DecryptDataToArray(WzMsEntry entry)
+        {
+            Span<byte> imgKey = stackalloc byte[WzMsConstants.SnowKeyLength];
+            DeriveImgKey(entry, imgKey);
 
-            var cs = new CryptoStream(ps, new Snow2CryptoTransform(imgKey, null, false), CryptoStreamMode.Read);
-
-            // decrypt initial 1024 bytes twice
+            byte[] buffer = new byte[entry.Size];
+            if (entry.Data != null)
             {
-                var cs2 = new CryptoStream(cs, new Snow2CryptoTransform(imgKey, null, false), CryptoStreamMode.Read);
-                int dataLen = Math.Min(span.Length, WzMsConstants.DoubleEncryptInitialBytes);
-                cs2.ReadExactly(span.Slice(0, dataLen));
-                span = span.Slice(dataLen);
+                Buffer.BlockCopy(entry.Data, 0, buffer, 0, entry.Size);
+            }
+            else
+            {
+                this.BaseStream.Position = entry.StartPos;
+                this.BaseStream.ReadExactly(buffer);
             }
 
-            // decrypt subsequent bytes
-            if (span.Length > 0)
+            using (var snowCipher = new Snow2CryptoTransform(imgKey, null, false))
             {
-                cs.ReadExactly(span);
+                snowCipher.TransformInPlace(buffer);
             }
 
-            var ms = new MemoryStream(buffer);
-            return ms;
+            int dataLen = Math.Min(buffer.Length, WzMsConstants.DoubleEncryptInitialBytes);
+            if (dataLen > 0)
+            {
+                using var snowCipher = new Snow2CryptoTransform(imgKey, null, false);
+                snowCipher.TransformInPlace(buffer.AsSpan(0, dataLen));
+            }
+
+            return buffer;
         }
 
         /// <summary>
@@ -628,25 +675,23 @@ namespace MapleLib.WzLib.MSFile
         /// <returns></returns>
         private byte[] EncryptData(WzMsEntry entry, byte[] plainData)
         {
-            byte[] imgKey = DeriveImgKey(entry);
+            Span<byte> imgKey = stackalloc byte[WzMsConstants.SnowKeyLength];
+            DeriveImgKey(entry, imgKey);
+            byte[] encrypted = plainData.ToArray();
 
-            var ms = new MemoryStream();
-            using var cs = new CryptoStream(ms, new Snow2CryptoTransform(imgKey, null, true), CryptoStreamMode.Write);
-
-            int dataLen = Math.Min(plainData.Length, WzMsConstants.DoubleEncryptInitialBytes);
-            using (var cs2 = new CryptoStream(cs, new Snow2CryptoTransform(imgKey, null, true), CryptoStreamMode.Write, true))
+            int dataLen = Math.Min(encrypted.Length, WzMsConstants.DoubleEncryptInitialBytes);
+            if (dataLen > 0)
             {
-                cs2.Write(plainData, 0, dataLen);
-                cs2.Flush();
+                using var snowCipher = new Snow2CryptoTransform(imgKey, null, true);
+                snowCipher.TransformInPlace(encrypted.AsSpan(0, dataLen));
             }
 
-            if (plainData.Length > WzMsConstants.DoubleEncryptInitialBytes)
+            using (var snowCipher = new Snow2CryptoTransform(imgKey, null, true))
             {
-                cs.Write(plainData, WzMsConstants.DoubleEncryptInitialBytes, plainData.Length - WzMsConstants.DoubleEncryptInitialBytes);
-                cs.Flush();
+                snowCipher.TransformInPlace(encrypted);
             }
 
-            return ms.ToArray();
+            return encrypted;
         }
         #endregion
 

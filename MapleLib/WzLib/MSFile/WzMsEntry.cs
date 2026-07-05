@@ -53,7 +53,7 @@ namespace MapleLib.WzLib.MSFile
             if (Data == null)
                 throw new InvalidOperationException("Data must be set before recalculation.");
             _size = Data.Length;
-            _sizeAligned = ((_size + (WzMsConstants.EntrySizeAligned - 1)) / WzMsConstants.EntrySizeAligned) * WzMsConstants.EntrySizeAligned;
+            _sizeAligned = (_size + WzMsConstants.PageAlignmentMask) & ~WzMsConstants.PageAlignmentMask;
             _flags = flags;
             this.StartPos = startPos;
             _unk1 = unk1;
@@ -63,7 +63,12 @@ namespace MapleLib.WzLib.MSFile
                 _entryKey = new byte[WzMsConstants.EntryKeySize];
                 rng.NextBytes(_entryKey);
             }
-            int keySum = _entryKey.Sum(b => (int)b);
+            int keySum = 0;
+            for (int i = 0; i < _entryKey.Length; i++)
+            {
+                keySum += _entryKey[i];
+            }
+
             CalculatedCheckSum = _flags + (int)this.StartPos + _size + _sizeAligned + _unk1 + keySum;
             _checkSum = CalculatedCheckSum;
         }

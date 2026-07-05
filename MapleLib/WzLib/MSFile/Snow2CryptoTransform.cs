@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Security.Cryptography;
+using System.Buffers;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 
@@ -22,7 +23,7 @@ namespace MapleLib.WzLib.MSFile
                 throw new ArgumentOutOfRangeException(nameof(iv), "Iv size must be 4 bytes.");
 
             this.encrypting = encrypting;
-            this.keyStream = new uint[16];
+            this.keyStream = ArrayPool<uint>.Shared.Rent(16);
             this.LoadKey(key, iv);
             this.RefreshKeyStream();
             this.curIndex = 0;
@@ -33,7 +34,7 @@ namespace MapleLib.WzLib.MSFile
         public bool CanTransformMultipleBlocks => true;
         public bool CanReuseTransform => false;
 
-        private bool encrypting;
+        private readonly bool encrypting;
         private uint s15, s14, s13, s12, s11, s10, s9, s8, s7, s6, s5, s4, s3, s2, s1, s0;
         private uint r1, r2;
         private uint[] keyStream;
@@ -55,10 +56,9 @@ namespace MapleLib.WzLib.MSFile
                 throw new ArgumentOutOfRangeException(nameof(outputBuffer));
 
             int totalProcessed = 0;
-            Span<byte> input = inputBuffer.AsSpan(inputOffset, inputCount);
+            ReadOnlySpan<byte> input = inputBuffer.AsSpan(inputOffset, inputCount);
             Span<byte> output = outputBuffer.AsSpan(outputOffset);
 
-            // 1. Fill buffer if we have leftovers from previous call
             if (_bufferedBytes > 0)
             {
                 int needed = 4 - _bufferedBytes;
@@ -71,29 +71,21 @@ namespace MapleLib.WzLib.MSFile
 
                 if (_bufferedBytes == 4)
                 {
-                    TransformOneWord(_buffer);
-                    _buffer.CopyTo(output);
+                    TransformOneWord(_buffer, output);
                     output = output.Slice(4);
                     _bufferedBytes = 0;
                 }
             }
 
-            // 2. Process full 4-byte blocks directly
-            int fullWords = input.Length / 4;
-            if (fullWords > 0)
+            int fullBytes = input.Length & ~3;
+            if (fullBytes > 0)
             {
-                Span<byte> blockSpan = input.Slice(0, fullWords * 4);
-                for (int i = 0; i < fullWords; i++)
-                {
-                    TransformOneWord(blockSpan.Slice(i * 4, 4));
-                }
-                blockSpan.CopyTo(output);
-                input = input.Slice(fullWords * 4);
-                output = output.Slice(fullWords * 4);
-                totalProcessed += fullWords * 4;
+                TransformWords(input.Slice(0, fullBytes), output.Slice(0, fullBytes));
+                input = input.Slice(fullBytes);
+                output = output.Slice(fullBytes);
+                totalProcessed += fullBytes;
             }
 
-            // 3. Buffer any remaining 1–3 bytes
             if (input.Length > 0)
             {
                 input.CopyTo(_buffer);
@@ -109,9 +101,8 @@ namespace MapleLib.WzLib.MSFile
             if (inputCount == 0 && _bufferedBytes == 0)
                 return Array.Empty<byte>();
 
-            // Total plaintext = buffered + new input
             int totalBytes = _bufferedBytes + inputCount;
-            var result = new byte[totalBytes];
+            byte[] result = new byte[totalBytes];
 
             int pos = 0;
             if (_bufferedBytes > 0)
@@ -124,25 +115,26 @@ namespace MapleLib.WzLib.MSFile
                 inputBuffer.AsSpan(inputOffset, inputCount).CopyTo(result.AsSpan(pos));
             }
 
-            // Encrypt the whole thing (pad last block with zeros)
-            int paddedLength = (totalBytes + 3) & ~3;
-            var temp = new byte[paddedLength];
-            result.CopyTo(temp, 0);
+            TransformInPlace(result);
+            _bufferedBytes = 0;
+            return result;
+        }
 
-            // Process full words
-            for (int i = 0; i < paddedLength; i += 4)
+        public void TransformInPlace(Span<byte> data)
+        {
+            int fullBytes = data.Length & ~3;
+            if (fullBytes > 0)
             {
-                TransformOneWord(temp.AsSpan(i, 4));
+                TransformWords(data.Slice(0, fullBytes), data.Slice(0, fullBytes));
             }
 
-            // Return only the real data (no padding bytes)
-            if (totalBytes == paddedLength)
-                return temp;
-            else
+            int remainingBytes = data.Length - fullBytes;
+            if (remainingBytes > 0)
             {
-                var final = new byte[totalBytes];
-                temp.AsSpan(0, totalBytes).CopyTo(final);
-                return final;
+                Span<byte> finalWord = stackalloc byte[4];
+                data.Slice(fullBytes).CopyTo(finalWord);
+                TransformOneWord(finalWord, finalWord);
+                finalWord.Slice(0, remainingBytes).CopyTo(data.Slice(fullBytes));
             }
         }
 
@@ -150,11 +142,6 @@ namespace MapleLib.WzLib.MSFile
         {
             this.Dispose(true);
             GC.SuppressFinalize(this);
-        }
-
-        ~Snow2CryptoTransform()
-        {
-            this.Dispose(false);
         }
 
         protected void Dispose(bool disposing)
@@ -181,20 +168,42 @@ namespace MapleLib.WzLib.MSFile
                     this.s0 = 0;
                     this.r1 = 0;
                     this.r2 = 0;
-                    Array.Clear(this.keyStream, 0, this.keyStream.Length);
+                    ArrayPool<uint>.Shared.Return(this.keyStream, clearArray: true);
                     this.keyStream = null;
                 }
             }
         }
 
-        /// <summary>
-        /// Helper: XOR exactly one 4-byte word (little-endian)
-        /// </summary>
-        /// <param name="data"></param>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private void TransformOneWord(Span<byte> data)
+        private void TransformWords(ReadOnlySpan<byte> input, Span<byte> output)
         {
-            uint plain = MemoryMarshal.Read<uint>(data);
+            ReadOnlySpan<uint> inputWords = MemoryMarshal.Cast<byte, uint>(input);
+            Span<uint> outputWords = MemoryMarshal.Cast<byte, uint>(output);
+
+            for (int i = 0; i < inputWords.Length; i++)
+            {
+                uint plain = inputWords[i];
+                uint keystream = keyStream[curIndex];
+
+                if (encrypting)
+                    plain += keystream;
+                else
+                    plain -= keystream;
+
+                outputWords[i] = plain;
+
+                if (++curIndex >= 16)
+                {
+                    RefreshKeyStream();
+                    curIndex = 0;
+                }
+            }
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private void TransformOneWord(ReadOnlySpan<byte> input, Span<byte> output)
+        {
+            uint plain = MemoryMarshal.Read<uint>(input);
             uint keystream = keyStream[curIndex];
 
             if (encrypting)
@@ -202,7 +211,7 @@ namespace MapleLib.WzLib.MSFile
             else
                 plain -= keystream;
 
-            MemoryMarshal.Write(data, ref plain);
+            MemoryMarshal.Write(output, in plain);
 
             if (++curIndex >= 16)
             {
