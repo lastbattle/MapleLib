@@ -62,6 +62,36 @@ namespace MapleLib.Helpers
             return output;
         }
 
+        public static unsafe void DecodeToBgra32(byte[] source, int width, int height, IntPtr destination, int stride)
+        {
+            int blockCountX = (width + 3) / 4;
+            int blockCountY = (height + 3) / 4;
+            int requiredLength = blockCountX * blockCountY * 16;
+            if (source.Length < requiredLength)
+                throw new ArgumentException("BC7 source data is shorter than the dimensions require.", nameof(source));
+
+            Span<byte> block = stackalloc byte[64];
+            int sourceOffset = 0;
+            byte* destinationBase = (byte*)destination;
+
+            for (int blockY = 0; blockY < blockCountY; blockY++)
+            {
+                for (int blockX = 0; blockX < blockCountX; blockX++)
+                {
+                    DecodeBlock(source.AsSpan(sourceOffset, 16), block);
+                    sourceOffset += 16;
+
+                    int copyWidth = Math.Min(4, width - blockX * 4);
+                    int copyHeight = Math.Min(4, height - blockY * 4);
+                    for (int y = 0; y < copyHeight; y++)
+                    {
+                        byte* destinationRow = destinationBase + (blockY * 4 + y) * stride + blockX * 16;
+                        block.Slice(y * 16, copyWidth * 4).CopyTo(new Span<byte>(destinationRow, copyWidth * 4));
+                    }
+                }
+            }
+        }
+
         private static void DecodeBlock(ReadOnlySpan<byte> source, Span<byte> output)
         {
             var bits = new BitStream(source);

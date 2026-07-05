@@ -59,12 +59,12 @@ namespace MapleLib.WzLib.WzProperties
             {
                 WzPngFormat.Format1 => width * height * 2,
                 WzPngFormat.Format2 => width * height * 4,
-                WzPngFormat.Format3 => width * height * 4,
+                WzPngFormat.Format3 => ((width + 3) / 4) * ((height + 3) / 4) * 16,
                 WzPngFormat.Format257 => width * height * 2,
                 WzPngFormat.Format513 => width * height * 2,
                 WzPngFormat.Format517 => width * height / 128,
-                WzPngFormat.Format1026 => width * height * 4,
-                WzPngFormat.Format2050 => width * height,
+                WzPngFormat.Format1026 => ((width + 3) / 4) * ((height + 3) / 4) * 16,
+                WzPngFormat.Format2050 => ((width + 3) / 4) * ((height + 3) / 4) * 16,
                 WzPngFormat.Format4098 => ((width + 3) / 4) * ((height + 3) / 4) * 16,
                 _ => width * height * 4
             };

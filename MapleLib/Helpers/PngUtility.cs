@@ -23,6 +23,10 @@ namespace MapleLib.Helpers
 {
     public class PngUtility
     {
+        private static readonly ushort[] Bgra4444ExpandedBytes = BuildBgra4444ExpandedBytes();
+        private static readonly byte[] Quantize5 = BuildQuantizeTable(31);
+        private static readonly byte[] Quantize6 = BuildQuantizeTable(63);
+
         #region Common
         public static byte[] BitmapToByteArray(Bitmap bitmap)
         {
@@ -31,6 +35,30 @@ namespace MapleLib.Helpers
                 bitmap.Save(ms, System.Drawing.Imaging.ImageFormat.Png);
                 return ms.ToArray();
             }
+        }
+
+        private static ushort[] BuildBgra4444ExpandedBytes()
+        {
+            ushort[] table = new ushort[256];
+            for (int i = 0; i < table.Length; i++)
+            {
+                int low = i & 0x0F;
+                int high = i >> 4;
+                table[i] = (ushort)((low | (low << 4)) | ((high | (high << 4)) << 8));
+            }
+
+            return table;
+        }
+
+        private static byte[] BuildQuantizeTable(int maxValue)
+        {
+            byte[] table = new byte[256];
+            for (int i = 0; i < table.Length; i++)
+            {
+                table[i] = (byte)((i * maxValue) / 255);
+            }
+
+            return table;
         }
         #endregion
 
@@ -48,6 +76,21 @@ namespace MapleLib.Helpers
                 throw new ArgumentException($"Raw data length ({rawData?.Length ?? 0}) is insufficient for the specified dimensions ({width}x{height}).");
 
             return Bc7Decoder.DecodeToBgra32(rawData, width, height);
+        }
+
+        /// <summary>
+        /// Decodes BC7 blocks directly into locked bitmap memory.
+        /// </summary>
+        public static void DecompressImageBC7(byte[] rawData, int width, int height, BitmapData bmpData)
+        {
+            if (width <= 0 || height <= 0)
+                throw new ArgumentException("Width and height must be positive.");
+
+            int expectedSize = ((width + 3) / 4) * ((height + 3) / 4) * 16;
+            if (rawData == null || rawData.Length < expectedSize)
+                throw new ArgumentException($"Raw data length ({rawData?.Length ?? 0}) is insufficient for the specified dimensions ({width}x{height}).");
+
+            Bc7Decoder.DecodeToBgra32(rawData, width, height, bmpData.Scan0, bmpData.Stride);
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -82,73 +125,49 @@ namespace MapleLib.Helpers
             if (rawData.Length < uncompressedSize)
                 throw new ArgumentException("Raw data length is insufficient for the specified dimensions.");
 
-            // Use Span for the decoded output, sized for 32bpp ARGB (4 bytes per pixel)
-            int outputSize = uncompressedSize * 2; // BGRA4444 expands 2 bytes to 4 bytes per pixel
-
-            Span<byte> decoded = outputSize <= MemoryLimits.STACKALLOC_SIZE_LIMIT_L1
-                    ? stackalloc byte[outputSize] // Try to use stackalloc for small images to avoid heap allocation
-                    : new byte[outputSize].AsSpan();  // Fallback to heap allocation for larger images
-
-            // Process raw data with SIMD if supported
-            if (Sse2.IsSupported)
+            byte* destinationBase = (byte*)bmpData.Scan0;
+            if (Sse2.IsSupported && bmpData.Stride == width * 4)
             {
                 int i = 0;
                 fixed (byte* pRawData = rawData)
                 {
-                    for (i = 0; i <= rawData.Length - 16; i += 16)
+                    for (i = 0; i <= uncompressedSize - 16; i += 16)
                     {
-                        // Load 16 bytes (8 pixels) into a 128-bit SIMD register
                         Vector128<byte> input = Sse2.LoadVector128(pRawData + i);
-
-                        // Extract low nibbles (B or R)
                         Vector128<byte> lo = Sse2.And(input, Vector128.Create((byte)0x0F));
-
-                        // Extract high nibbles (G or A), shifted to low position
                         Vector128<byte> hi = Sse2.And(Sse2.ShiftRightLogical(input.AsUInt32(), 4).AsByte(), Vector128.Create((byte)0x0F));
-
-                        // Expand to 8 bits: lo | (lo << 4), hi | (hi << 4)
                         Vector128<byte> b = Sse2.Or(Sse2.ShiftLeftLogical(lo.AsUInt32(), 4).AsByte(), lo);
                         Vector128<byte> g = Sse2.Or(Sse2.ShiftLeftLogical(hi.AsUInt32(), 4).AsByte(), hi);
+                        Vector128<byte> low = Sse2.UnpackLow(b, g);
+                        Vector128<byte> high = Sse2.UnpackHigh(b, g);
 
-                        // Interleave b and g to get b0, g0, b1, g1, ..., for 32 bytes output
-                        Vector128<byte> low = Sse2.UnpackLow(b, g);   // b0, g0, ..., b7, g7
-                        Vector128<byte> high = Sse2.UnpackHigh(b, g); // b8, g8, ..., b15, g15
-
-                        // Store directly into the decoded Span
-                        low.CopyTo(decoded.Slice(i * 2));
-                        high.CopyTo(decoded.Slice(i * 2 + 16));
+                        Sse2.Store(destinationBase + i * 2, low);
+                        Sse2.Store(destinationBase + i * 2 + 16, high);
                     }
                 }
 
-                // Handle remaining bytes scalarly
                 for (; i < uncompressedSize; i++)
                 {
-                    byte byteAtPosition = rawData[i];
-                    int lo = byteAtPosition & 0x0F;
-                    byte b = (byte)(lo | (lo << 4));
-                    decoded[i * 2] = b;
-                    int hi = byteAtPosition & 0xF0;
-                    byte g = (byte)(hi | (hi >> 4));
-                    decoded[i * 2 + 1] = g;
+                    ushort expanded = Bgra4444ExpandedBytes[rawData[i]];
+                    byte* destination = destinationBase + i * 2;
+                    destination[0] = (byte)expanded;
+                    destination[1] = (byte)(expanded >> 8);
                 }
-            }
-            else
-            {
-                // Scalar fallback for non-SSE2 systems
-                for (int i = 0; i < uncompressedSize; i++)
-                {
-                    byte byteAtPosition = rawData[i];
-                    int lo = byteAtPosition & 0x0F;
-                    byte b = (byte)(lo | (lo << 4));
-                    decoded[i * 2] = b;
-                    int hi = byteAtPosition & 0xF0;
-                    byte g = (byte)(hi | (hi >> 4));
-                    decoded[i * 2 + 1] = g;
-                }
+
+                return;
             }
 
-            // Copy decoded data directly to BitmapData using Span
-            decoded.CopyTo(new Span<byte>(bmpData.Scan0.ToPointer(), outputSize));
+            int sourceOffset = 0;
+            for (int y = 0; y < height; y++)
+            {
+                ushort* destination = (ushort*)(destinationBase + y * bmpData.Stride);
+                for (int x = 0; x < width; x++)
+                {
+                    destination[0] = Bgra4444ExpandedBytes[rawData[sourceOffset++]];
+                    destination[1] = Bgra4444ExpandedBytes[rawData[sourceOffset++]];
+                    destination += 2;
+                }
+            }
         }
 
         /// <summary>
@@ -162,37 +181,40 @@ namespace MapleLib.Helpers
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static unsafe void DecompressImageDXT3(byte[] rawData, int width, int height, BitmapData bmpData)
         {
+            if (width <= 0 || height <= 0)
+                throw new ArgumentException("Width and height must be positive.");
+
             int blockCountX = (width + 3) / 4;
             int blockCountY = (height + 3) / 4;
             int expectedSize = blockCountX * blockCountY * 16;
             if (rawData.Length < expectedSize)
                 throw new ArgumentException($"Raw data length ({rawData.Length}) is insufficient for the specified dimensions ({width}x{height}).");
 
+            int stride = bmpData.Stride;
+            byte* pDecoded = (byte*)bmpData.Scan0;
+
             if (Sse2.IsSupported && Ssse3.IsSupported)
             {
-                byte[] decoded = new byte[width * height * 4];
-
-                Parallel.For(0, height / 4, blockY =>
+                Parallel.For(0, blockCountY, () => (
+                    new Color[4], new int[16], new byte[16]
+                ), (blockY, _, buffers) =>
                 {
-                    // Each thread gets its own temporary arrays to avoid sharing
-                    Color[] colorTable = new Color[4];
-                    int[] colorIdxTable = new int[16];
-                    byte[] alphaTable = new byte[16];
+                    Color[] colorTable = buffers.Item1;
+                    int[] colorIdxTable = buffers.Item2;
+                    byte[] alphaTable = buffers.Item3;
 
-                    for (int blockX = 0; blockX < width / 4; blockX++)
+                    for (int blockX = 0; blockX < blockCountX; blockX++)
                     {
                         int x = blockX * 4;
                         int y = blockY * 4;
-                        int off = x * 4 + y * width;
+                        int off = (blockY * blockCountX + blockX) * 16;
 
-                        // Extract block data
                         ExpandAlphaTableDXT3(alphaTable, rawData, off);
                         ushort u0 = BitConverter.ToUInt16(rawData, off + 8);
                         ushort u1 = BitConverter.ToUInt16(rawData, off + 10);
                         ExpandColorTable(colorTable, u0, u1);
                         ExpandColorIndexTable(colorIdxTable, rawData, off + 12);
 
-                        // Precompute color components (first 4 bytes used)
                         Vector128<byte> bVec = Vector128.Create(colorTable[0].B, colorTable[1].B, colorTable[2].B, colorTable[3].B,
                                                                 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
                         Vector128<byte> gVec = Vector128.Create(colorTable[0].G, colorTable[1].G, colorTable[2].G, colorTable[3].G,
@@ -200,9 +222,11 @@ namespace MapleLib.Helpers
                         Vector128<byte> rVec = Vector128.Create(colorTable[0].R, colorTable[1].R, colorTable[2].R, colorTable[3].R,
                                                                 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
 
-                        // Process each row of the 4x4 block
                         for (int j = 0; j < 4; j++)
                         {
+                            int pixelY = y + j;
+                            if (pixelY >= height) continue;
+
                             int baseIdx = j * 4;
                             Vector128<byte> idxVec = Vector128.Create((byte)colorIdxTable[baseIdx], (byte)colorIdxTable[baseIdx + 1],
                                                                       (byte)colorIdxTable[baseIdx + 2], (byte)colorIdxTable[baseIdx + 3],
@@ -211,115 +235,117 @@ namespace MapleLib.Helpers
                                                                     alphaTable[baseIdx + 2], alphaTable[baseIdx + 3],
                                                                     0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
 
-                            // Select B, G, R using indices and prepare alpha
                             Vector128<byte> b = Ssse3.Shuffle(bVec, idxVec);
                             Vector128<byte> g = Ssse3.Shuffle(gVec, idxVec);
                             Vector128<byte> r = Ssse3.Shuffle(rVec, idxVec);
-                            Vector128<byte> a = aVec;
-
-                            // Interleave into BGRA format
                             Vector128<byte> br = Sse2.UnpackLow(b, r);
-                            Vector128<byte> ga = Sse2.UnpackLow(g, a);
+                            Vector128<byte> ga = Sse2.UnpackLow(g, aVec);
                             Vector128<byte> bgra = Sse2.UnpackLow(br, ga);
 
-                            // Debug: first pixel’s BGRA for verification
-                            /*if (x == 4 && y == 0 && j == 0)
+                            if (x + 4 <= width)
                             {
-                                byte[] bytes = new byte[16];  // Vector128 is 16 bytes
-                                bgra.CopyTo(bytes);
-                                Debug.WriteLine($"BGRA: [{bytes[0]}, {bytes[1]}, {bytes[2]}, {bytes[3]}]");
-                            }*/
+                                Sse2.Store(pDecoded + pixelY * stride + x * 4, bgra);
+                            }
+                            else
+                            {
+                                for (int i = 0; i < 4; i++)
+                                {
+                                    int pixelX = x + i;
+                                    if (pixelX >= width) continue;
 
-                            // Write 4 pixels to the decoded array
-                            int pos = (y + j) * width * 4 + x * 4;
-                            fixed (byte* ptr = decoded)
-                            {
-                                Sse2.Store(ptr + pos, bgra);
+                                    Color color = colorTable[colorIdxTable[baseIdx + i]];
+                                    int pixelOffset = pixelY * stride + pixelX * 4;
+                                    pDecoded[pixelOffset] = color.B;
+                                    pDecoded[pixelOffset + 1] = color.G;
+                                    pDecoded[pixelOffset + 2] = color.R;
+                                    pDecoded[pixelOffset + 3] = alphaTable[baseIdx + i];
+                                }
                             }
                         }
                     }
-                });
 
-                // Copy the final decompressed data to the bitmap
-                Marshal.Copy(decoded, 0, bmpData.Scan0, decoded.Length);
-
-
-            }
-            else
-            {
-
-                byte[] decoded = new byte[width * height * 4];
-
-                // Use thread-local buffers for parallel loop
-                Parallel.For(0, blockCountY, () => (
-                    new Color[4], new int[16], new byte[16]
-                ), (blockY, _, buffers) =>
-                {
-                    var colorTable = buffers.Item1;
-                    var colorIdxTable = buffers.Item2;
-                    var alphaTable = buffers.Item3;
-                    for (int blockX = 0; blockX < blockCountX; blockX++)
-                    {
-                        int x = blockX * 4;
-                        int y = blockY * 4;
-                        int blockIndex = blockY * blockCountX + blockX;
-                        int off = blockIndex * 16;
-                        ExpandAlphaTableDXT3(alphaTable, rawData, off);
-                        ushort u0 = BitConverter.ToUInt16(rawData, off + 8);
-                        ushort u1 = BitConverter.ToUInt16(rawData, off + 10);
-                        ExpandColorTable(colorTable, u0, u1);
-                        ExpandColorIndexTable(colorIdxTable, rawData, off + 12);
-                        for (int j = 0; j < 4; j++)
-                        {
-                            int pixelY = y + j;
-                            if (pixelY >= height) continue;
-                            for (int i = 0; i < 4; i++)
-                            {
-                                int pixelX = x + i;
-                                if (pixelX >= width) continue;
-                                Color color = colorTable[colorIdxTable[j * 4 + i]];
-                                byte alpha = alphaTable[j * 4 + i];
-                                SetPixel(decoded, pixelX, pixelY, width, color, alpha);
-                            }
-                        }
-                    }
                     return buffers;
                 }, _ => { });
-
-                Marshal.Copy(decoded, 0, bmpData.Scan0, decoded.Length);
+                return;
             }
+
+            Parallel.For(0, blockCountY, () => (
+                new Color[4], new int[16], new byte[16]
+            ), (blockY, _, buffers) =>
+            {
+                Color[] colorTable = buffers.Item1;
+                int[] colorIdxTable = buffers.Item2;
+                byte[] alphaTable = buffers.Item3;
+
+                for (int blockX = 0; blockX < blockCountX; blockX++)
+                {
+                    int x = blockX * 4;
+                    int y = blockY * 4;
+                    int blockIndex = blockY * blockCountX + blockX;
+                    int off = blockIndex * 16;
+
+                    ExpandAlphaTableDXT3(alphaTable, rawData, off);
+                    ushort u0 = BitConverter.ToUInt16(rawData, off + 8);
+                    ushort u1 = BitConverter.ToUInt16(rawData, off + 10);
+                    ExpandColorTable(colorTable, u0, u1);
+                    ExpandColorIndexTable(colorIdxTable, rawData, off + 12);
+
+                    for (int j = 0; j < 4; j++)
+                    {
+                        int pixelY = y + j;
+                        if (pixelY >= height) continue;
+                        for (int i = 0; i < 4; i++)
+                        {
+                            int pixelX = x + i;
+                            if (pixelX >= width) continue;
+
+                            Color color = colorTable[colorIdxTable[j * 4 + i]];
+                            int pixelOffset = pixelY * stride + pixelX * 4;
+                            pDecoded[pixelOffset] = color.B;
+                            pDecoded[pixelOffset + 1] = color.G;
+                            pDecoded[pixelOffset + 2] = color.R;
+                            pDecoded[pixelOffset + 3] = alphaTable[j * 4 + i];
+                        }
+                    }
+                }
+
+                return buffers;
+            }, _ => { });
         }
 
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static void DecompressImage_PixelDataForm517(byte[] rawData, int width, int height, Bitmap bmp, BitmapData bmpData)
+        public static unsafe void DecompressImage_PixelDataForm517(byte[] rawData, int width, int height, Bitmap bmp, BitmapData bmpData)
         {
-            byte[] decoded = new byte[width * height * 2];
+            int blockCountX = width / 16;
+            int blockCountY = height / 16;
+            int expectedSize = blockCountX * blockCountY * 2;
+            if (rawData.Length < expectedSize)
+                throw new ArgumentException($"Raw data length ({rawData.Length}) is insufficient for the specified dimensions ({width}x{height}).");
 
-            int lineIndex = 0;
-            for (int j0 = 0, j1 = height / 16; j0 < j1; j0++)
+            byte* destinationBase = (byte*)bmpData.Scan0;
+            int sourceOffset = 0;
+            for (int blockY = 0; blockY < blockCountY; blockY++)
             {
-                var dstIndex = lineIndex;
-                for (int i0 = 0, i1 = width / 16; i0 < i1; i0++)
+                for (int blockX = 0; blockX < blockCountX; blockX++)
                 {
-                    int idx = (i0 + j0 * i1) * 2;
-                    byte b0 = rawData[idx];
-                    byte b1 = rawData[idx + 1];
-                    for (int k = 0; k < 16; k++)
+                    byte b0 = rawData[sourceOffset++];
+                    byte b1 = rawData[sourceOffset++];
+                    int startX = blockX * 16;
+                    int startY = blockY * 16;
+
+                    for (int y = 0; y < 16; y++)
                     {
-                        decoded[dstIndex++] = b0;
-                        decoded[dstIndex++] = b1;
+                        byte* destination = destinationBase + (startY + y) * bmpData.Stride + startX * 2;
+                        for (int x = 0; x < 16; x++)
+                        {
+                            destination[0] = b0;
+                            destination[1] = b1;
+                            destination += 2;
+                        }
                     }
                 }
-                for (int k = 1; k < 16; k++)
-                {
-                    Array.Copy(decoded, lineIndex, decoded, dstIndex, width * 2);
-                    dstIndex += width * 2;
-                }
-
-                lineIndex += width * 32;
             }
-            Marshal.Copy(decoded, 0, bmpData.Scan0, decoded.Length);
         }
 
         /// <summary>
@@ -350,9 +376,17 @@ namespace MapleLib.Helpers
                 byte* pRawData = (byte*)rawData.AsSpan().GetPinnableReference();
                 byte* pDecoded = (byte*)bmpData.Scan0;
 
-                // Parallelize across rows of blocks to leverage multiple CPU cores
-                Parallel.For(0, blockCountY, y =>
+                // Parallelize across rows of blocks to leverage multiple CPU cores.
+                // Reuse per-thread block tables; allocating them per DXT block dominates GC on large textures.
+                Parallel.For(0, blockCountY, () => (
+                    new byte[8], new int[16], new Color[4], new int[16]
+                ), (y, _, buffers) =>
                 {
+                    byte[] alphaTable = buffers.Item1;
+                    int[] alphaIdxTable = buffers.Item2;
+                    Color[] colors = buffers.Item3;
+                    int[] colorIndices = buffers.Item4;
+
                     for (int x = 0; x < blockCountX; x += 2) // Process 2 blocks at a time
                     {
                         int offset = (y * blockCountX + x) * 16;
@@ -361,17 +395,13 @@ namespace MapleLib.Helpers
                             // Process block 1
                             byte a0_1 = rawData[offset];
                             byte a1_1 = rawData[offset + 1];
-                            byte[] alphaTable1 = new byte[8];
-                            ExpandAlphaTableDXT5(alphaTable1, a0_1, a1_1);
-                            int[] alphaIdxTable1 = new int[16];
-                            ExpandAlphaIndexTableDXT5(alphaIdxTable1, rawData, offset + 2);
+                            ExpandAlphaTableDXT5(alphaTable, a0_1, a1_1);
+                            ExpandAlphaIndexTableDXT5(alphaIdxTable, rawData, offset + 2);
 
                             ushort c0_1 = BitConverter.ToUInt16(rawData, offset + 8);
                             ushort c1_1 = BitConverter.ToUInt16(rawData, offset + 10);
-                            Color[] colors1 = new Color[4];
-                            ExpandColorTable(colors1, c0_1, c1_1);
-                            int[] colorIndices1 = new int[16];
-                            ExpandColorIndexTable(colorIndices1, rawData, offset + 12);
+                            ExpandColorTable(colors, c0_1, c1_1);
+                            ExpandColorIndexTable(colorIndices, rawData, offset + 12);
 
                             // Write pixels for block 1
                             for (int j = 0; j < 4; j++)
@@ -383,8 +413,8 @@ namespace MapleLib.Helpers
                                     int pixelX = x * 4 + i;
                                     if (pixelX >= width) continue; // Skip if out of bounds
                                     int pixelOffset = pixelY * stride + pixelX * 4;
-                                    Color c = colors1[colorIndices1[j * 4 + i]];
-                                    byte alpha = alphaTable1[alphaIdxTable1[j * 4 + i]];
+                                    Color c = colors[colorIndices[j * 4 + i]];
+                                    byte alpha = alphaTable[alphaIdxTable[j * 4 + i]];
                                     pDecoded[pixelOffset] = c.B;
                                     pDecoded[pixelOffset + 1] = c.G;
                                     pDecoded[pixelOffset + 2] = c.R;
@@ -397,17 +427,13 @@ namespace MapleLib.Helpers
                             {
                                 byte a0_2 = rawData[offset + 16];
                                 byte a1_2 = rawData[offset + 17];
-                                byte[] alphaTable2 = new byte[8];
-                                ExpandAlphaTableDXT5(alphaTable2, a0_2, a1_2);
-                                int[] alphaIdxTable2 = new int[16];
-                                ExpandAlphaIndexTableDXT5(alphaIdxTable2, rawData, offset + 18);
+                                ExpandAlphaTableDXT5(alphaTable, a0_2, a1_2);
+                                ExpandAlphaIndexTableDXT5(alphaIdxTable, rawData, offset + 18);
 
                                 ushort c0_2 = BitConverter.ToUInt16(rawData, offset + 24);
                                 ushort c1_2 = BitConverter.ToUInt16(rawData, offset + 26);
-                                Color[] colors2 = new Color[4];
-                                ExpandColorTable(colors2, c0_2, c1_2);
-                                int[] colorIndices2 = new int[16];
-                                ExpandColorIndexTable(colorIndices2, rawData, offset + 28);
+                                ExpandColorTable(colors, c0_2, c1_2);
+                                ExpandColorIndexTable(colorIndices, rawData, offset + 28);
 
                                 // Write pixels for block 2
                                 for (int j = 0; j < 4; j++)
@@ -419,8 +445,8 @@ namespace MapleLib.Helpers
                                         int pixelX = (x + 1) * 4 + i;
                                         if (pixelX >= width) continue; // Skip if out of bounds
                                         int pixelOffset = pixelY * stride + pixelX * 4;
-                                        Color c = colors2[colorIndices2[j * 4 + i]];
-                                        byte alpha = alphaTable2[alphaIdxTable2[j * 4 + i]];
+                                        Color c = colors[colorIndices[j * 4 + i]];
+                                        byte alpha = alphaTable[alphaIdxTable[j * 4 + i]];
                                         pDecoded[pixelOffset] = c.B;
                                         pDecoded[pixelOffset + 1] = c.G;
                                         pDecoded[pixelOffset + 2] = c.R;
@@ -430,7 +456,8 @@ namespace MapleLib.Helpers
                             }
                         }
                     }
-                });
+                    return buffers;
+                }, _ => { });
             }
             else
             {
@@ -816,9 +843,9 @@ namespace MapleLib.Helpers
                             byte a = (byte)((pixel >> 24) & 0xFF);
 
                             byte a1 = (byte)(a >= 128 ? 1 : 0); // 1-bit alpha
-                            byte r5 = (byte)((r * 31) / 255);
-                            byte g5 = (byte)((g * 31) / 255);
-                            byte b5 = (byte)((b * 31) / 255);
+                            byte r5 = Quantize5[r];
+                            byte g5 = Quantize5[g];
+                            byte b5 = Quantize5[b];
 
                             ushort argb1555 = (ushort)((a1 << 15) | (r5 << 10) | (g5 << 5) | b5);
                             buf[index++] = (byte)(argb1555 & 0xFF);
@@ -854,9 +881,9 @@ namespace MapleLib.Helpers
                             byte g = (byte)((pixel >> 8) & 0xFF);
                             byte r = (byte)((pixel >> 16) & 0xFF);
 
-                            byte r5 = (byte)((r * 31) / 255);
-                            byte g6 = (byte)((g * 63) / 255);
-                            byte b5 = (byte)((b * 31) / 255);
+                            byte r5 = Quantize5[r];
+                            byte g6 = Quantize6[g];
+                            byte b5 = Quantize5[b];
 
                             ushort rgb565 = (ushort)((r5 << 11) | (g6 << 5) | b5);
                             buf[index++] = (byte)(rgb565 & 0xFF);
@@ -900,9 +927,9 @@ namespace MapleLib.Helpers
                                 byte g = (byte)((pixel >> 8) & 0xFF);
                                 byte r = (byte)((pixel >> 16) & 0xFF);
 
-                                byte r5 = (byte)((r * 31) / 255);
-                                byte g6 = (byte)((g * 63) / 255);
-                                byte b5 = (byte)((b * 31) / 255);
+                                byte r5 = Quantize5[r];
+                                byte g6 = Quantize6[g];
+                                byte b5 = Quantize5[b];
 
                                 ushort rgb565 = (ushort)((r5 << 11) | (g6 << 5) | b5);
                                 buf[index++] = (byte)(rgb565 & 0xFF);
@@ -946,6 +973,8 @@ namespace MapleLib.Helpers
                 {
                     byte* scan0 = (byte*)bmpData.Scan0;
                     Color[] block = new Color[16]; // Reuse block buffer for all blocks
+                    Color[] colors = new Color[4];
+                    byte[] indices = new byte[4];
                     for (int by = 0; by < blockCountY; by++)
                     {
                         for (int bx = 0; bx < blockCountX; bx++)
@@ -976,8 +1005,8 @@ namespace MapleLib.Helpers
                             }
 
                             // Compress color (DXT1 style: 2 RGB565 colors + 4 indices)
-                            Color[] colors = CompressBlockColors(block, out ushort c0, out ushort c1);
-                            byte[] indices = ComputeColorIndices(block, colors);
+                            CompressBlockColors(block, colors, out ushort c0, out ushort c1);
+                            ComputeColorIndices(block, colors, indices);
 
                             // Write color data
                             buf[bufIndex++] = (byte)(c0 & 0xFF);
@@ -1020,6 +1049,10 @@ namespace MapleLib.Helpers
                 {
                     byte* scan0 = (byte*)bmpData.Scan0;
                     Color[] block = new Color[16]; // Reuse block buffer for all blocks
+                    Color[] colors = new Color[4];
+                    byte[] indices = new byte[4];
+                    int[] alphaIndices = new int[16];
+                    byte[] alphaTable = new byte[8];
                     for (int by = 0; by < blockCountY; by++)
                     {
                         for (int bx = 0; bx < blockCountX; bx++)
@@ -1043,7 +1076,7 @@ namespace MapleLib.Helpers
 
                             // Compress alpha
                             byte a0, a1;
-                            int[] alphaIndices = CompressBlockAlphaDXT5(block, out a0, out a1);
+                            CompressBlockAlphaDXT5(block, alphaTable, alphaIndices, out a0, out a1);
                             buf[bufIndex++] = a0;
                             buf[bufIndex++] = a1;
                             long flags = 0; // 48-bit value for 16 3-bit indices
@@ -1059,8 +1092,8 @@ namespace MapleLib.Helpers
                             buf[bufIndex++] = (byte)((flags >> 40) & 0xFF);
 
                             // Compress color
-                            Color[] colors = CompressBlockColors(block, out ushort c0, out ushort c1);
-                            byte[] indices = ComputeColorIndices(block, colors);
+                            CompressBlockColors(block, colors, out ushort c0, out ushort c1);
+                            ComputeColorIndices(block, colors, indices);
 
                             // Write color data
                             buf[bufIndex++] = (byte)(c0 & 0xFF);
@@ -1089,7 +1122,7 @@ namespace MapleLib.Helpers
         /// <param name="c0"></param>
         /// <param name="c1"></param>
         /// <returns></returns>
-        private static Color[] CompressBlockColors(Color[] block, out ushort c0, out ushort c1)
+        private static void CompressBlockColors(Color[] block, Color[] colors, out ushort c0, out ushort c1)
         {
             // Simple min/max quantization for RGB
             int minR = 255, minG = 255, minB = 255;
@@ -1109,22 +1142,19 @@ namespace MapleLib.Helpers
             c1 = ColorToRGB565((byte)minR, (byte)minG, (byte)minB);
 
             // Generate color table (same as decompression)
-            Color[] colors = new Color[4];
             ExpandColorTable(colors, c0, c1);
-            return colors;
         }
 
         private static ushort ColorToRGB565(byte r, byte g, byte b)
         {
-            byte r5 = (byte)((r * 31) / 255);
-            byte g6 = (byte)((g * 63) / 255);
-            byte b5 = (byte)((b * 31) / 255);
+            byte r5 = Quantize5[r];
+            byte g6 = Quantize6[g];
+            byte b5 = Quantize5[b];
             return (ushort)((r5 << 11) | (g6 << 5) | b5);
         }
 
-        private static byte[] ComputeColorIndices(Color[] block, Color[] colors)
+        private static void ComputeColorIndices(Color[] block, Color[] colors, byte[] indices)
         {
-            byte[] indices = new byte[4]; // 4 bytes, one per row
             for (int j = 0; j < 4; j++)
             {
                 byte row = 0;
@@ -1146,7 +1176,6 @@ namespace MapleLib.Helpers
                 }
                 indices[j] = row;
             }
-            return indices;
         }
 
         private static double ColorDistance(Color c1, Color c2)
@@ -1164,7 +1193,7 @@ namespace MapleLib.Helpers
         /// <param name="a0"></param>
         /// <param name="a1"></param>
         /// <returns></returns>
-        private static int[] CompressBlockAlphaDXT5(Color[] block, out byte a0, out byte a1)
+        private static void CompressBlockAlphaDXT5(Color[] block, byte[] alphaTable, int[] indices, out byte a0, out byte a1)
         {
             // Find min/max alpha
             byte minA = 255, maxA = 0;
@@ -1177,10 +1206,8 @@ namespace MapleLib.Helpers
             a0 = maxA;
             a1 = minA;
 
-            byte[] alphaTable = new byte[8];
             ExpandAlphaTableDXT5(alphaTable, a0, a1);
 
-            int[] indices = new int[16];
             for (int i = 0; i < 16; i++)
             {
                 byte alpha = block[i].A;
@@ -1197,7 +1224,6 @@ namespace MapleLib.Helpers
                 }
                 indices[i] = bestIndex;
             }
-            return indices;
         }
         #endregion
     }

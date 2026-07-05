@@ -3,8 +3,6 @@ using System.IO;
 using MapleLib.WzLib.Util;
 using System;
 using System.Drawing;
-using System.Text.RegularExpressions;
-using System.Linq;
 using System.Diagnostics;
 
 namespace MapleLib.WzLib.WzProperties {
@@ -18,6 +16,13 @@ namespace MapleLib.WzLib.WzProperties {
         /// </summary>
         public const string InlinkPropertyName = "_inlink";
         public const string OutlinkPropertyName = "_outlink";
+
+        /// <summary>
+        /// Optional external image resolver used by IMG filesystem consumers where WzFile parent
+        /// relationships are unavailable for _outlink traversal.
+        /// The input should be a category-rooted image path such as "Map/Map/Map0/_Canvas/010006121.img".
+        /// </summary>
+        public static Func<string, WzImage> ExternalImageResolver { get; set; }
         public const string OriginPropertyName = "origin";
         public const string HeadPropertyName = "head";
         public const string LtPropertyName = "lt";
@@ -74,14 +79,14 @@ namespace MapleLib.WzLib.WzProperties {
         /// <returns>The wz property with the specified name</returns>
         public override WzImageProperty this[string name] {
             get {
-                if (name == "PNG")
+                if (string.Equals(name, "PNG", StringComparison.Ordinal))
                     return imageProp;
 
-                return properties.FirstOrDefault(iwp => iwp.Name.ToLower() == name.ToLower());
+                return FindProperty(name, StringComparison.OrdinalIgnoreCase);
             }
             set {
                 if (value != null) {
-                    if (name == "PNG") {
+                    if (string.Equals(name, "PNG", StringComparison.Ordinal)) {
                         imageProp = (WzPngProperty)value;
                         return;
                     }
@@ -92,7 +97,7 @@ namespace MapleLib.WzLib.WzProperties {
         }
 
         public WzImageProperty GetProperty(string name) {
-            return properties.FirstOrDefault(iwp => iwp.Name.ToLower() == name.ToLower());
+            return FindProperty(name, StringComparison.OrdinalIgnoreCase);
         }
 
         /// Gets a wz property by a path name
@@ -101,6 +106,10 @@ namespace MapleLib.WzLib.WzProperties {
         /// <returns>the wz property with the specified name</returns>
         public override WzImageProperty GetFromPath(string path) {
             string[] segments = path.Split(new char[1] { '/' }, System.StringSplitOptions.RemoveEmptyEntries);
+            if (segments.Length == 0) {
+                return null;
+            }
+
             if (segments[0] == "..") {
                 return ((WzImageProperty)Parent)[path.Substring(name.IndexOf('/') + 1)];
             }
@@ -110,7 +119,7 @@ namespace MapleLib.WzLib.WzProperties {
                 if (segment == "PNG")
                     return imageProp;
 
-                WzImageProperty iwp = ret.WzProperties.FirstOrDefault(p => p.Name == segment);
+                WzImageProperty iwp = FindProperty(ret.WzProperties, segment, StringComparison.Ordinal);
                 if (iwp == null) {
                     return null;
                 }
@@ -119,6 +128,25 @@ namespace MapleLib.WzLib.WzProperties {
             }
 
             return ret;
+        }
+
+        private WzImageProperty FindProperty(string propertyName, StringComparison comparisonType) {
+            return FindProperty(properties, propertyName, comparisonType);
+        }
+
+        private static WzImageProperty FindProperty(WzPropertyCollection propertyCollection, string propertyName, StringComparison comparisonType) {
+            if (propertyCollection == null || propertyName == null) {
+                return null;
+            }
+
+            for (int i = 0; i < propertyCollection.Count; i++) {
+                WzImageProperty property = propertyCollection[i];
+                if (string.Equals(property.Name, propertyName, comparisonType)) {
+                    return property;
+                }
+            }
+
+            return null;
         }
 
         public override void WriteValue(WzBinaryWriter writer) {
@@ -306,14 +334,16 @@ namespace MapleLib.WzLib.WzProperties {
                     // Mob001.wz/8800103.img/8800103.png has an outlink to "Mob/8800141.img/8800141.png"
                     // https://github.com/lastbattle/Harepacker-resurrected/pull/142
 
-                    Match match = Regex.Match(wzFileParent.Name, @"^([A-Za-z]+)([0-9]*).wz");
-                    string prefixWz = match.Groups[1].Value + "/"; // remove ended numbers and .wz from wzfile name 
+                    string prefixWz = GetWzFileAlphaPrefix(wzFileParent.Name) + "/"; // remove ended numbers and .wz from wzfile name
 
                     WzObject foundProperty;
 
-                    if (_outlink.StartsWith(prefixWz)) {
+                    if (_outlink.StartsWith(prefixWz, StringComparison.OrdinalIgnoreCase)) {
                         // fixed root path
-                        string realpath = _outlink.Replace(prefixWz, WzFileParent.Name.Replace(".wz", "") + "/");
+                        string fileNameWithoutExtension = wzFileParent.Name.EndsWith(".wz", StringComparison.OrdinalIgnoreCase)
+                            ? wzFileParent.Name.Substring(0, wzFileParent.Name.Length - 3)
+                            : wzFileParent.Name;
+                        string realpath = fileNameWithoutExtension + "/" + _outlink.Substring(prefixWz.Length);
                         foundProperty = wzFileParent.GetObjectFromPath(realpath);
                     }
                     else {
@@ -331,7 +361,7 @@ namespace MapleLib.WzLib.WzProperties {
                             }
                             else
                             {
-                                Debug.WriteLine(GetLinkedWzImageProperty().Name + " has an _outlink that does not contain '" + WzFileManager.CANVAS_DIRECTORY_NAME);
+                                Debug.WriteLine($"{FullPath} has an _outlink that does not contain '{WzFileManager.CANVAS_DIRECTORY_NAME}'");
                             }
                         }
 
@@ -342,9 +372,97 @@ namespace MapleLib.WzLib.WzProperties {
                         return property;
                     }
                 }
+
+                WzImageProperty externallyResolvedProperty = ResolveLinkedImagePropertyFromExternalResolver(_outlink);
+                if (externallyResolvedProperty != null)
+                {
+                    return externallyResolvedProperty;
+                }
+
                 Debug.WriteLine("Could not resolve _outlink path: " + _outlink);
             }
             return this;
+        }
+
+        private static string GetWzFileAlphaPrefix(string wzFileName)
+        {
+            if (string.IsNullOrEmpty(wzFileName))
+            {
+                return string.Empty;
+            }
+
+            int end = wzFileName.EndsWith(".wz", StringComparison.OrdinalIgnoreCase)
+                ? wzFileName.Length - 3
+                : wzFileName.Length;
+
+            while (end > 0 && char.IsDigit(wzFileName[end - 1]))
+            {
+                end--;
+            }
+
+            return wzFileName.Substring(0, end);
+        }
+
+        private static WzImageProperty ResolveLinkedImagePropertyFromExternalResolver(string outlinkPath)
+        {
+            if (string.IsNullOrWhiteSpace(outlinkPath) || ExternalImageResolver == null)
+            {
+                return null;
+            }
+
+            string normalizedPath = outlinkPath.Replace('\\', '/').Trim('/');
+            int imagePathEnd = FindImagePathEnd(normalizedPath);
+            if (imagePathEnd < 0)
+            {
+                return null;
+            }
+
+            string imagePath = normalizedPath.Substring(0, imagePathEnd);
+            WzImage image = ExternalImageResolver(imagePath);
+            if (image == null)
+            {
+                return null;
+            }
+
+            if (!image.Parsed)
+            {
+                image.ParseImage();
+            }
+
+            int propertyPathStart = imagePathEnd + 1;
+            if (propertyPathStart >= normalizedPath.Length)
+            {
+                return null;
+            }
+
+            string propertyPath = normalizedPath.Substring(propertyPathStart);
+            return image.GetFromPath(propertyPath) as WzImageProperty;
+        }
+
+        private static int FindImagePathEnd(string normalizedPath)
+        {
+            int segmentStart = 0;
+            while (segmentStart < normalizedPath.Length)
+            {
+                int slashIndex = normalizedPath.IndexOf('/', segmentStart);
+                int segmentEnd = slashIndex < 0 ? normalizedPath.Length : slashIndex;
+                int segmentLength = segmentEnd - segmentStart;
+
+                if (segmentLength >= 4 &&
+                    string.Compare(normalizedPath, segmentEnd - 4, ".img", 0, 4, StringComparison.OrdinalIgnoreCase) == 0)
+                {
+                    return segmentEnd;
+                }
+
+                if (slashIndex < 0)
+                {
+                    break;
+                }
+
+                segmentStart = slashIndex + 1;
+            }
+
+            return -1;
         }
 
         /// <summary>

@@ -5,7 +5,6 @@ using System.Drawing;
 using System.Drawing.Imaging;
 using System.IO;
 using System.IO.Compression;
-using System.Linq;
 using System.Runtime.InteropServices;
 using MapleLib.Helpers;
 using MapleLib.WzLib.Util;
@@ -326,7 +325,7 @@ namespace MapleLib.WzLib.WzProperties
 
             // Check if this is listWz format (non-standard zlib header)
             ushort header = (ushort)(rawBytes[0] | (rawBytes[1] << 8));
-            bool isListWzFormat = header != 0x9C78 && header != 0xDA78 && header != 0x0178 && header != 0x5E78;
+            bool isListWzFormat = !IsStandardZlibHeader(header);
 
             if (!isListWzFormat)
                 return rawBytes;
@@ -340,53 +339,32 @@ namespace MapleLib.WzLib.WzProperties
 
             try
             {
-                // Decrypt the listWz format data (same logic as GetRawImage)
-                using (var inputStream = new MemoryStream(rawBytes))
-                using (var reader = new BinaryReader(inputStream))
-                using (var decryptedStream = new MemoryStream())
+                byte[] decryptedBytes = new byte[rawBytes.Length];
+                int decryptedLength = DecryptListWzBlocks(rawBytes, wzKey, decryptedBytes);
+                if (decryptedLength <= 2)
                 {
-                    int endOfPng = rawBytes.Length;
-                    while (reader.BaseStream.Position < endOfPng)
+                    return rawBytes;
+                }
+
+                int uncompressedSize = GetUncompressedSize();
+                byte[] decompressed = new byte[uncompressedSize];
+                using (MemoryStream decryptedStream = new MemoryStream(decryptedBytes, 2, decryptedLength - 2, writable: false))
+                using (DeflateStream deflate = new DeflateStream(decryptedStream, CompressionMode.Decompress))
+                {
+                    ReadFully(deflate, decompressed);
+                }
+
+                using (MemoryStream outputStream = new MemoryStream(decompressed.Length))
+                {
+                    outputStream.WriteByte(0x78);
+                    outputStream.WriteByte(0x9C);
+
+                    using (DeflateStream deflateOut = new DeflateStream(outputStream, CompressionLevel.Optimal, leaveOpen: true))
                     {
-                        int blockSize = reader.ReadInt32();
-                        for (int i = 0; i < blockSize; i++)
-                        {
-                            decryptedStream.WriteByte((byte)(reader.ReadByte() ^ wzKey[i]));
-                        }
+                        deflateOut.Write(decompressed, 0, decompressed.Length);
                     }
 
-                    // The decrypted data is zlib compressed, skip 2-byte header for deflate
-                    decryptedStream.Position = 2;
-
-                    // Decompress - must loop since Read() doesn't guarantee all bytes
-                    int uncompressedSize = GetUncompressedSize();
-                    byte[] decompressed = new byte[uncompressedSize];
-                    int totalRead = 0;
-
-                    using (var deflate = new DeflateStream(decryptedStream, CompressionMode.Decompress))
-                    {
-                        while (totalRead < uncompressedSize)
-                        {
-                            int bytesRead = deflate.Read(decompressed, totalRead, uncompressedSize - totalRead);
-                            if (bytesRead == 0) break;
-                            totalRead += bytesRead;
-                        }
-                    }
-
-                    // Re-compress to standard zlib format
-                    using (var outputStream = new MemoryStream())
-                    {
-                        // Write zlib header (default compression)
-                        outputStream.WriteByte(0x78);
-                        outputStream.WriteByte(0x9C);
-
-                        using (var deflateOut = new DeflateStream(outputStream, CompressionLevel.Optimal, leaveOpen: true))
-                        {
-                            deflateOut.Write(decompressed, 0, decompressed.Length);
-                        }
-
-                        return outputStream.ToArray();
-                    }
+                    return outputStream.ToArray();
                 }
             }
             catch
@@ -400,18 +378,7 @@ namespace MapleLib.WzLib.WzProperties
         /// </summary>
         private int GetUncompressedSize()
         {
-            return Format switch
-            {
-                WzPngFormat.Format1 => width * height * 2,
-                WzPngFormat.Format2 => width * height * 4,
-                WzPngFormat.Format3 => width * height * 4,
-                WzPngFormat.Format513 => width * height * 2,
-                WzPngFormat.Format517 => width * height / 128,
-                WzPngFormat.Format1026 => width * height * 4,
-                WzPngFormat.Format2050 => width * height * 4,
-                WzPngFormat.Format4098 => ((width + 3) / 4) * ((height + 3) / 4) * 16,
-                _ => width * height * 4
-            };
+            return Format.GetDecodedSize(width, height);
         }
 
         public Bitmap GetImage(bool saveInMemory)
@@ -440,35 +407,28 @@ namespace MapleLib.WzLib.WzProperties
 
         internal static byte[] Decompress(byte[] compressedBuffer, int decompressedSize)
         {
-            using (MemoryStream memStream = new())
+            using (MemoryStream memStream = new MemoryStream(compressedBuffer, 2, compressedBuffer.Length - 2, writable: false))
+            using (DeflateStream zip = new DeflateStream(memStream, CompressionMode.Decompress))
             {
-                memStream.Write(compressedBuffer, 2, compressedBuffer.Length - 2);
                 byte[] buffer = new byte[decompressedSize];
-                memStream.Position = 0;
-
-                using (DeflateStream zip = new(memStream, CompressionMode.Decompress))
-                {
-                    zip.Read(buffer, 0, buffer.Length);
-                    return buffer;
-                }
+                ReadFully(zip, buffer);
+                return buffer;
             }
         }
 
         internal static byte[] Compress(byte[] decompressedBuffer)
         {
-            using (MemoryStream memStream = new())
+            using (MemoryStream memStream = new MemoryStream())
             {
-                using (DeflateStream zip = new(memStream, CompressionMode.Compress, true))
+                memStream.WriteByte(0x78);
+                memStream.WriteByte(0x9C);
+
+                using (DeflateStream zip = new DeflateStream(memStream, CompressionMode.Compress, true))
                 {
                     zip.Write(decompressedBuffer, 0, decompressedBuffer.Length);
                 }
-                memStream.Position = 0;
-                byte[] buffer = new byte[memStream.Length + 2];
-                memStream.Read(buffer, 2, buffer.Length - 2);
 
-                System.Buffer.BlockCopy(new byte[] { 0x78, 0x9C }, 0, buffer, 0, 2);
-
-                return buffer;
+                return memStream.ToArray();
             }
         }
 
@@ -575,10 +535,23 @@ namespace MapleLib.WzLib.WzProperties
                         }
                     case WzPngFormat.Format4098:
                         {
-                            textureBytes = PngUtility.DecompressImageBC7(rawBytes, width, height);
                             BitmapData bmpData4098 = bmp.LockBits(rect_, ImageLockMode.WriteOnly, PixelFormat.Format32bppArgb);
-                            PngUtility.CopyBmpDataWithStride(textureBytes, width * 4, bmpData4098);
-                            bmp.UnlockBits(bmpData4098);
+                            try
+                            {
+                                if (texture2d == null)
+                                {
+                                    PngUtility.DecompressImageBC7(rawBytes, width, height, bmpData4098);
+                                }
+                                else
+                                {
+                                    textureBytes = PngUtility.DecompressImageBC7(rawBytes, width, height);
+                                    PngUtility.CopyBmpDataWithStride(textureBytes, width * 4, bmpData4098);
+                                }
+                            }
+                            finally
+                            {
+                                bmp.UnlockBits(bmpData4098);
+                            }
                             break;
                         }
                     default:
@@ -610,45 +583,42 @@ namespace MapleLib.WzLib.WzProperties
         internal byte[] GetRawImage(bool saveInMemory)
         {
             byte[] rawImageBytes = GetCompressedBytes(saveInMemory);
-
-            using (BinaryReader reader = new BinaryReader(new MemoryStream(rawImageBytes)))
+            if (rawImageBytes == null || rawImageBytes.Length < 2)
             {
-                DeflateStream zlib;
+                return null;
+            }
 
-                ushort header = reader.ReadUInt16();
-                listWzUsed = header != 0x9C78 && header != 0xDA78 && header != 0x0178 && header != 0x5E78;
-                if (!listWzUsed)
+            ushort header = (ushort)(rawImageBytes[0] | (rawImageBytes[1] << 8));
+            listWzUsed = !IsStandardZlibHeader(header);
+
+            byte[] compressedBytes = rawImageBytes;
+            int compressedLength = rawImageBytes.Length - 2;
+            if (!listWzUsed)
+            {
+            }
+            else
+            {
+                // Get the WzKey - prefer wzReader (set during parsing), fall back to ParentImage.reader
+                var wzKey = this.wzReader?.WzKey ?? ParentImage?.reader?.WzKey;
+                if (wzKey == null)
                 {
-                    zlib = new DeflateStream(reader.BaseStream, CompressionMode.Decompress);
-                }
-                else
-                {
-                    reader.BaseStream.Position -= 2;
-                    MemoryStream dataStream = new MemoryStream();
-                    int blocksize = 0;
-                    int endOfPng = rawImageBytes.Length;
-
-                    // Get the WzKey - prefer wzReader (set during parsing), fall back to ParentImage.reader
-                    var wzKey = this.wzReader?.WzKey ?? ParentImage?.reader?.WzKey;
-                    if (wzKey == null)
-                    {
-                        throw new Exception("Cannot decrypt listWz format PNG - no WzKey available. " +
-                            $"wzReader={this.wzReader != null}, ParentImage={ParentImage != null}");
-                    }
-
-                    // Read image into zlib
-                    while (reader.BaseStream.Position < endOfPng)
-                    {
-                        blocksize = reader.ReadInt32();
-                        for (int i = 0; i < blocksize; i++)
-                        {
-                            dataStream.WriteByte((byte)(reader.ReadByte() ^ wzKey[i]));
-                        }
-                    }
-                    dataStream.Position = 2;
-                    zlib = new DeflateStream(dataStream, CompressionMode.Decompress);
+                    throw new Exception("Cannot decrypt listWz format PNG - no WzKey available. " +
+                        $"wzReader={this.wzReader != null}, ParentImage={ParentImage != null}");
                 }
 
+                byte[] decryptedBytes = new byte[rawImageBytes.Length];
+                int decryptedLength = DecryptListWzBlocks(rawImageBytes, wzKey, decryptedBytes);
+                if (decryptedLength <= 2)
+                {
+                    return null;
+                }
+
+                compressedBytes = decryptedBytes;
+                compressedLength = decryptedLength - 2;
+            }
+
+                MemoryStream compressedStream = new MemoryStream(compressedBytes, 2, compressedLength, writable: false);
+                DeflateStream zlib = new DeflateStream(compressedStream, CompressionMode.Decompress);
                 int uncompressedSize = 0;
                 byte[] decBuf = null;
 
@@ -672,7 +642,7 @@ namespace MapleLib.WzLib.WzProperties
                             // thank you Elem8100, http://forum.ragezone.com/f702/wz-png-format-decode-code-1114978/ 
                             // you'll be remembered forever <3 
 
-                            uncompressedSize = width * height * 4;
+                            uncompressedSize = ((width + 3) / 4) * ((height + 3) / 4) * 16;
                             decBuf = new byte[uncompressedSize];
                             break;
                         }
@@ -699,13 +669,13 @@ namespace MapleLib.WzLib.WzProperties
                         }
                     case WzPngFormat.Format1026: // 0x400 + 2?
                         {
-                            uncompressedSize = width * height * 4;
+                            uncompressedSize = ((width + 3) / 4) * ((height + 3) / 4) * 16;
                             decBuf = new byte[uncompressedSize];
                             break;
                         }
                     case WzPngFormat.Format2050: // 0x800 + 2? new
                         {
-                            uncompressedSize = width * height;
+                            uncompressedSize = ((width + 3) / 4) * ((height + 3) / 4) * 16;
                             decBuf = new byte[uncompressedSize];
                             break;
                         }
@@ -736,8 +706,55 @@ namespace MapleLib.WzLib.WzProperties
                         return decBuf;
                     }
                 }
-            }
             return null;
+        }
+
+        private static bool IsStandardZlibHeader(ushort header)
+        {
+            return header == 0x9C78 || header == 0xDA78 || header == 0x0178 || header == 0x5E78;
+        }
+
+        private static void ReadFully(Stream stream, byte[] buffer)
+        {
+            int totalRead = 0;
+            while (totalRead < buffer.Length)
+            {
+                int bytesRead = stream.Read(buffer, totalRead, buffer.Length - totalRead);
+                if (bytesRead == 0) break;
+                totalRead += bytesRead;
+            }
+        }
+
+        private static int DecryptListWzBlocks(byte[] source, WzMutableKey wzKey, byte[] destination)
+        {
+            int sourceOffset = 0;
+            int destinationOffset = 0;
+            while (sourceOffset < source.Length)
+            {
+                if (source.Length - sourceOffset < sizeof(int))
+                {
+                    throw new InvalidDataException("Invalid listWz PNG block header.");
+                }
+
+                int blockSize = BitConverter.ToInt32(source, sourceOffset);
+                sourceOffset += sizeof(int);
+
+                if (blockSize < 0 || blockSize > source.Length - sourceOffset)
+                {
+                    throw new InvalidDataException("Invalid listWz PNG block size.");
+                }
+
+                wzKey.EnsureKeySize(blockSize);
+                for (int i = 0; i < blockSize; i++)
+                {
+                    destination[destinationOffset + i] = (byte)(source[sourceOffset + i] ^ wzKey[i]);
+                }
+
+                sourceOffset += blockSize;
+                destinationOffset += blockSize;
+            }
+
+            return destinationOffset;
         }
 
         internal void CompressPng(Bitmap bmp)
