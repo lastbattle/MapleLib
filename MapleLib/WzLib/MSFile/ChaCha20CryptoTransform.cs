@@ -1,5 +1,8 @@
 using System;
 using System.Buffers.Binary;
+using System.Numerics;
+using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 
 namespace MapleLib.WzLib.MSFile
@@ -72,12 +75,30 @@ namespace MapleLib.WzLib.MSFile
             if (disposed)
                 throw new ObjectDisposedException(nameof(ChaCha20CryptoTransform));
 
-            for (int i = 0; i < data.Length; i++)
-            {
-                if (keyBlockOffset >= keyBlock.Length)
-                    GenerateKeyBlock();
+            if (data.IsEmpty)
+                return;
 
-                data[i] ^= keyBlock[keyBlockOffset++];
+            if (keyBlockOffset < keyBlock.Length)
+            {
+                int count = Math.Min(data.Length, keyBlock.Length - keyBlockOffset);
+                XorKeyStream(data[..count], keyBlock.AsSpan(keyBlockOffset, count));
+                keyBlockOffset += count;
+                data = data[count..];
+            }
+
+            while (data.Length >= keyBlock.Length)
+            {
+                GenerateKeyBlock();
+                XorKeyStream(data[..keyBlock.Length], keyBlock);
+                keyBlockOffset = keyBlock.Length;
+                data = data[keyBlock.Length..];
+            }
+
+            if (!data.IsEmpty)
+            {
+                GenerateKeyBlock();
+                XorKeyStream(data, keyBlock);
+                keyBlockOffset = data.Length;
             }
         }
 
@@ -94,26 +115,53 @@ namespace MapleLib.WzLib.MSFile
 
         private void GenerateKeyBlock()
         {
-            Span<uint> working = stackalloc uint[StateLength];
-            state.AsSpan().CopyTo(working);
+            uint x0 = state[0];
+            uint x1 = state[1];
+            uint x2 = state[2];
+            uint x3 = state[3];
+            uint x4 = state[4];
+            uint x5 = state[5];
+            uint x6 = state[6];
+            uint x7 = state[7];
+            uint x8 = state[8];
+            uint x9 = state[9];
+            uint x10 = state[10];
+            uint x11 = state[11];
+            uint x12 = state[12];
+            uint x13 = state[13];
+            uint x14 = state[14];
+            uint x15 = state[15];
 
             for (int i = 0; i < 10; i++)
             {
-                QuarterRound(working, 0, 4, 8, 12);
-                QuarterRound(working, 1, 5, 9, 13);
-                QuarterRound(working, 2, 6, 10, 14);
-                QuarterRound(working, 3, 7, 11, 15);
+                QuarterRound(ref x0, ref x4, ref x8, ref x12);
+                QuarterRound(ref x1, ref x5, ref x9, ref x13);
+                QuarterRound(ref x2, ref x6, ref x10, ref x14);
+                QuarterRound(ref x3, ref x7, ref x11, ref x15);
 
-                QuarterRound(working, 0, 5, 10, 15);
-                QuarterRound(working, 1, 6, 11, 12);
-                QuarterRound(working, 2, 7, 8, 13);
-                QuarterRound(working, 3, 4, 9, 14);
+                QuarterRound(ref x0, ref x5, ref x10, ref x15);
+                QuarterRound(ref x1, ref x6, ref x11, ref x12);
+                QuarterRound(ref x2, ref x7, ref x8, ref x13);
+                QuarterRound(ref x3, ref x4, ref x9, ref x14);
             }
 
-            for (int i = 0; i < StateLength; i++)
-            {
-                BinaryPrimitives.WriteUInt32LittleEndian(keyBlock.AsSpan(i * 4, 4), working[i] + state[i]);
-            }
+            Span<byte> output = keyBlock;
+            BinaryPrimitives.WriteUInt32LittleEndian(output[..4], x0 + state[0]);
+            BinaryPrimitives.WriteUInt32LittleEndian(output.Slice(4, 4), x1 + state[1]);
+            BinaryPrimitives.WriteUInt32LittleEndian(output.Slice(8, 4), x2 + state[2]);
+            BinaryPrimitives.WriteUInt32LittleEndian(output.Slice(12, 4), x3 + state[3]);
+            BinaryPrimitives.WriteUInt32LittleEndian(output.Slice(16, 4), x4 + state[4]);
+            BinaryPrimitives.WriteUInt32LittleEndian(output.Slice(20, 4), x5 + state[5]);
+            BinaryPrimitives.WriteUInt32LittleEndian(output.Slice(24, 4), x6 + state[6]);
+            BinaryPrimitives.WriteUInt32LittleEndian(output.Slice(28, 4), x7 + state[7]);
+            BinaryPrimitives.WriteUInt32LittleEndian(output.Slice(32, 4), x8 + state[8]);
+            BinaryPrimitives.WriteUInt32LittleEndian(output.Slice(36, 4), x9 + state[9]);
+            BinaryPrimitives.WriteUInt32LittleEndian(output.Slice(40, 4), x10 + state[10]);
+            BinaryPrimitives.WriteUInt32LittleEndian(output.Slice(44, 4), x11 + state[11]);
+            BinaryPrimitives.WriteUInt32LittleEndian(output.Slice(48, 4), x12 + state[12]);
+            BinaryPrimitives.WriteUInt32LittleEndian(output.Slice(52, 4), x13 + state[13]);
+            BinaryPrimitives.WriteUInt32LittleEndian(output.Slice(56, 4), x14 + state[14]);
+            BinaryPrimitives.WriteUInt32LittleEndian(output.Slice(60, 4), x15 + state[15]);
 
             state[12]++;
             if (state[12] == 0)
@@ -122,24 +170,36 @@ namespace MapleLib.WzLib.MSFile
             keyBlockOffset = 0;
         }
 
-        private static void QuarterRound(Span<uint> x, int a, int b, int c, int d)
+        private static void XorKeyStream(Span<byte> data, ReadOnlySpan<byte> keyStream)
         {
-            x[a] += x[b];
-            x[d] = RotateLeft(x[d] ^ x[a], 16);
+            int wordBytes = data.Length & ~(sizeof(ulong) - 1);
+            Span<ulong> dataWords = MemoryMarshal.Cast<byte, ulong>(data[..wordBytes]);
+            ReadOnlySpan<ulong> keyWords = MemoryMarshal.Cast<byte, ulong>(keyStream[..wordBytes]);
+            for (int i = 0; i < dataWords.Length; i++)
+            {
+                dataWords[i] ^= keyWords[i];
+            }
 
-            x[c] += x[d];
-            x[b] = RotateLeft(x[b] ^ x[c], 12);
-
-            x[a] += x[b];
-            x[d] = RotateLeft(x[d] ^ x[a], 8);
-
-            x[c] += x[d];
-            x[b] = RotateLeft(x[b] ^ x[c], 7);
+            for (int i = wordBytes; i < data.Length; i++)
+            {
+                data[i] ^= keyStream[i];
+            }
         }
 
-        private static uint RotateLeft(uint value, int count)
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private static void QuarterRound(ref uint a, ref uint b, ref uint c, ref uint d)
         {
-            return (value << count) | (value >> (32 - count));
+            a += b;
+            d = BitOperations.RotateLeft(d ^ a, 16);
+
+            c += d;
+            b = BitOperations.RotateLeft(b ^ c, 12);
+
+            a += b;
+            d = BitOperations.RotateLeft(d ^ a, 8);
+
+            c += d;
+            b = BitOperations.RotateLeft(b ^ c, 7);
         }
     }
 }

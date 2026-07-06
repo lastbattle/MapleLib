@@ -88,6 +88,17 @@ public class WzMsFileBenchmarks
     }
 
     [Benchmark]
+    public long LoadAndDecryptFirstEntry()
+    {
+        using Stream stream = _pack.OpenStream();
+        using var file = new WzMsFile(stream, _pack.OriginalFileName, _pack.FilePath);
+        file.ReadEntries();
+
+        byte[] decrypted = (byte[])DecryptDataToArrayMethod.Invoke(file, [file.Entries[0]])!;
+        return decrypted.Length + decrypted[0] + decrypted[^1];
+    }
+
+    [Benchmark]
     public int RecalculateEntryFields100k()
     {
         Random rng = new(1234);
