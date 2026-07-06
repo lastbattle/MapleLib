@@ -16,7 +16,7 @@ namespace MapleLib.WzLib.MSFile
         private int _unk1;
         private byte[] _entryKey;
 
-        public WzMsEntry(string name, int checkSum, int flags, int startPos, int size, int sizeAligned, int unk1, int unk2, byte[] entryKey)
+        public WzMsEntry(string name, int checkSum, int flags, int startPos, int size, int sizeAligned, int unk1, int unk2, byte[] entryKey, int unk3 = 0, int unk4 = 0)
         {
             this.Data = null;
             this.Name = name;
@@ -28,6 +28,8 @@ namespace MapleLib.WzLib.MSFile
             _unk1 = unk1;
             this.Unk2 = unk2;
             _entryKey = entryKey;
+            this.Unk3 = unk3;
+            this.Unk4 = unk4;
         }
 
         public string Name { get; }
@@ -38,6 +40,8 @@ namespace MapleLib.WzLib.MSFile
         public int SizeAligned { get => _sizeAligned; set => _sizeAligned = value; }
         public int Unk1 { get => _unk1; }
         public int Unk2 { get; }
+        public int Unk3 { get; }
+        public int Unk4 { get; }
         public byte[] EntryKey { get => _entryKey; }
         public int CalculatedCheckSum { get; private set; }
 

@@ -2,8 +2,13 @@
 {
     public class WzMsConstants
     {
-        public const int SupportedVersion = 2;
+        public const int Version2 = 2;
+        public const int Version4 = 4;
+        public const int SupportedVersion = Version2;
         public const int SnowKeyLength = 16;
+        public const int ChaCha20KeyLength = 32;
+        public const int ChaCha20NonceLength = 12;
+        public const int ChaCha20BlockSize = 64;
         public const int BlockAlignment = 1024;
         public const int PageAlignmentMask = 0x3FF;
         public const int PageAlignmentSize = 0x400;

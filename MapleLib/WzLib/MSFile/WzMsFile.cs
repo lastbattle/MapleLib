@@ -3,6 +3,7 @@ using MapleLib.WzLib.Util;
 using Microsoft.VisualBasic;
 using System;
 using System.Buffers;
+using System.Buffers.Binary;
 using System.Collections;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -22,14 +23,14 @@ namespace MapleLib.WzLib.MSFile
     // https://github.com/Elem8100/MapleNecrocer/blob/a1194a96ddf99e5d16225a05dfdf4d616f1fac3f/WzComparerR2.WzLib/Ms_File.cs
     //
     /// <para>
-    /// The .ms file format is a custom encrypted archive used to store WZ images. Encryption and decryption are performed using the Snow2 stream cipher, with keys derived from the file name and a randomly generated salt.
+    /// The .ms file format is a custom encrypted archive used to store WZ images. Encryption and decryption are performed using the Snow2 or ChaCha20 stream cipher, with keys derived from the file name and a randomly generated salt.
     /// </para>
     /// <para>
     /// <b>Encryption/Decryption Process:</b>
     /// <list type="number">
     /// <item>Random bytes and a salt are generated and written to the file header. The salt is obfuscated using XOR with the random bytes.</item>
     /// <item>The file name and salt are concatenated to form a base string for key derivation.</item>
-    /// <item>Header and entry data are encrypted/decrypted using the Snow2 cipher, with keys derived from the base string and entry-specific data.</item>
+    /// <item>Header and entry data are encrypted/decrypted using a format-version-specific stream cipher, with keys derived from the base string and entry-specific data.</item>
     /// <item>Each entry's actual data is encrypted with a unique key stored in the entry metadata.</item>
     /// </list>
     /// </para>
@@ -57,6 +58,13 @@ namespace MapleLib.WzLib.MSFile
     {
         private readonly string originalFileName;
         private readonly string msFilePath;
+        private static readonly byte[] ChaCha20KeyObscure =
+        [
+            0x7B, 0x2F, 0x35, 0x48, 0x43, 0x95, 0x02, 0xB9,
+            0xAE, 0x91, 0xA6, 0xE1, 0xD8, 0xD6, 0x24, 0xB4,
+            0x33, 0x10, 0x1D, 0x3D, 0xC1, 0xBB, 0xC6, 0xF4,
+            0xA5, 0xFE, 0xB3, 0x69, 0x6B, 0x56, 0xE4, 0x75
+        ];
 
         /// <summary>
         /// Constructor
@@ -114,6 +122,26 @@ namespace MapleLib.WzLib.MSFile
                 }
             }
         }
+
+        private static void DeriveChaCha20Key(ReadOnlySpan<char> fileNameWithSalt, Span<byte> key, bool isEntryKey)
+        {
+            if (!isEntryKey)
+            {
+                for (int i = 0; i < key.Length; i++)
+                {
+                    key[i] = (byte)(fileNameWithSalt[i % fileNameWithSalt.Length] + i);
+                    key[i] ^= ChaCha20KeyObscure[i];
+                }
+            }
+            else
+            {
+                for (int i = 0; i < key.Length; i++)
+                {
+                    key[i] = (byte)(i + (i % 3 + 2) * fileNameWithSalt[fileNameWithSalt.Length - 1 - i % fileNameWithSalt.Length]);
+                    key[i] ^= ChaCha20KeyObscure[i];
+                }
+            }
+        }
         #endregion
 
         #region Read file
@@ -123,6 +151,33 @@ namespace MapleLib.WzLib.MSFile
         /// <param name="fullFileName"></param>
         /// <exception cref="Exception"></exception>
         private void ReadHeader(string fullFileName)
+        {
+            Exception version2Exception;
+            try
+            {
+                ReadHeaderVersion2(fullFileName);
+                return;
+            }
+            catch (Exception ex)
+            {
+                version2Exception = ex;
+            }
+
+            try
+            {
+                ReadHeaderVersion4(fullFileName);
+            }
+            catch (Exception version4Exception)
+            {
+                throw new InvalidDataException(
+                    $"Unable to read MS file header as version {WzMsConstants.Version2} or {WzMsConstants.Version4}. " +
+                    $"Version {WzMsConstants.Version2}: {version2Exception.Message}; " +
+                    $"Version {WzMsConstants.Version4}: {version4Exception.Message}",
+                    version4Exception);
+            }
+        }
+
+        private void ReadHeaderVersion2(string fullFileName)
         {
             string fileName = Path.GetFileName(fullFileName).ToLower();
             this.BaseStream.Position = 0;
@@ -158,9 +213,76 @@ namespace MapleLib.WzLib.MSFile
                 int padAmount = (fileNameCharSum * 3) % WzMsConstants.HeaderPadMod + WzMsConstants.HeaderPadOffset;
                 long entryStartPos = headerStartPos + 9 + padAmount;
 
-                var header = new WzMsHeader(fullFileName, saltStr, fileNameWithSalt, headerHash, WzMsConstants.SupportedVersion, entryCount, headerStartPos, entryStartPos);
+                var header = new WzMsHeader(fullFileName, saltStr, fileNameWithSalt, headerHash, WzMsConstants.Version2, entryCount, headerStartPos, entryStartPos);
                 this.Header = header;
             }
+        }
+
+        private void ReadHeaderVersion4(string fullFileName)
+        {
+            string fileName = Path.GetFileName(fullFileName).ToLower();
+            this.BaseStream.Position = 0;
+            using var bReader = new BinaryReader(this.BaseStream, Encoding.ASCII, true);
+
+            int fileNameCharSum = SumChars(fileName);
+            int randByteCount = fileNameCharSum % WzMsConstants.RandByteMod + WzMsConstants.RandByteOffset;
+            byte[] randBytes = bReader.ReadBytes(randByteCount);
+            if (randBytes.Length != randByteCount)
+                throw new EndOfStreamException();
+
+            for (int i = 0; i < randBytes.Length; i++)
+            {
+                randBytes[i] = (byte)((sbyte)randBytes[i] >> 1);
+            }
+
+            byte version = (byte)(bReader.ReadByte() ^ randBytes[0]);
+            if (version != WzMsConstants.Version4)
+                throw new Exception($"Unsupported version: expected {WzMsConstants.Version4}, got {version}");
+
+            int hashedSaltLen = bReader.ReadInt32();
+            int saltLen = ((byte)hashedSaltLen) ^ randBytes[0];
+            if (saltLen <= 0 || saltLen > randBytes.Length)
+                throw new InvalidDataException($"Invalid version {WzMsConstants.Version4} salt length: {saltLen}");
+
+            byte[] saltBytes = bReader.ReadBytes(saltLen * 2);
+            if (saltBytes.Length != saltLen * 2)
+                throw new EndOfStreamException();
+
+            char[] saltChars = new char[saltLen];
+            for (int i = 0; i < saltLen; i++)
+            {
+                int a = randBytes[i] ^ saltBytes[i * 2];
+                int b = ((a | 0x4B) << 1) - a - 75;
+                saltChars[i] = (char)b;
+            }
+
+            string saltStr = new(saltChars);
+            string fileNameWithSalt = fileName + saltStr;
+
+            Span<byte> chacha20Key = stackalloc byte[WzMsConstants.ChaCha20KeyLength];
+            DeriveChaCha20Key(fileNameWithSalt, chacha20Key, false);
+
+            long headerStartPos = this.BaseStream.Position;
+            Span<byte> headerBytes = stackalloc byte[8];
+            this.BaseStream.ReadExactly(headerBytes);
+            Span<byte> emptyNonce = stackalloc byte[WzMsConstants.ChaCha20NonceLength];
+            using (var chacha20 = new ChaCha20CryptoTransform(chacha20Key, emptyNonce, 0))
+            {
+                chacha20.TransformInPlace(headerBytes);
+            }
+
+            int headerHash = BinaryPrimitives.ReadInt32LittleEndian(headerBytes[..4]);
+            int entryCount = BinaryPrimitives.ReadInt32LittleEndian(headerBytes[4..]);
+            if (entryCount < 0 || entryCount > this.BaseStream.Length / 32)
+                throw new InvalidDataException($"Invalid version {WzMsConstants.Version4} entry count: {entryCount}");
+
+            int padAmount = (fileNameCharSum * 3) % WzMsConstants.HeaderPadMod + 64;
+            long entryStartPos = headerStartPos + 8 + padAmount;
+            if (entryStartPos >= this.BaseStream.Length)
+                throw new InvalidDataException($"Invalid version {WzMsConstants.Version4} entry start position: {entryStartPos}");
+
+            var header = new WzMsHeader(fullFileName, saltStr, fileNameWithSalt, headerHash, WzMsConstants.Version4, entryCount, headerStartPos, entryStartPos);
+            this.Header = header;
         }
 
         /// <summary>
@@ -178,8 +300,8 @@ namespace MapleLib.WzLib.MSFile
             byte version = snowReader.ReadByte();
             int entryCount = snowReader.ReadInt32();
 
-            if (version != WzMsConstants.SupportedVersion)
-                throw new Exception($"Unsupported version: expected {WzMsConstants.SupportedVersion}, got {version}");
+            if (version != WzMsConstants.Version2)
+                throw new Exception($"Unsupported version: expected {WzMsConstants.Version2}, got {version}");
 
             int actualHash = hashedSaltLen + version + entryCount;
             ReadOnlySpan<ushort> u16SaltBytes = MemoryMarshal.Cast<byte, ushort>(saltBytes.AsSpan(0, saltLen * 2));
@@ -208,6 +330,17 @@ namespace MapleLib.WzLib.MSFile
                 return;
             this.Entries.Clear();
 
+            if (this.Header.Version == WzMsConstants.Version4)
+            {
+                ReadEntriesVersion4();
+                return;
+            }
+
+            ReadEntriesVersion2();
+        }
+
+        private void ReadEntriesVersion2()
+        {
             int entryCount = this.Header.EntryCount;
             if (this.Entries.Capacity < entryCount)
                 this.Entries.Capacity = entryCount;
@@ -260,6 +393,47 @@ namespace MapleLib.WzLib.MSFile
             }
         }
 
+        private void ReadEntriesVersion4()
+        {
+            int entryCount = this.Header.EntryCount;
+            if (this.Entries.Capacity < entryCount)
+                this.Entries.Capacity = entryCount;
+
+            string fileNameWithSalt = this.Header.FileNameWithSalt;
+            Span<byte> chacha20Key = stackalloc byte[WzMsConstants.ChaCha20KeyLength];
+            DeriveChaCha20Key(fileNameWithSalt, chacha20Key, true);
+
+            Span<byte> emptyNonce = stackalloc byte[WzMsConstants.ChaCha20NonceLength];
+            this.BaseStream.Position = this.Header.EntryStartPosition;
+            using var chacha20Reader = new ChaCha20Reader(this.BaseStream, chacha20Key, emptyNonce, true);
+
+            for (int i = 0; i < entryCount; i++)
+            {
+                string entryName = chacha20Reader.ReadString();
+                int checkSum = chacha20Reader.ReadInt32();
+                int flags = chacha20Reader.ReadInt32();
+                int startPos = chacha20Reader.ReadInt32();
+                int size = chacha20Reader.ReadInt32();
+                int sizeAligned = chacha20Reader.ReadInt32();
+                int unk1 = chacha20Reader.ReadInt32();
+                int unk2 = chacha20Reader.ReadInt32();
+                byte[] entryKey = chacha20Reader.ReadBytes(WzMsConstants.SnowKeyLength);
+                int unk3 = chacha20Reader.ReadInt32();
+                int unk4 = chacha20Reader.ReadInt32();
+
+                var entry = new WzMsEntry(entryName, checkSum, flags, startPos, size, sizeAligned, unk1, unk2, entryKey, unk3, unk4);
+                this.Entries.Add(entry);
+            }
+
+            long dataStartPos = AlignToPage(this.BaseStream.Position);
+            this.Header.DataStartPosition = dataStartPos;
+
+            foreach (var entry in this.Entries)
+            {
+                entry.StartPos = dataStartPos + entry.StartPos * WzMsConstants.BlockAlignment;
+            }
+        }
+
         /// <summary>
         /// Aligns position to the next 1024-byte page boundary.
         /// </summary>
@@ -300,6 +474,88 @@ namespace MapleLib.WzLib.MSFile
                     throw new EndOfStreamException();
 
                 offset += read;
+            }
+        }
+
+        private sealed class ChaCha20Reader : IDisposable
+        {
+            private readonly Stream baseStream;
+            private readonly ChaCha20CryptoTransform chacha20Cipher;
+            private readonly bool leaveOpen;
+            private byte[] buffer;
+            private int readOffset;
+
+            public ChaCha20Reader(Stream baseStream, ReadOnlySpan<byte> key, ReadOnlySpan<byte> nonce, bool leaveOpen = false)
+            {
+                this.baseStream = baseStream;
+                this.leaveOpen = leaveOpen;
+                this.chacha20Cipher = new ChaCha20CryptoTransform(key, nonce, 0);
+                this.buffer = new byte[WzMsConstants.ChaCha20BlockSize];
+                this.readOffset = this.buffer.Length;
+            }
+
+            public byte[] ReadBytes(int count)
+            {
+                byte[] result = new byte[count];
+                ReadBytes(result);
+                return result;
+            }
+
+            public void ReadBytes(Span<byte> destination)
+            {
+                while (destination.Length > 0)
+                {
+                    if (readOffset >= buffer.Length)
+                    {
+                        baseStream.ReadExactly(buffer);
+                        chacha20Cipher.TransformInPlace(buffer);
+                        readOffset = 0;
+                    }
+
+                    int readCount = Math.Min(destination.Length, buffer.Length - readOffset);
+                    buffer.AsSpan(readOffset, readCount).CopyTo(destination);
+                    destination = destination[readCount..];
+                    readOffset += readCount;
+                }
+
+                if (readOffset >= buffer.Length)
+                    chacha20Cipher.State[12] = 0;
+            }
+
+            public int ReadInt32()
+            {
+                Span<byte> value = stackalloc byte[4];
+                ReadBytes(value);
+                return BinaryPrimitives.ReadInt32LittleEndian(value);
+            }
+
+            public string ReadString()
+            {
+                int length = ReadInt32();
+                if (length < 0)
+                    throw new InvalidDataException($"Invalid version {WzMsConstants.Version4} entry name length: {length}");
+
+                char[] rented = ArrayPool<char>.Shared.Rent(length);
+                try
+                {
+                    Span<char> chars = rented.AsSpan(0, length);
+                    ReadBytes(MemoryMarshal.AsBytes(chars));
+                    return new string(rented, 0, length);
+                }
+                finally
+                {
+                    ArrayPool<char>.Shared.Return(rented);
+                }
+            }
+
+            public void Dispose()
+            {
+                chacha20Cipher.Dispose();
+                Array.Clear(buffer);
+                buffer = [];
+
+                if (!leaveOpen)
+                    baseStream.Dispose();
             }
         }
 
@@ -626,6 +882,52 @@ namespace MapleLib.WzLib.MSFile
             }
         }
 
+        private void DeriveChaCha20ImgKey(WzMsEntry entry, Span<byte> imgKey, Span<byte> nonce, out uint counter)
+        {
+            uint keyHash = WzMsConstants.InitialKeyHash;
+            foreach (char c in Header.Salt)
+            {
+                keyHash = (keyHash ^ c) * WzMsConstants.KeyHashMultiplier;
+            }
+
+            Span<char> keyHashChars = stackalloc char[10];
+            keyHash.TryFormat(keyHashChars, out int keyHashLength);
+
+            ReadOnlySpan<char> entryNameSpan = entry.Name.AsSpan();
+            ReadOnlySpan<byte> entryKeySpan = entry.EntryKey;
+            for (int i = 0; i < imgKey.Length; i++)
+            {
+                int digit = keyHashChars[i % keyHashLength] - '0';
+                int nextDigit = keyHashChars[(i + 1) % keyHashLength] - '0';
+                int entryKeyDigit = keyHashChars[(i + 2) % keyHashLength] - '0';
+                int entryKeyIdx = (entryKeyDigit + i) % entryKeySpan.Length;
+                imgKey[i] = (byte)(i + entryNameSpan[i % entryNameSpan.Length] * (
+                    (digit % 2) + entryKeySpan[entryKeyIdx] + ((nextDigit + i) % 5)
+                ));
+                imgKey[i] ^= ChaCha20KeyObscure[i];
+            }
+
+            uint keyHash2 = keyHash >> 1;
+            uint keyHash3 = keyHash2 ^ 0x6C;
+            Span<byte> keyHashData = stackalloc byte[12];
+            BinaryPrimitives.WriteUInt32LittleEndian(keyHashData[..4], keyHash);
+            BinaryPrimitives.WriteUInt32LittleEndian(keyHashData.Slice(4, 4), keyHash2);
+            BinaryPrimitives.WriteUInt32LittleEndian(keyHashData.Slice(8, 4), keyHash3);
+
+            for (int i = 0, a = 0, b = 0, c = 90, d = 0; i < keyHashData.Length; i++)
+            {
+                keyHashData[i] ^= (byte)(d + 11 * (i / 11) + (c ^ (i >> 2)) + (a ^ b));
+                --d;
+                a += 8;
+                b += 17;
+                c += 43;
+            }
+
+            nonce.Clear();
+            keyHashData[..8].CopyTo(nonce[4..]);
+            counter = BinaryPrimitives.ReadUInt32LittleEndian(keyHashData[8..]);
+        }
+
         /// <summary>
         /// Decrypts this entry's data from the given stream using the provided salt string.
         /// </summary>
@@ -638,6 +940,9 @@ namespace MapleLib.WzLib.MSFile
 
         private byte[] DecryptDataToArray(WzMsEntry entry)
         {
+            if (this.Header.Version == WzMsConstants.Version4)
+                return DecryptDataToArrayVersion4(entry);
+
             Span<byte> imgKey = stackalloc byte[WzMsConstants.SnowKeyLength];
             DeriveImgKey(entry, imgKey);
 
@@ -662,6 +967,33 @@ namespace MapleLib.WzLib.MSFile
             {
                 using var snowCipher = new Snow2CryptoTransform(imgKey, null, false);
                 snowCipher.TransformInPlace(buffer.AsSpan(0, dataLen));
+            }
+
+            return buffer;
+        }
+
+        private byte[] DecryptDataToArrayVersion4(WzMsEntry entry)
+        {
+            Span<byte> imgKey = stackalloc byte[WzMsConstants.ChaCha20KeyLength];
+            Span<byte> nonce = stackalloc byte[WzMsConstants.ChaCha20NonceLength];
+            DeriveChaCha20ImgKey(entry, imgKey, nonce, out uint counter);
+
+            byte[] buffer = new byte[entry.Size];
+            if (entry.Data != null)
+            {
+                Buffer.BlockCopy(entry.Data, 0, buffer, 0, entry.Size);
+            }
+            else
+            {
+                this.BaseStream.Position = entry.StartPos;
+                this.BaseStream.ReadExactly(buffer);
+            }
+
+            int dataLen = Math.Min(buffer.Length, WzMsConstants.DoubleEncryptInitialBytes);
+            if (dataLen > 0)
+            {
+                using var chacha20 = new ChaCha20CryptoTransform(imgKey, nonce, counter);
+                chacha20.TransformInPlace(buffer.AsSpan(0, dataLen));
             }
 
             return buffer;

@@ -1,8 +1,8 @@
 using MapleLib.WzLib.MSFile;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
-using System.Diagnostics;
 using System.IO;
 using System.Reflection;
+using System.Security.Cryptography;
 
 namespace MapleLib.Tests;
 
@@ -14,81 +14,33 @@ public class WzMsFileTests
         ?? throw new MissingMethodException(nameof(WzMsFile), "DecryptDataToArray");
 
     [TestMethod]
-    public void ReadsBundledPackHeaderEntriesAndEntryData()
+    [DataRow("Mob_00000.ms", 2, 24, "Mob/0000000.img", 4096, "12F51875C1545AFAC5B3BD4B3FD5131A9ED9F50FF248B84B01986D0934716F68")]
+    [DataRow("Skill_00006.ms", 4, 32, "Skill/422.img", 97538, "011ACBBA435F4818706C59560DCF7AC9AF039ABC11E340DD90F4A95EF2F7D398")]
+    public void ReadsVersionedPackHeaderEntriesAndEntryData(
+        string fileName,
+        int expectedVersion,
+        int expectedEntryCount,
+        string expectedFirstEntryName,
+        int expectedFirstEntrySize,
+        string expectedSha256)
     {
-        PackCase pack = ResolvePackCase();
+        string filePath = Path.Combine(PackDirectory, fileName);
+        Assert.IsTrue(File.Exists(filePath), $"Bundled MS pack not found: {filePath}");
 
-        using Stream stream = OpenPackFile(pack.FilePath);
-        using var file = new WzMsFile(stream, pack.OriginalFileName, pack.FilePath);
+        using var stream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.Read, 64 * 1024, FileOptions.SequentialScan);
+        using var file = new WzMsFile(stream, fileName, filePath);
 
-        if (file.Header.EntryCount <= 0)
-            Assert.Fail("Expected the bundled MS pack to contain entries.");
+        Assert.AreEqual(expectedVersion, file.Header.Version);
+        Assert.AreEqual(expectedEntryCount, file.Header.EntryCount);
 
         file.ReadEntries();
-        if (file.Header.EntryCount != file.Entries.Count)
-            Assert.Fail($"Expected {file.Header.EntryCount} entries, got {file.Entries.Count}.");
+
+        Assert.HasCount(expectedEntryCount, file.Entries);
+        Assert.AreEqual(expectedFirstEntryName, file.Entries[0].Name);
+        Assert.AreEqual(expectedFirstEntrySize, file.Entries[0].Size);
 
         byte[] decrypted = (byte[])DecryptDataToArrayMethod.Invoke(file, [file.Entries[0]])!;
-        if (decrypted.Length == 0)
-            Assert.Fail("Expected the first bundled MS pack entry to decrypt to data.");
+        Assert.HasCount(expectedFirstEntrySize, decrypted);
+        Assert.AreEqual(expectedSha256, Convert.ToHexString(SHA256.HashData(decrypted)));
     }
-
-    private static PackCase ResolvePackCase()
-    {
-        if (!Directory.Exists(PackDirectory))
-            Assert.Fail($"Bundled MS pack directory not found: {PackDirectory}");
-
-        foreach (string candidate in Directory.EnumerateFiles(PackDirectory, "*.ms").OrderBy(static path => path, StringComparer.OrdinalIgnoreCase))
-        {
-            foreach (string originalFileName in GetOriginalFileNameCandidates(candidate))
-            {
-                if (CanReadHeader(candidate, originalFileName))
-                    return new PackCase(candidate, originalFileName);
-            }
-        }
-
-        Assert.Fail($"No readable bundled MS pack found in: {PackDirectory}");
-        throw new UnreachableException();
-    }
-
-    private static IEnumerable<string> GetOriginalFileNameCandidates(string packFile)
-    {
-        string physicalName = Path.GetFileName(packFile);
-        string stem = Path.GetFileNameWithoutExtension(packFile);
-        string prefix = stem.Split('_')[0];
-        string threeDigitStem = stem.Length >= prefix.Length + 4 ? stem[..(prefix.Length + 4)] : stem;
-
-        string[] candidates =
-        [
-            physicalName,
-            $"{stem}.wz",
-            $"{threeDigitStem}.ms",
-            $"{threeDigitStem}.wz",
-            $"{prefix}.ms",
-            $"{prefix}.wz"
-        ];
-
-        return candidates.Distinct(StringComparer.OrdinalIgnoreCase);
-    }
-
-    private static bool CanReadHeader(string packFile, string originalFileName)
-    {
-        try
-        {
-            using FileStream stream = OpenPackFile(packFile);
-            using var file = new WzMsFile(stream, originalFileName, packFile);
-            return file.Header.EntryCount > 0;
-        }
-        catch
-        {
-            return false;
-        }
-    }
-
-    private static FileStream OpenPackFile(string packFile)
-    {
-        return new FileStream(packFile, FileMode.Open, FileAccess.Read, FileShare.ReadWrite, 1024 * 1024, FileOptions.SequentialScan);
-    }
-
-    private sealed record PackCase(string FilePath, string OriginalFileName);
 }
