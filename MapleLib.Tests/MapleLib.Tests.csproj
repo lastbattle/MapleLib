@@ -36,6 +36,9 @@
     <None Update="WzFiles\**\*.wz">
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
     </None>
+    <None Update="WzFiles\**\*.ms">
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+    </None>
     <None Update="Assets\Images\*.png">
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
     </None>

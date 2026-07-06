@@ -10,4 +10,11 @@
     <PackageReference Include="BenchmarkDotNet" Version="0.15.6" />
     <ProjectReference Include="..\..\MapleLib\MapleLib.csproj" />
   </ItemGroup>
+
+  <ItemGroup>
+    <None Include="..\..\MapleLib.Tests\WzFiles\**\*.ms">
+      <Link>WzFiles\%(RecursiveDir)%(Filename)%(Extension)</Link>
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
 </Project>
