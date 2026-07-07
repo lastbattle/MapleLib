@@ -9,6 +9,8 @@
 using System.IO;
 using System.Text.Json;
 using MapleLib.Img;
+using MapleLib.WzLib;
+using MapleLib.WzLib.WzProperties;
 using Xunit;
 using Assert = Xunit.Assert;
 
@@ -229,6 +231,30 @@ namespace MapleLib.Tests.Img
 
             // Assert
             Assert.Null(image);
+        }
+
+        [Fact]
+        public void LoadImage_FallsBackToLegacyEncryption_WhenManifestEncryptionDoesNotParseImg()
+        {
+            // Arrange
+            string mapImagePath = Path.Combine(_testVersionPath, "Map", "LegacyGms.img");
+            using (var writerManager = new ImgFileSystemManager(_testVersionPath, _config, WzMapleVersion.GMS))
+            {
+                var image = new WzImage("LegacyGms.img");
+                image.AddProperty(new WzStringProperty("value", "test"));
+
+                Assert.True(writerManager.SaveImageToFile(image, mapImagePath));
+            }
+
+            using var manager = new ImgFileSystemManager(_testVersionPath, _config, WzMapleVersion.BMS);
+            manager.Initialize();
+
+            // Act
+            var loadedImage = manager.LoadImage("Map", "LegacyGms.img");
+
+            // Assert
+            Assert.NotNull(loadedImage);
+            Assert.Equal("test", Assert.IsType<WzStringProperty>(loadedImage["value"]).Value);
         }
 
         [Fact]

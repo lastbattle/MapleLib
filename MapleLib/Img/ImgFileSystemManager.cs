@@ -168,6 +168,14 @@ namespace MapleLib.Img
             {
                 _mapleVersion = WzMapleVersion.BMS;
                 _wzIv = WzTool.GetIvByMapleVersion(_mapleVersion);
+
+                if (!string.IsNullOrEmpty(_versionInfo.Encryption) &&
+                    Enum.TryParse<WzMapleVersion>(_versionInfo.Encryption, true, out var manifestMapleVersion) &&
+                    manifestMapleVersion != WzMapleVersion.GENERATE)
+                {
+                    _mapleVersion = manifestMapleVersion;
+                    _wzIv = WzTool.GetIvByMapleVersion(_mapleVersion);
+                }
             }
         }
         #endregion
@@ -294,32 +302,53 @@ namespace MapleLib.Img
             {
                 Interlocked.Increment(ref _diskReads);
 
-                // Use freeResources=true to fully parse and close file handle
-                // This loads all bitmap data into memory but ensures images render correctly
-                // Memory is managed by the LRU cache which evicts old images
-                var deserializer = new WzImgDeserializer(true);
-                WzImage image = deserializer.WzImageFromIMGFile(
-                    filePath,
-                    _wzIv,
-                    imageName,
-                    out bool success);
+                foreach (var mapleVersion in GetReadMapleVersionCandidates())
+                {
+                    byte[] wzIv = WzTool.GetIvByMapleVersion(mapleVersion);
 
-                if (success && image != null)
-                {
-                    return image;
+                    // Use freeResources=true to fully parse and close file handle.
+                    // This loads all bitmap data into memory but ensures images render correctly.
+                    // Memory is managed by the LRU cache which evicts old images.
+                    var deserializer = new WzImgDeserializer(true);
+                    WzImage image = deserializer.WzImageFromIMGFile(
+                        filePath,
+                        wzIv,
+                        imageName,
+                        out bool success);
+
+                    if (success && image != null)
+                    {
+                        if (mapleVersion != _mapleVersion)
+                        {
+                            Debug.WriteLine($"[ImgFileSystemManager] Loaded {filePath} with fallback IMG encryption {mapleVersion}; primary was {_mapleVersion}.");
+                        }
+
+                        return image;
+                    }
+
+                    Debug.WriteLine($"[ImgFileSystemManager] Failed to parse image: {filePath} (success={success}, image={image != null}, encryption={mapleVersion})");
                 }
-                else
-                {
-                    Debug.WriteLine($"[ImgFileSystemManager] Failed to parse image: {filePath} (success={success}, image={image != null})");
-                    Debug.WriteLine($"[ImgFileSystemManager] Using IV: {BitConverter.ToString(_wzIv)}");
-                    return null;
-                }
+
+                return null;
             }
             catch (Exception ex)
             {
                 Debug.WriteLine($"[ImgFileSystemManager] Error loading image {filePath}: {ex.Message}");
                 Debug.WriteLine($"[ImgFileSystemManager] Stack trace: {ex.StackTrace}");
                 return null;
+            }
+        }
+
+        private IEnumerable<WzMapleVersion> GetReadMapleVersionCandidates()
+        {
+            yield return _mapleVersion;
+
+            foreach (var fallback in new[] { WzMapleVersion.BMS, WzMapleVersion.GMS, WzMapleVersion.EMS })
+            {
+                if (fallback != _mapleVersion)
+                {
+                    yield return fallback;
+                }
             }
         }
 
