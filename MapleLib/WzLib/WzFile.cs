@@ -879,7 +879,11 @@ namespace MapleLib.WzLib
                 bool bIsCanvasDir = WzFileManager.ContainsCanvasDirectory(path);
                 if (bIsCanvasDir)
                 {
-                    string beforeCanvasPath = WzFileManager.NormaliseWzCanvasDirectory(path).Replace("/", "\\");  // "map/_canvas"
+                    string beforeCanvasPath = WzFileManager.NormaliseWzCanvasDirectory(path).Replace("/", "\\");  // "map", "map\\back"
+                    if (beforeCanvasPath.Length > 0)
+                    {
+                        beforeCanvasPath = beforeCanvasPath + "\\" + WzFileManager.CANVAS_DIRECTORY_NAME.ToLowerInvariant();
+                    }
                     List<WzDirectory> wzDir = WzFileManager.fileManager.GetWzDirectoriesFromBase(beforeCanvasPath, true);  // all of the possible "._Canvas_000.wz" file that the image may be in
 
                     // path = "Map/_Canvas/MapHelper.img/mark/Hilla"
@@ -894,11 +898,16 @@ namespace MapleLib.WzLib
                         WzObject innerWzObject = dir[itemDirectoryPaths[0]];
                         if (innerWzObject != null)
                         {
-                            curObj = innerWzObject;
                             // Calculate start index in original separatedPath to avoid array copy
-                            pathIndex = separatedPath.Length - itemDirectoryPaths.Length + 1;
-                            found = true;
-                            break;
+                            int canvasPathIndex = separatedPath.Length - itemDirectoryPaths.Length + 1;
+                            WzObject resolvedObject = ResolveObjectPath(innerWzObject, separatedPath, canvasPathIndex);
+                            if (resolvedObject != null)
+                            {
+                                curObj = resolvedObject;
+                                pathIndex = separatedPath.Length;
+                                found = true;
+                                break;
+                            }
                         }
                     }
                     if (!found)
@@ -970,6 +979,18 @@ namespace MapleLib.WzLib
                 return null;
             }
 
+            curObj = ResolveObjectPath(curObj, separatedPath, pathIndex);
+            if (curObj == null)
+            {
+                return null;
+            }
+
+            _pathCache[path] = curObj;
+            return curObj;
+        }
+
+        private static WzObject ResolveObjectPath(WzObject curObj, string[] separatedPath, int pathIndex)
+        {
             for (int i = pathIndex; i < separatedPath.Length; i++)
             {
                 string pathPart = separatedPath[i];
@@ -977,6 +998,7 @@ namespace MapleLib.WzLib
                 {
                     return null;
                 }
+
                 switch (curObj.ObjectType)
                 {
                     case WzObjectType.Directory:
@@ -1004,13 +1026,12 @@ namespace MapleLib.WzLib
                                     return ((WzVectorProperty)curObj).Y;
                                 else
                                     return null;
-                            default: // Wut?
+                            default:
                                 return null;
                         }
                 }
             }
 
-            _pathCache[path] = curObj;
             return curObj;
         }
 

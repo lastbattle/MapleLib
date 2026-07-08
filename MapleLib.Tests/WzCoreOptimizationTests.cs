@@ -6,6 +6,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Reflection;
 using System.Runtime.Versioning;
 
 namespace UnitTest_WzFile;
@@ -14,6 +15,8 @@ namespace UnitTest_WzFile;
 [SupportedOSPlatform("windows")]
 public class WzCoreOptimizationTests
 {
+    private const short CanvasEraPatchVersion = 260;
+
     [TestMethod]
     public void DirectoryAndManagerLookups_AreCaseInsensitive()
     {
@@ -133,6 +136,31 @@ public class WzCoreOptimizationTests
     }
 
     [TestMethod]
+    public void GetObjectFromPath_SearchesAllMatchingCanvasShardImages()
+    {
+        using var manager = new WzFileManager();
+        RegisterWzFileList(
+            manager,
+            "map\\map\\map1\\_canvas",
+            "_canvas_000",
+            "_canvas_001");
+
+        using var firstShard = CreateCanvasShard("map/map/map1/_canvas/_canvas_000", includeTarget: false);
+        using var secondShard = CreateCanvasShard("map/map/map1/_canvas/_canvas_001", includeTarget: true);
+        manager.LoadWzFile("map/map/map1/_canvas/_canvas_000", firstShard);
+        manager.LoadWzFile("map/map/map1/_canvas/_canvas_001", secondShard);
+
+        using var mainFile = CreateInMemoryCanvasEraWzFile();
+        WzObject resolved = mainFile.GetObjectFromPath("Map/Map/Map1/_Canvas/010006121.img/miniMap/canvas");
+
+        WzImage targetImage = (WzImage)secondShard.WzDirectory["010006121.img"];
+        WzImageProperty targetCanvas = targetImage.GetFromPath("miniMap/canvas");
+        Assert.IsNotNull(targetCanvas);
+        Assert.IsNotNull(resolved);
+        Assert.AreSame(targetCanvas, resolved);
+    }
+
+    [TestMethod]
     public void Dispose_IsIdempotentForNewFileTree()
     {
         var file = new WzFile(95, WzMapleVersion.GMS);
@@ -142,5 +170,53 @@ public class WzCoreOptimizationTests
         file.Dispose();
 
         Assert.IsTrue(file.IsUnloaded);
+    }
+
+    private static WzFile CreateCanvasShard(string name, bool includeTarget)
+    {
+        var file = CreateInMemoryCanvasEraWzFile();
+        file.Name = name;
+        file.WzDirectory.Name = name;
+
+        var image = new WzImage("010006121.img");
+        if (includeTarget)
+        {
+            var miniMap = new WzSubProperty("miniMap");
+            miniMap.AddProperty(CreateCanvas("canvas"));
+            image.AddProperty(miniMap);
+        }
+        else
+        {
+            image.AddProperty(CreateCanvas("notTheRequestedCanvas"));
+        }
+
+        file.WzDirectory.AddImage(image);
+        return file;
+    }
+
+    private static WzFile CreateInMemoryCanvasEraWzFile()
+    {
+        return new WzFile(CanvasEraPatchVersion, WzMapleVersion.GMS);
+    }
+
+    private static WzCanvasProperty CreateCanvas(string name)
+    {
+        var canvas = new WzCanvasProperty(name)
+        {
+            PngProperty = new WzPngProperty()
+        };
+        canvas.PngProperty.SetCompressedBytes([0x78, 0x9C, 0x03, 0x00], 1, 1, WzPngFormat.Format2);
+        return canvas;
+    }
+
+    private static void RegisterWzFileList(WzFileManager manager, string baseName, params string[] fileNames)
+    {
+        var field = typeof(WzFileManager).GetField("_wzFilesList", BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.IsNotNull(field);
+
+        var wzFilesList = (Dictionary<string, List<string>>?)field.GetValue(manager);
+        Assert.IsNotNull(wzFilesList);
+
+        wzFilesList[baseName] = fileNames.ToList();
     }
 }
