@@ -65,8 +65,7 @@ namespace MapleLib.WzLib.WzStructure.Data.CharacterStructure
         /// <returns>An IEnumerable of CharacterJobType containing all enum values except NULL.</returns>
         public static IEnumerable<CharacterClassType> GetAllJobTypes()
         {
-            return Enum.GetValues(typeof(CharacterClassType))
-                .Cast<CharacterClassType>()
+            return Enum.GetValues<CharacterClassType>()
                 .Where(j => j != CharacterClassType.NULL);
         }
 

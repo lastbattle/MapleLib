@@ -12,7 +12,7 @@ namespace MapleLib.WzLib.MSFile
 
     public class Snow2CryptoTransform : ICryptoTransform, IDisposable
     {
-        public Snow2CryptoTransform(byte[] key, byte[] iv, bool encrypting)
+        public Snow2CryptoTransform(byte[] key, byte[]? iv, bool encrypting)
             : this((ReadOnlySpan<byte>)key, iv == null ? ReadOnlySpan<byte>.Empty : (ReadOnlySpan<byte>)iv, encrypting) { }
 
         public Snow2CryptoTransform(ReadOnlySpan<byte> key, ReadOnlySpan<byte> iv, bool encrypting)

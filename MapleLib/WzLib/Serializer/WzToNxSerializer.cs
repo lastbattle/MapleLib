@@ -125,7 +125,7 @@ namespace MapleLib.WzLib.Serializer
                     if (!flag3)
                     {
                         bw.BaseStream.Position = (long)(nodeOffset + state.GetNodeID(result) * 20U + 4UL);
-                        bw.BaseStream.Read(uolReplace, 0, 16);
+                        bw.BaseStream.ReadExactly(uolReplace);
                         pair.Value(bw, uolReplace);
                     }
                 }

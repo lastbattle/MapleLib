@@ -62,7 +62,7 @@ namespace MapleLib.WzLib.Serializer
                 BlockSize = (int)stream.Length
             };
             byte[] bytes = new byte[stream.Length];
-            stream.Read(bytes, 0, (int)stream.Length);
+            stream.ReadExactly(bytes);
             stream.Position = 0;
             img.CalculateAndSetImageChecksum(bytes);
             img.Offset = 0;

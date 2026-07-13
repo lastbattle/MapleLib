@@ -1,8 +1,9 @@
-using Newtonsoft.Json;
 using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Text.Json;
+using System.Text.Json.Serialization;
 
 namespace MapleLib.Img
 {
@@ -12,25 +13,25 @@ namespace MapleLib.Img
     /// </summary>
     public class CategoryIndex
     {
-        [JsonProperty("version")]
+        [JsonPropertyName("version")]
         public int Version { get; set; } = 1;
 
-        [JsonProperty("category")]
+        [JsonPropertyName("category")]
         public string Category { get; set; }
 
-        [JsonProperty("generatedAt")]
+        [JsonPropertyName("generatedAt")]
         public DateTime GeneratedAt { get; set; }
 
-        [JsonProperty("totalImageCount")]
+        [JsonPropertyName("totalImageCount")]
         public int TotalImageCount { get; set; }
 
-        [JsonProperty("totalSizeBytes")]
+        [JsonPropertyName("totalSizeBytes")]
         public long TotalSizeBytes { get; set; }
 
-        [JsonProperty("images")]
+        [JsonPropertyName("images")]
         public List<ImageIndexEntry> Images { get; set; } = new List<ImageIndexEntry>();
 
-        [JsonProperty("subdirectories")]
+        [JsonPropertyName("subdirectories")]
         public List<SubdirectoryEntry> Subdirectories { get; set; } = new List<SubdirectoryEntry>();
 
         /// <summary>
@@ -132,7 +133,7 @@ namespace MapleLib.Img
         /// </summary>
         public void Save(string indexPath)
         {
-            string json = JsonConvert.SerializeObject(this, Formatting.Indented);
+            string json = JsonSerializer.Serialize(this, MapleJsonContext.Default.CategoryIndex);
             File.WriteAllText(indexPath, json);
         }
 
@@ -147,7 +148,7 @@ namespace MapleLib.Img
             try
             {
                 string json = File.ReadAllText(indexPath);
-                return JsonConvert.DeserializeObject<CategoryIndex>(json);
+                return JsonSerializer.Deserialize(json, MapleJsonContext.Default.CategoryIndex);
             }
             catch
             {
@@ -173,16 +174,16 @@ namespace MapleLib.Img
     /// </summary>
     public class ImageIndexEntry
     {
-        [JsonProperty("name")]
+        [JsonPropertyName("name")]
         public string Name { get; set; }
 
-        [JsonProperty("path")]
+        [JsonPropertyName("path")]
         public string RelativePath { get; set; }
 
-        [JsonProperty("size")]
+        [JsonPropertyName("size")]
         public long SizeBytes { get; set; }
 
-        [JsonProperty("modified")]
+        [JsonPropertyName("modified")]
         public DateTime LastModified { get; set; }
     }
 
@@ -191,13 +192,13 @@ namespace MapleLib.Img
     /// </summary>
     public class SubdirectoryEntry
     {
-        [JsonProperty("name")]
+        [JsonPropertyName("name")]
         public string Name { get; set; }
 
-        [JsonProperty("images")]
+        [JsonPropertyName("images")]
         public List<ImageIndexEntry> Images { get; set; } = new List<ImageIndexEntry>();
 
-        [JsonProperty("subdirs")]
+        [JsonPropertyName("subdirs")]
         public List<SubdirectoryEntry> Subdirectories { get; set; } = new List<SubdirectoryEntry>();
 
         [JsonIgnore]

@@ -67,7 +67,7 @@ namespace UnitTest_WzFile
                 //////// Open first ////////
                 WzImage wzImg = _fileManager.LoadDataWzHotfixFile(filePath, wzMapleVer);
 
-                Assert.IsTrue(wzImg != null, "Hotfix Data.wz loading failed.");
+                Assert.IsNotNull(wzImg, "Hotfix Data.wz loading failed.");
 
                 //////// Save file ////////
                 string tmpFilePath = filePath + ".tmp";
@@ -85,7 +85,7 @@ namespace UnitTest_WzFile
                 //////// Reload file first ////////
                 WzImage wzImg_newTmpFile = _fileManager.LoadDataWzHotfixFile(tmpFilePath, wzMapleVer);
                 
-                Assert.IsTrue(wzImg_newTmpFile != null, "loading of newly saved Hotfix Data.wz file failed.");
+                Assert.IsNotNull(wzImg_newTmpFile, "loading of newly saved Hotfix Data.wz file failed.");
 
                 wzImg_newTmpFile.Dispose(); // unload
                 try
@@ -99,7 +99,7 @@ namespace UnitTest_WzFile
             }
             catch (Exception e)
             {
-                Assert.IsTrue(true,
+                Debug.WriteLine(
                     "Error initializing " + Path.GetFileName(filePath) + " (" + e.Message + ").\r\nAlso, check that the directory is valid and the file is not in use.");
             }
         }
@@ -125,12 +125,12 @@ namespace UnitTest_WzFile
 
                     WzFileParseStatus parseStatus = f.ParseWzFile();
 
-                    Assert.IsFalse(parseStatus != WzFileParseStatus.Success,
+                    Assert.AreEqual(WzFileParseStatus.Success, parseStatus,
                         "Error initializing " + fileName + " (" + parseStatus.GetErrorDescription() + ").");
                 }
                 catch (Exception e)
                 {
-                    Assert.IsTrue(true,
+                    Debug.WriteLine(
                         "Error initializing " + Path.GetFileName(filePath) + " (" + e.Message + ").\r\nAlso, check that the directory is valid and the file is not in use.");
                 }
             }

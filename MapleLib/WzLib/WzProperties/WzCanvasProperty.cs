@@ -289,7 +289,7 @@ namespace MapleLib.WzLib.WzProperties {
         /// It will be handled via HaRepackerMainPanel instead.
         /// </summary>
         /// <returns></returns>
-        public WzImageProperty GetLinkedWzImageProperty()
+        public new WzImageProperty GetLinkedWzImageProperty()
         {
             string _inlink = ((WzStringProperty)this[InlinkPropertyName])?.Value; // could get nexon'd here. In case they place an _inlink that's not WzStringProperty
             string _outlink = ((WzStringProperty)this[OutlinkPropertyName])?.Value; // could get nexon'd here. In case they place an _outlink that's not WzStringProperty

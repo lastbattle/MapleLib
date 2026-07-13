@@ -389,7 +389,7 @@ namespace MapleLib.WzLib.Util
 
                 // read the entire region
                 BaseStream.Seek(start, SeekOrigin.Begin);
-                BaseStream.Read(buffer, 0, length);
+                BaseStream.ReadExactly(buffer);
 
                 this.BaseStream.Position = startPositionBeforeRead; // reset stream pos
             }
@@ -419,7 +419,7 @@ namespace MapleLib.WzLib.Util
                     ? stackalloc byte[numberOfBytes]
                     : (pooledArray = s_bytePool.Rent(numberOfBytes)).AsSpan(0, numberOfBytes);
 
-                BaseStream.Read(buffer);
+                BaseStream.ReadExactly(buffer);
                 //string hex = HexTool.ToString(buffer.ToArray());
                 //Debug.WriteLine(hex);
 

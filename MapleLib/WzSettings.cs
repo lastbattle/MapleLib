@@ -1,9 +1,9 @@
 using System;
 using System.Reflection;
 using System.IO;
-using Newtonsoft.Json.Linq;
 using System.Drawing;
-using Newtonsoft.Json;
+using System.Text.Json;
+using System.Text.Json.Nodes;
 
 namespace MapleLib.WzLib
 {
@@ -42,10 +42,11 @@ namespace MapleLib.WzLib
 
                 try
                 {
-                    JObject mainJson = (JObject)JsonConvert.DeserializeObject(strJsonConfig);
+                    JsonObject mainJson = JsonNode.Parse(strJsonConfig)?.AsObject()
+                        ?? throw new JsonException("Settings JSON must contain an object.");
 
-                    LoadSettingsJson((JObject) mainJson[USER_SETTING_JSON], userSettingsType);
-                    LoadSettingsJson((JObject) mainJson[APP_SETTING_JSON], appSettingsType);
+                    LoadSettingsJson(mainJson[USER_SETTING_JSON]?.AsObject(), userSettingsType);
+                    LoadSettingsJson(mainJson[APP_SETTING_JSON]?.AsObject(), appSettingsType);
                 }
                 catch { 
                     // its fine if loading isnt possible
@@ -62,12 +63,12 @@ namespace MapleLib.WzLib
         /// </summary>
         /// <param name="json"></param>
         /// <param name="settingsHolderType"></param>
-        private void LoadSettingsJson(JObject json, Type settingsHolderType)
+        private void LoadSettingsJson(JsonObject json, Type settingsHolderType)
         {
             foreach (FieldInfo fieldInfo in settingsHolderType.GetFields(BindingFlags.Public | BindingFlags.Static))
             {
                 string fieldName = fieldInfo.Name;
-                JObject jsonHoldingObject = (JObject)json[fieldName];
+                JsonObject jsonHoldingObject = json[fieldName]?.AsObject();
 
                 LoadField(fieldInfo, jsonHoldingObject);
             }
@@ -79,7 +80,7 @@ namespace MapleLib.WzLib
         /// <param name="fieldInfo"></param>
         /// <param name="jsonHoldingObject"></param>
         /// <exception cref="Exception"></exception>
-        private void LoadField(FieldInfo fieldInfo, JObject jsonHoldingObject)
+        private void LoadField(FieldInfo fieldInfo, JsonObject jsonHoldingObject)
         {
             if (jsonHoldingObject == null)
             {
@@ -87,16 +88,16 @@ namespace MapleLib.WzLib
                 // fallback to default as specified in WzSettings.json
             }
             else if (fieldInfo.FieldType.BaseType != null && fieldInfo.FieldType.BaseType.FullName == "System.Enum")
-                fieldInfo.SetValue(null, (int)jsonHoldingObject["value"]);
+                fieldInfo.SetValue(null, jsonHoldingObject["value"].GetValue<int>());
             else
             {
-                string fieldType = (string)jsonHoldingObject["type"];
+                string fieldType = jsonHoldingObject["type"].GetValue<string>();
 
                 switch (fieldType)
                 {
                     case "Microsoft.Xna.Framework.Color":
                         {
-                            uint value = (uint)jsonHoldingObject["value"];
+                            uint value = jsonHoldingObject["value"].GetValue<uint>();
                             Microsoft.Xna.Framework.Color xnaColor = new Microsoft.Xna.Framework.Color(value);
  
                             fieldInfo.SetValue(null, xnaColor);
@@ -104,7 +105,7 @@ namespace MapleLib.WzLib
                         }
                     case "System.Drawing.Color":
                         {
-                            int value = (int)jsonHoldingObject["value"];
+                            int value = jsonHoldingObject["value"].GetValue<int>();
                             System.Drawing.Color color = System.Drawing.Color.FromArgb(value);
 
                             fieldInfo.SetValue(null, color);
@@ -112,29 +113,29 @@ namespace MapleLib.WzLib
                         }
                     case "System.Int32":
                         {
-                            int value = (int)jsonHoldingObject["value"];
+                            int value = jsonHoldingObject["value"].GetValue<int>();
 
                             fieldInfo.SetValue(null, value);
                             break;
                         }
                     case "System.Double":
                         {
-                            double value = (double)jsonHoldingObject["value"];
+                            double value = jsonHoldingObject["value"].GetValue<double>();
 
                             fieldInfo.SetValue(null, value);
                             break;
                         }
                     case "System.Single":
                         {
-                            float value = (float)jsonHoldingObject["value"];
+                            float value = jsonHoldingObject["value"].GetValue<float>();
 
                             fieldInfo.SetValue(null, value);
                             break;
                         }
                     case "System.Drawing.Size":
                         {
-                            int valueHeight = (int)jsonHoldingObject["valueHeight"];
-                            int valueWidth = (int)jsonHoldingObject["valueWidth"];
+                            int valueHeight = jsonHoldingObject["valueHeight"].GetValue<int>();
+                            int valueWidth = jsonHoldingObject["valueWidth"].GetValue<int>();
 
                             System.Drawing.Size size = new System.Drawing.Size(valueHeight, valueWidth);
 
@@ -143,14 +144,14 @@ namespace MapleLib.WzLib
                         }
                     case "System.String":
                         {
-                            string value = (string)jsonHoldingObject["value"];
+                            string value = jsonHoldingObject["value"].GetValue<string>();
 
                             fieldInfo.SetValue(null, value);
                             break;
                         }
                     case "System.Drawing.Bitmap":
                         {
-                            string base64Image = (string)jsonHoldingObject["value"];
+                            string base64Image = jsonHoldingObject["value"].GetValue<string>();
                             byte[] byteImage = System.Convert.FromBase64String(base64Image);
 
                             Bitmap bmp;
@@ -163,7 +164,7 @@ namespace MapleLib.WzLib
                         }
                     case "System.Boolean":
                         {
-                            bool value = (bool)jsonHoldingObject["value"];
+                            bool value = jsonHoldingObject["value"].GetValue<bool>();
 
                             fieldInfo.SetValue(null, value);
                             break;
@@ -180,10 +181,10 @@ namespace MapleLib.WzLib
         #region Saving
         public void SaveSettings()
         {
-            JObject userSettingJson = SaveSettingsJson(userSettingsType);
-            JObject appSettingJson = SaveSettingsJson(appSettingsType);
+            JsonObject userSettingJson = SaveSettingsJson(userSettingsType);
+            JsonObject appSettingJson = SaveSettingsJson(appSettingsType);
 
-            JObject mainJson = new JObject();
+            JsonObject mainJson = new JsonObject();
             mainJson.Add(USER_SETTING_JSON, userSettingJson);
             mainJson.Add(APP_SETTING_JSON, appSettingJson);
 
@@ -191,20 +192,16 @@ namespace MapleLib.WzLib
             if (settingsExist)
                 File.Delete(settingFilePath);
 
-            using (StreamWriter file = File.CreateText(settingFilePath))
-            {
-                JsonSerializer serializer = new JsonSerializer();
-                serializer.Serialize(file, mainJson);
-            }
+            File.WriteAllText(settingFilePath, mainJson.ToJsonString(MapleJson.IndentedOptions));
         }
 
         /// <summary>
         /// Saves the settings image to json
         /// </summary>
         /// <param name="settingsHolderType"></param>
-        private JObject SaveSettingsJson(Type settingsHolderType)
+        private JsonObject SaveSettingsJson(Type settingsHolderType)
         {
-            JObject jObjHolder = new JObject();
+            JsonObject jObjHolder = new JsonObject();
 
             foreach (FieldInfo fieldInfo in settingsHolderType.GetFields(BindingFlags.Public | BindingFlags.Static))
             {
@@ -219,18 +216,18 @@ namespace MapleLib.WzLib
         /// <param name="fieldInfo"></param>
         /// <param name="jObjHolder"></param>
         /// <exception cref="Exception"></exception>
-        private void SaveField(FieldInfo fieldInfo, JObject jObjHolder)
+        private void SaveField(FieldInfo fieldInfo, JsonObject jObjHolder)
         {
             string settingName = fieldInfo.Name;
 
-            JObject fieldJsonObject = new JObject();
+            JsonObject fieldJsonObject = new JsonObject();
             jObjHolder.Add(settingName, fieldJsonObject);
 
-            fieldJsonObject.Add("type", fieldInfo.FieldType.FullName); // i.e System.Int
+            fieldJsonObject.Add("type", JsonValue.Create(fieldInfo.FieldType.FullName)); // i.e System.Int
 
             if (fieldInfo.FieldType.BaseType != null && fieldInfo.FieldType.BaseType.FullName == "System.Enum")
             {
-                fieldJsonObject.Add("value", (int) fieldInfo.GetValue(null));
+                fieldJsonObject.Add("value", JsonValue.Create((int)fieldInfo.GetValue(null)));
             }
             else
                 switch (fieldInfo.FieldType.FullName)
@@ -241,50 +238,50 @@ namespace MapleLib.WzLib
                             Microsoft.Xna.Framework.Color xnaColor = (Microsoft.Xna.Framework.Color) fieldInfo.GetValue(null);
                             uint uValue = xnaColor.PackedValue;
 
-                            fieldJsonObject.Add("value", uValue);
+                            fieldJsonObject.Add("value", JsonValue.Create(uValue));
                             break;
                         }
                     case "System.Drawing.Color":
                         {
                             int argbColor = ((System.Drawing.Color)fieldInfo.GetValue(null)).ToArgb();
 
-                            fieldJsonObject.Add("value", (int)argbColor);
+                            fieldJsonObject.Add("value", JsonValue.Create(argbColor));
                             break;
                         }
                     case "System.Int32":
                         {
                             int intVal = (int)fieldInfo.GetValue(null);
 
-                            fieldJsonObject.Add("value", intVal);
+                            fieldJsonObject.Add("value", JsonValue.Create(intVal));
                             break;
                         }
                     case "System.Double":
                         {
                             double dValue = (double)fieldInfo.GetValue(null);
 
-                            fieldJsonObject.Add("value", dValue);
+                            fieldJsonObject.Add("value", JsonValue.Create(dValue));
                             break;
                         }
                     case "System.Single":
                         {
                             float fValue = (float)fieldInfo.GetValue(null);
 
-                            fieldJsonObject.Add("value", fValue);
+                            fieldJsonObject.Add("value", JsonValue.Create(fValue));
                             break;
                         }
                     case "System.Drawing.Size":
                         {
                             System.Drawing.Size size = (System.Drawing.Size)fieldInfo.GetValue(null);
 
-                            fieldJsonObject.Add("valueHeight", size.Height);
-                            fieldJsonObject.Add("valueWidth", size.Width);
+                            fieldJsonObject.Add("valueHeight", JsonValue.Create(size.Height));
+                            fieldJsonObject.Add("valueWidth", JsonValue.Create(size.Width));
                             break;
                         }
                     case "System.String":
                         {
                             string strValue = (string)fieldInfo.GetValue(null);
 
-                            fieldJsonObject.Add("value", strValue);;
+                            fieldJsonObject.Add("value", JsonValue.Create(strValue));
                             break;
                         }
                     case "System.Drawing.Bitmap":
@@ -295,14 +292,14 @@ namespace MapleLib.WzLib
                             byte[] byteImage = (byte[])converter.ConvertTo(bitmap, typeof(byte[]));
                             string base64Image = Convert.ToBase64String(byteImage, 0, byteImage.Length,Base64FormattingOptions.None);
 
-                            fieldJsonObject.Add("value", base64Image);
+                            fieldJsonObject.Add("value", JsonValue.Create(base64Image));
                             break;
                         }
                     case "System.Boolean":
                         {
                             bool bValue = (bool)fieldInfo.GetValue(null);
 
-                            fieldJsonObject.Add("value", bValue);
+                            fieldJsonObject.Add("value", JsonValue.Create(bValue));
                             break;
                         }
                     default:

@@ -3,11 +3,10 @@ using System.Linq;
 using MapleLib.MapleCryptoLib;
 using MapleLib.WzLib;
 using MapleLib.WzLib.Util;
-using Newtonsoft.Json;
-using Newtonsoft.Json.Converters;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.Runtime.CompilerServices;
+using System.Text.Json.Serialization;
 
 namespace MapleLib.Configuration
 {
@@ -18,17 +17,17 @@ namespace MapleLib.Configuration
         private string _aesUserKey = "";
         private WzMutableKey _wzKey;
 
-        [JsonProperty("Name")]
+        [JsonPropertyName("Name")]
         public string Name {
             get => _name;
             set => SetField(ref _name, value);
         }
 
-        [JsonProperty("MapleVersion")]
-        [JsonConverter(typeof(StringEnumConverter))]
+        [JsonPropertyName("MapleVersion")]
+        [JsonConverter(typeof(JsonStringEnumConverter<WzMapleVersion>))]
         public WzMapleVersion MapleVersion { get; set; } = WzMapleVersion.CUSTOM;
 
-        [JsonProperty("Iv")]
+        [JsonPropertyName("Iv")]
         public string Iv {
             get => _iv;
             set {
@@ -39,7 +38,7 @@ namespace MapleLib.Configuration
             }
         }
 
-        [JsonProperty("AesUserKey")]
+        [JsonPropertyName("AesUserKey")]
         public string AesUserKey {
             get => _aesUserKey;
             set {

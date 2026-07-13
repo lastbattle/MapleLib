@@ -26,7 +26,7 @@ namespace UnitTest_WzFile
             byte[] result = PngUtility.BitmapToByteArray(bmp);
 
             Assert.IsNotNull(result);
-            Assert.IsTrue(result.Length > 0);
+            Assert.IsNotEmpty(result);
             // PNG signature: 137 80 78 71 13 10 26 10
             Assert.AreEqual(137, result[0]);
             Assert.AreEqual(80, result[1]);
@@ -126,9 +126,9 @@ namespace UnitTest_WzFile
             // Due to bit expansion: r5=15 -> (15<<3)|(15>>2) = 120+3 = 123
             // g6=31 -> (31<<2)|(31>>4) = 124+1 = 125
             // b5=15 -> same as r = 123
-            Assert.IsTrue(Math.Abs(gray.R - 123) <= 2);
-            Assert.IsTrue(Math.Abs(gray.G - 125) <= 2);
-            Assert.IsTrue(Math.Abs(gray.B - 123) <= 2);
+            Assert.IsLessThanOrEqualTo(2, Math.Abs(gray.R - 123));
+            Assert.IsLessThanOrEqualTo(2, Math.Abs(gray.G - 125));
+            Assert.IsLessThanOrEqualTo(2, Math.Abs(gray.B - 123));
         }
 
         [TestMethod]
@@ -251,8 +251,9 @@ namespace UnitTest_WzFile
                     bmp.SetPixel(x, y, Color.FromArgb(128 + x % 128, x * 8 % 256, y * 8 % 256, (x + y) % 256));
 
             // Encode to DXT3
-            var dxt3 = typeof(PngUtility).GetMethod("CompressDXT3", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static);
-            byte[] encoded = (byte[])dxt3.Invoke(null, new object[] { bmp });
+            var dxt3 = typeof(PngUtility).GetMethod("CompressDXT3", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static)
+                ?? throw new MissingMethodException(typeof(PngUtility).FullName, "CompressDXT3");
+            byte[] encoded = (byte[])dxt3.Invoke(null, new object[] { bmp })!;
 
             // Decode back
             using var bmpOut = new Bitmap(32, 32, PixelFormat.Format32bppArgb);
@@ -343,8 +344,9 @@ namespace UnitTest_WzFile
                 for (int x = 0; x < 32; x++)
                     bmp.SetPixel(x, y, Color.FromArgb(255 - x % 128, x * 8 % 256, y * 8 % 256, (x + y) % 256));
 
-            var dxt5 = typeof(PngUtility).GetMethod("GetPixelDataFormat2050", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static);
-            byte[] encoded = (byte[])dxt5.Invoke(null, new object[] { bmp });
+            var dxt5 = typeof(PngUtility).GetMethod("GetPixelDataFormat2050", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static)
+                ?? throw new MissingMethodException(typeof(PngUtility).FullName, "GetPixelDataFormat2050");
+            byte[] encoded = (byte[])dxt5.Invoke(null, new object[] { bmp })!;
 
             using var bmpOut = new Bitmap(32, 32, PixelFormat.Format32bppArgb);
             BitmapData bmpData = bmpOut.LockBits(new Rectangle(0, 0, 32, 32), ImageLockMode.WriteOnly, PixelFormat.Format32bppArgb);
@@ -358,7 +360,7 @@ namespace UnitTest_WzFile
                     Color orig = bmp.GetPixel(x, y);
                     Color decoded = bmpOut.GetPixel(x, y);
                     int diff = Math.Abs(orig.A - decoded.A);
-                    Assert.IsTrue(diff <= 16, $"Alpha mismatch at ({x},{y}) - expected {orig.A} got {decoded.A}");
+                    Assert.IsLessThanOrEqualTo(16, diff, $"Alpha mismatch at ({x},{y}) - expected {orig.A} got {decoded.A}");
                 }
         }
 
@@ -536,7 +538,7 @@ namespace UnitTest_WzFile
             var (fmt, pixelData) = PngUtility.CompressImageToPngFormat(bmp, SurfaceFormat.Bgra4444);
 
             Assert.AreEqual(MapleLib.WzLib.WzProperties.WzPngFormat.Format1, fmt);
-            Assert.AreEqual(8 * 8 * 2, pixelData.Length); // 2 bytes per pixel
+            Assert.HasCount(8 * 8 * 2, pixelData); // 2 bytes per pixel
         }
 
         [TestMethod]
@@ -550,7 +552,7 @@ namespace UnitTest_WzFile
             var (fmt, pixelData) = PngUtility.CompressImageToPngFormat(bmp, SurfaceFormat.Color);
 
             Assert.AreEqual(MapleLib.WzLib.WzProperties.WzPngFormat.Format2, fmt);
-            Assert.AreEqual(8 * 8 * 4, pixelData.Length); // 4 bytes per pixel
+            Assert.HasCount(8 * 8 * 4, pixelData); // 4 bytes per pixel
         }
 
         [TestMethod]
@@ -564,7 +566,7 @@ namespace UnitTest_WzFile
             var (fmt, pixelData) = PngUtility.CompressImageToPngFormat(bmp, SurfaceFormat.Bgra32);
 
             Assert.AreEqual(MapleLib.WzLib.WzProperties.WzPngFormat.Format2, fmt);
-            Assert.AreEqual(8 * 8 * 4, pixelData.Length);
+            Assert.HasCount(8 * 8 * 4, pixelData);
         }
 
         [TestMethod]
@@ -578,7 +580,7 @@ namespace UnitTest_WzFile
             var (fmt, pixelData) = PngUtility.CompressImageToPngFormat(bmp, SurfaceFormat.Bgra5551);
 
             Assert.AreEqual(MapleLib.WzLib.WzProperties.WzPngFormat.Format257, fmt);
-            Assert.AreEqual(8 * 8 * 2, pixelData.Length); // 2 bytes per pixel
+            Assert.HasCount(8 * 8 * 2, pixelData); // 2 bytes per pixel
         }
 
         [TestMethod]
@@ -593,7 +595,7 @@ namespace UnitTest_WzFile
             var (fmt, pixelData) = PngUtility.CompressImageToPngFormat(bmp, SurfaceFormat.Bgr565);
 
             Assert.AreEqual(MapleLib.WzLib.WzProperties.WzPngFormat.Format513, fmt);
-            Assert.AreEqual(10 * 10 * 2, pixelData.Length); // 2 bytes per pixel
+            Assert.HasCount(10 * 10 * 2, pixelData); // 2 bytes per pixel
         }
 
         [TestMethod]
@@ -619,9 +621,9 @@ namespace UnitTest_WzFile
                     Color decoded = PngUtility.RGB565ToColor(val);
                     Color orig = bmp.GetPixel(x, y);
                     // Allow small differences due to 5/6/5 quantization
-                    Assert.IsTrue(Math.Abs(decoded.R - orig.R) <= 8, $"R channel too far at ({x},{y})");
-                    Assert.IsTrue(Math.Abs(decoded.G - orig.G) <= 8, $"G channel too far at ({x},{y})");
-                    Assert.IsTrue(Math.Abs(decoded.B - orig.B) <= 8, $"B channel too far at ({x},{y})");
+                    Assert.IsLessThanOrEqualTo(8, Math.Abs(decoded.R - orig.R), $"R channel too far at ({x},{y})");
+                    Assert.IsLessThanOrEqualTo(8, Math.Abs(decoded.G - orig.G), $"G channel too far at ({x},{y})");
+                    Assert.IsLessThanOrEqualTo(8, Math.Abs(decoded.B - orig.B), $"B channel too far at ({x},{y})");
                 }
             }
         }
@@ -640,7 +642,7 @@ namespace UnitTest_WzFile
             Assert.AreEqual(MapleLib.WzLib.WzProperties.WzPngFormat.Format517, fmt);
             // Format517: 2 bytes per 16x16 block
             int blockCount = (32 / 16) * (32 / 16);
-            Assert.AreEqual(blockCount * 2, pixelData.Length);
+            Assert.HasCount(blockCount * 2, pixelData);
         }
 
         [TestMethod]
@@ -698,7 +700,7 @@ namespace UnitTest_WzFile
             Assert.AreEqual(MapleLib.WzLib.WzProperties.WzPngFormat.Format1026, fmt);
             // DXT3: 16 bytes per 4x4 block
             int blockCount = (8 / 4) * (8 / 4);
-            Assert.AreEqual(blockCount * 16, pixelData.Length);
+            Assert.HasCount(blockCount * 16, pixelData);
         }
 
         [TestMethod]
@@ -731,7 +733,7 @@ namespace UnitTest_WzFile
             Assert.AreEqual(MapleLib.WzLib.WzProperties.WzPngFormat.Format2050, fmt);
             // DXT5: 16 bytes per 4x4 block
             int blockCount = (8 / 4) * (8 / 4);
-            Assert.AreEqual(blockCount * 16, pixelData.Length);
+            Assert.HasCount(blockCount * 16, pixelData);
         }
 
         [TestMethod]
@@ -746,7 +748,7 @@ namespace UnitTest_WzFile
             var (fmt, pixelData) = PngUtility.CompressImageToPngFormat(bmp, (SurfaceFormat)9999);
 
             Assert.AreEqual(MapleLib.WzLib.WzProperties.WzPngFormat.Format2, fmt);
-            Assert.AreEqual(8 * 8 * 4, pixelData.Length);
+            Assert.HasCount(8 * 8 * 4, pixelData);
         }
 
         [TestMethod]
@@ -811,7 +813,7 @@ namespace UnitTest_WzFile
             var (fmt, pixelData) = PngUtility.CompressImageToPngFormat(bmp, SurfaceFormat.Bgra4444);
 
             Assert.AreEqual(MapleLib.WzLib.WzProperties.WzPngFormat.Format1, fmt);
-            Assert.AreEqual(2 * 2 * 2, pixelData.Length);
+            Assert.HasCount(2 * 2 * 2, pixelData);
 
             // Pixel 0,0: All 0xFF -> all nibbles = 0xF
             // Format is: byte0 = (G4<<4)|B4, byte1 = (A4<<4)|R4
@@ -862,7 +864,8 @@ namespace UnitTest_WzFile
             // DXT3 requires dimensions to be multiples of 4
             using var bmp = new Bitmap(7, 7, PixelFormat.Format32bppArgb);
 
-            var method = typeof(PngUtility).GetMethod("CompressDXT3", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static);
+            var method = typeof(PngUtility).GetMethod("CompressDXT3", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static)
+                ?? throw new MissingMethodException(typeof(PngUtility).FullName, "CompressDXT3");
             var ex = Assert.Throws<System.Reflection.TargetInvocationException>(() =>
                  method.Invoke(null, new object[] { bmp }));
 
@@ -875,7 +878,8 @@ namespace UnitTest_WzFile
             // DXT5 requires dimensions to be multiples of 4
             using var bmp = new Bitmap(7, 7, PixelFormat.Format32bppArgb);
 
-            var method = typeof(PngUtility).GetMethod("GetPixelDataFormat2050", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static);
+            var method = typeof(PngUtility).GetMethod("GetPixelDataFormat2050", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static)
+                ?? throw new MissingMethodException(typeof(PngUtility).FullName, "GetPixelDataFormat2050");
             var ex = Assert.Throws<System.Reflection.TargetInvocationException>(() =>
                 method.Invoke(null, new object[] { bmp }));
 
@@ -894,7 +898,7 @@ namespace UnitTest_WzFile
             var (fmt, pixelData) = PngUtility.CompressImageToPngFormat(bmp, SurfaceFormat.Color);
 
             Assert.AreEqual(MapleLib.WzLib.WzProperties.WzPngFormat.Format2, fmt);
-            Assert.AreEqual(64 * 64 * 4, pixelData.Length);
+            Assert.HasCount(64 * 64 * 4, pixelData);
         }
 
         [TestMethod]
@@ -931,7 +935,7 @@ namespace UnitTest_WzFile
 
             byte[] decoded = PngUtility.DecompressImageBC7(rawBlock, 4, 4);
 
-            Assert.AreEqual(64, decoded.Length);
+            Assert.HasCount(64, decoded);
             for (int row = 0; row < 4; row++)
                 CollectionAssert.AreEqual(expectedRow, decoded.AsSpan(row * 16, 16).ToArray());
         }

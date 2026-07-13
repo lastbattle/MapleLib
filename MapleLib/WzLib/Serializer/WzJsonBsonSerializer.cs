@@ -1,6 +1,8 @@
 ﻿using Newtonsoft.Json.Bson;
+using MapleLib;
 using System;
 using System.Collections.Generic;
+using System.Diagnostics.CodeAnalysis;
 using System.IO;
 using System.Linq;
 using System.Text;
@@ -40,6 +42,7 @@ namespace MapleLib.WzLib.Serializer
             ExportInternalAsync(img, path).GetAwaiter().GetResult();
         }
 
+        [UnconditionalSuppressMessage("AOT", "IL3050", Justification = "The BSON export path requires Newtonsoft.Json.Bson, which has no native AOT metadata equivalent.")]
         private async Task ExportInternalAsync(WzImage img, string path)
         {
             bool parsed = img.Parsed || img.Changed;
@@ -77,10 +80,7 @@ namespace MapleLib.WzLib.Serializer
                 }
                 else // JSON serialization
                 {
-                    await JsonSerializer.SerializeAsync(file, jsonObject, new JsonSerializerOptions
-                    {
-                        WriteIndented = true
-                    });
+                    await JsonSerializer.SerializeAsync(file, jsonObject, MapleJsonContext.Default.DictionaryStringObject);
                 }
             }
 

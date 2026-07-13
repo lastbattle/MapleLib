@@ -1,11 +1,10 @@
 ﻿using MapleLib.WzLib.Serializer;
-using Newtonsoft.Json;
-using Newtonsoft.Json.Converters;
 using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
+using System.Text.Json.Serialization;
 
 namespace MapleLib.Configuration
 {
@@ -17,62 +16,62 @@ namespace MapleLib.Configuration
             Light = 1
         }
 
-        [JsonProperty(PropertyName = "Indentation")]
+        [JsonPropertyName("Indentation")]
         public int Indentation = 0;
 
-        [JsonProperty(PropertyName = "LineBreakType")]
-        [JsonConverter(typeof(StringEnumConverter))]
+        [JsonPropertyName("LineBreakType")]
+        [JsonConverter(typeof(JsonStringEnumConverter<LineBreak>))]
         public LineBreak LineBreakType = LineBreak.None;
 
-        [JsonProperty(PropertyName = "DefaultXmlFolder")]
+        [JsonPropertyName("DefaultXmlFolder")]
         public string DefaultXmlFolder = "";
 
-        [JsonProperty(PropertyName = "UseApngIncompatibilityFrame")]
+        [JsonPropertyName("UseApngIncompatibilityFrame")]
         public bool UseApngIncompatibilityFrame = true;
 
-        [JsonProperty(PropertyName = "AutoAssociate")]
+        [JsonPropertyName("AutoAssociate")]
         public bool AutoAssociate = true;
 
-        [JsonProperty(PropertyName = "Sort")]
+        [JsonPropertyName("Sort")]
         public bool Sort = false;
 
-        [JsonProperty(PropertyName = "SuppressWarnings")]
+        [JsonPropertyName("SuppressWarnings")]
         public bool SuppressWarnings = false;
 
-        [JsonProperty(PropertyName = "ParseImagesInSearch")]
+        [JsonPropertyName("ParseImagesInSearch")]
         public bool ParseImagesInSearch = false;
 
-        [JsonProperty(PropertyName = "SearchStringValues")]
+        [JsonPropertyName("SearchStringValues")]
         public bool SearchStringValues = true;
 
         // Animate
-        [JsonProperty(PropertyName = "DevImgSequences")]
+        [JsonPropertyName("DevImgSequences")]
         public bool DevImgSequences = false;
 
-        [JsonProperty(PropertyName = "CartesianPlane")]
+        [JsonPropertyName("CartesianPlane")]
         public bool CartesianPlane = true;
 
-        [JsonProperty(PropertyName = "DelayNextLoop")]
+        [JsonPropertyName("DelayNextLoop")]
         public int DelayNextLoop = 60;
 
-        [JsonProperty(PropertyName = "PlanePosition")]
+        [JsonPropertyName("PlanePosition")]
         public string PlanePosition = "Center";
 
         // Themes
-        [JsonProperty(PropertyName = "ThemeColor")]
+        [JsonPropertyName("ThemeColor")]
         public int ThemeColor = (int) UserSettingsThemeColor.Light;//white = 1, black = 0
 
 
         // Settings not shown on the settings page
-        [JsonProperty(PropertyName = "EnableCrossHairDebugInformation")]
+        [JsonPropertyName("EnableCrossHairDebugInformation")]
         public bool EnableCrossHairDebugInformation = true;
-        [JsonProperty(PropertyName = "EnableBorderDebugInformation")]
+        [JsonPropertyName("EnableBorderDebugInformation")]
         public bool EnableBorderDebugInformation = true;
 
-        [JsonProperty(PropertyName = "ImageZoomLevel")]
+        [JsonPropertyName("ImageZoomLevel")]
         public double ImageZoomLevel = 3.0f;
 
-        [JsonProperty(PropertyName = "AutoloadRelatedWzFiles")]
+        [JsonPropertyName("AutoloadRelatedWzFiles")]
         public bool AutoloadRelatedWzFiles = false;
     }
 }

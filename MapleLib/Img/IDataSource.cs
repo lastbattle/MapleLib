@@ -202,7 +202,7 @@ namespace MapleLib.Img
         /// <param name="path">Path to the data (version directory for IMG, MS install for WZ)</param>
         /// <param name="config">Optional configuration</param>
         /// <returns>An IDataSource instance</returns>
-        public static IDataSource Create(DataSourceMode mode, string path, HaCreatorConfig config = null)
+        public static IDataSource Create(DataSourceMode mode, string path, HaCreatorConfig? config = null)
         {
             config ??= new HaCreatorConfig();
 

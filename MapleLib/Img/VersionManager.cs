@@ -1,9 +1,9 @@
 using MapleLib.WzLib;
-using Newtonsoft.Json;
 using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Text.Json;
 
 namespace MapleLib.Img
 {
@@ -181,7 +181,7 @@ namespace MapleLib.Img
                 try
                 {
                     string json = File.ReadAllText(manifestPath);
-                    versionInfo = JsonConvert.DeserializeObject<VersionInfo>(json);
+                    versionInfo = JsonSerializer.Deserialize(json, MapleJsonContext.Default.VersionInfo);
                     versionInfo.DirectoryPath = versionPath;
                 }
                 catch (Exception)
@@ -247,7 +247,7 @@ namespace MapleLib.Img
 
             string manifestPath = Path.Combine(versionInfo.DirectoryPath, MANIFEST_FILENAME);
 
-            string json = JsonConvert.SerializeObject(versionInfo, Formatting.Indented);
+            string json = JsonSerializer.Serialize(versionInfo, MapleJsonContext.Default.VersionInfo);
             File.WriteAllText(manifestPath, json);
         }
 

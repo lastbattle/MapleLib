@@ -42,10 +42,10 @@ namespace UnitTest_WzFile {
             int useVersion = 200;
 
             uint crc_firstRun = CCrc32.GetCrc32(useVersion, 0, false, false);
-            Assert.IsTrue(crc_firstRun == 2384409922, "Expected value = (2,384,409,922), got {0}", crc_firstRun.ToString());
+            Assert.AreEqual(2384409922u, crc_firstRun, "Expected value = (2,384,409,922), got {0}", crc_firstRun.ToString());
 
             uint crc = CWvsPhysicalSpace2D.GetConstantCRC(useVersion);
-            Assert.IsTrue(crc == 1696968404, "Expected value = (crc = 1,696,968,404), got {0}", crc.ToString());
+            Assert.AreEqual(1696968404u, crc, "Expected value = (crc = 1,696,968,404), got {0}", crc.ToString());
         }
 
         /// <summary>
@@ -63,7 +63,7 @@ namespace UnitTest_WzFile {
             .Where(file => new[] { ".png", ".jpg", ".bmp" }.Contains(Path.GetExtension(file).ToLower()))
             .ToArray();
 
-            Assert.IsTrue(imageFiles.Length > 0, "No image files found in the Assets/Images folder.");
+            Assert.IsNotEmpty(imageFiles, "No image files found in the Assets/Images folder.");
 
             foreach (string imagePath in imageFiles) {
                 using (Bitmap bitmap = new Bitmap(imagePath)) {

@@ -213,7 +213,7 @@ namespace MapleLib.Tests.Img
         }
 
         [Fact]
-        public void IsThreadSafe_ConcurrentAccess_DoesNotThrow()
+        public async Task IsThreadSafe_ConcurrentAccess_DoesNotThrow()
         {
             // Arrange
             _cache = new LRUCache<string, IntWrapper>(100);
@@ -234,7 +234,7 @@ namespace MapleLib.Tests.Img
             }
 
             // Assert - Should complete without throwing
-            Task.WaitAll(tasks.ToArray());
+            await Task.WhenAll(tasks);
             Assert.True(_cache.Count <= 100); // Should respect capacity
         }
 

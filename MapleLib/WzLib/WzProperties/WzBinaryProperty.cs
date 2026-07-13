@@ -7,8 +7,7 @@ using MapleLib.Helpers;
 using System.Text;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
-using System.Runtime.Serialization;
-using Newtonsoft.Json.Linq;
+using System.Runtime.CompilerServices;
 using MapleLib.PacketLib;
 
 namespace MapleLib.WzLib.WzProperties
@@ -316,14 +315,14 @@ namespace MapleLib.WzLib.WzProperties
             if (data == null)
                 throw new ArgumentNullException(nameof(data));
 
-            int objectSize = Marshal.SizeOf(typeof(T));
+            int objectSize = Marshal.SizeOf<T>();
             if (data.Length < objectSize)
                 throw new ArgumentException($"The byte array must be at least {objectSize} bytes long to contain the entire object.", nameof(data));
 
             GCHandle handle = GCHandle.Alloc(data, GCHandleType.Pinned);
             try
             {
-                T obj = (T)FormatterServices.GetUninitializedObject(typeof(T));
+                T obj = (T)RuntimeHelpers.GetUninitializedObject(typeof(T));
                 Marshal.PtrToStructure<T>(handle.AddrOfPinnedObject(), obj);
                 return (T)obj;
             }

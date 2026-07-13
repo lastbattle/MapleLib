@@ -1,32 +1,31 @@
 ﻿using MapleLib.WzLib;
-using Newtonsoft.Json;
-using Newtonsoft.Json.Converters;
 using System;
 using System.Collections.Generic;
 using System.Drawing;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
+using System.Text.Json.Serialization;
 
 namespace MapleLib.Configuration
 {
     public class ApplicationSettings
     {
         #region Application Window
-        [JsonProperty(PropertyName = "WindowMaximized")]
+        [JsonPropertyName("WindowMaximized")]
         public bool WindowMaximized = false;
 
-        [JsonProperty(PropertyName = "WindowWidth")]
+        [JsonPropertyName("WindowWidth")]
         public int Width = 1024;
-        [JsonProperty(PropertyName = "WindowHeight")]
+        [JsonPropertyName("WindowHeight")]
         public int Height = 768;
         #endregion
 
         #region Etc
-        [JsonProperty(PropertyName = "FirstRun")]
+        [JsonPropertyName("FirstRun")]
         public bool FirstRun = true;
 
-        [JsonProperty(PropertyName = "LastBrowserPath")]
+        [JsonPropertyName("LastBrowserPath")]
         public string LastBrowserPath = "";
         #endregion
 
@@ -34,26 +33,26 @@ namespace MapleLib.Configuration
         /// <summary>
         /// The MapleStory encryption to use.
         /// </summary>
-        [JsonProperty(PropertyName = "MapleStoryVersion") ]
-        [JsonConverter(typeof(StringEnumConverter))]
+        [JsonPropertyName("MapleStoryVersion")]
+        [JsonConverter(typeof(JsonStringEnumConverter<WzMapleVersion>))]
         public WzMapleVersion MapleVersion = WzMapleVersion.BMS;
 
         /// <summary>
         /// The custom encryption name for the custom WZ encryption
         /// </summary>
-        [JsonProperty(PropertyName = "MapleStoryVersion_CustomEncryptionName")]
+        [JsonPropertyName("MapleStoryVersion_CustomEncryptionName")]
         public string MapleVersion_CustomEncryptionName = "Default";
         
         /// <summary>
         /// The custom AES user key to use when encrypting and decrypting WZ files
         /// </summary>
-        [JsonProperty(PropertyName = "MapleStoryVersion_CustomAESUserKey")]
+        [JsonPropertyName("MapleStoryVersion_CustomAESUserKey")]
         public string MapleVersion_CustomAESUserKey = string.Empty; // str empty as default.
 
         /// <summary>
         /// The custom IV encryption bytes to use when encrypting and decrypting WZ files
         /// </summary>
-        [JsonProperty(PropertyName = "MapleStoryVersion_EncryptionBytes")]
+        [JsonPropertyName("MapleStoryVersion_EncryptionBytes")]
         public string MapleVersion_CustomEncryptionBytes = "0x00-0x00-0x00-0x00";
         #endregion
     }

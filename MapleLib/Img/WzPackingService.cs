@@ -2,7 +2,7 @@ using MapleLib.WzLib;
 using MapleLib.WzLib.Serializer;
 using MapleLib.WzLib.Util;
 using MapleLib.WzLib.WzProperties;
-using Newtonsoft.Json;
+using MapleLib;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -12,6 +12,7 @@ using System.Linq;
 using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading;
+using System.Text.Json;
 using System.Threading.Tasks;
 
 namespace MapleLib.Img
@@ -318,7 +319,7 @@ namespace MapleLib.Img
                             // Check if this is our JSON format (extracted List.wz)
                             if (jsonContent.TrimStart().StartsWith("{"))
                             {
-                                var listData = JsonConvert.DeserializeObject<ListWzJsonFormat>(jsonContent);
+                                var listData = JsonSerializer.Deserialize(jsonContent, MapleJsonContext.Default.ListWzJsonFormat);
                                 if (listData == null)
                                 {
                                     result.Success = false;
@@ -992,7 +993,7 @@ namespace MapleLib.Img
                     return result;
                 }
 
-                var listData = JsonConvert.DeserializeObject<ListWzJsonFormat>(jsonContent);
+                var listData = JsonSerializer.Deserialize(jsonContent, MapleJsonContext.Default.ListWzJsonFormat);
                 var listEntries = GetListEntriesForPacking(listData);
 
                 if (listData == null)
@@ -1056,7 +1057,7 @@ namespace MapleLib.Img
             try
             {
                 string json = File.ReadAllText(manifestPath);
-                return JsonConvert.DeserializeObject<VersionInfo>(json);
+                return JsonSerializer.Deserialize(json, MapleJsonContext.Default.VersionInfo);
             }
             catch
             {
@@ -1179,7 +1180,7 @@ namespace MapleLib.Img
             try
             {
                 string json = File.ReadAllText(mapPath);
-                var caseMap = JsonConvert.DeserializeObject<ImageCaseMapData>(json);
+                var caseMap = JsonSerializer.Deserialize(json, MapleJsonContext.Default.ImageCaseMapData);
                 if (caseMap?.Entries == null || caseMap.Entries.Count == 0)
                 {
                     return false;

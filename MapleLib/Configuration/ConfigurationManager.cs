@@ -1,10 +1,10 @@
 using MapleLib.MapleCryptoLib;
 using MapleLib.PacketLib;
-using Newtonsoft.Json;
 using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Text;
+using System.Text.Json;
 
 namespace MapleLib.Configuration
 {
@@ -78,9 +78,9 @@ namespace MapleLib.Configuration
 
                 try
                 {
-                    _userSettings = JsonConvert.DeserializeObject<UserSettings>(userFileContent); // deserialize to static content... 
-                    _appSettings = JsonConvert.DeserializeObject<ApplicationSettings>(applicationFileContent);
-                    _customKeys = JsonConvert.DeserializeObject<List<EncryptionKey>>(customKeysFileContent);
+                    _userSettings = JsonSerializer.Deserialize(userFileContent, MapleJsonContext.Default.UserSettings); // deserialize to static content...
+                    _appSettings = JsonSerializer.Deserialize(applicationFileContent, MapleJsonContext.Default.ApplicationSettings);
+                    _customKeys = JsonSerializer.Deserialize(customKeysFileContent, MapleJsonContext.Default.ListEncryptionKey);
                     
                     return true;
                 } catch (Exception)
@@ -108,9 +108,9 @@ namespace MapleLib.Configuration
         /// <returns></returns>
         public bool Save()
         {
-            string userSettingsSerialised = JsonConvert.SerializeObject(_userSettings, Formatting.Indented); // format for user
-            string appSettingsSerialised = JsonConvert.SerializeObject(_appSettings, Formatting.Indented);
-            string customKeysSerialised = JsonConvert.SerializeObject(_customKeys, Formatting.Indented);
+            string userSettingsSerialised = JsonSerializer.Serialize(_userSettings, MapleJsonContext.Default.UserSettings); // format for user
+            string appSettingsSerialised = JsonSerializer.Serialize(_appSettings, MapleJsonContext.Default.ApplicationSettings);
+            string customKeysSerialised = JsonSerializer.Serialize(_customKeys, MapleJsonContext.Default.ListEncryptionKey);
 
             string userFilePath = Path.Combine(folderPath, SETTINGS_FILE_USER);
             string applicationFilePath = Path.Combine(folderPath, SETTINGS_FILE_APPLICATION);

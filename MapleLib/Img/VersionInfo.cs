@@ -1,6 +1,6 @@
 using System;
 using System.Collections.Generic;
-using Newtonsoft.Json;
+using System.Text.Json.Serialization;
 
 namespace MapleLib.Img
 {
@@ -13,73 +13,73 @@ namespace MapleLib.Img
         /// <summary>
         /// Version identifier (e.g., "v83", "v176", "gms_v230")
         /// </summary>
-        [JsonProperty("version")]
+        [JsonPropertyName("version")]
         public string Version { get; set; }
 
         /// <summary>
         /// Human-readable display name (e.g., "GMS v83 (Pre-Big Bang)")
         /// </summary>
-        [JsonProperty("displayName")]
+        [JsonPropertyName("displayName")]
         public string DisplayName { get; set; }
 
         /// <summary>
         /// Source region (GMS, EMS, KMS, JMS, MSEA, etc.)
         /// </summary>
-        [JsonProperty("sourceRegion")]
+        [JsonPropertyName("sourceRegion")]
         public string SourceRegion { get; set; }
 
         /// <summary>
         /// Date when this version was extracted
         /// </summary>
-        [JsonProperty("extractedDate")]
+        [JsonPropertyName("extractedDate")]
         public DateTime ExtractedDate { get; set; }
 
         /// <summary>
         /// The encryption type used (matches WzMapleVersion enum name)
         /// </summary>
-        [JsonProperty("encryption")]
+        [JsonPropertyName("encryption")]
         public string Encryption { get; set; }
 
         /// <summary>
         /// Whether this is a 64-bit client version
         /// </summary>
-        [JsonProperty("is64Bit")]
+        [JsonPropertyName("is64Bit")]
         public bool Is64Bit { get; set; }
 
         /// <summary>
         /// Whether this is a pre-Big Bang format (Data.wz only)
         /// </summary>
-        [JsonProperty("isPreBB")]
+        [JsonPropertyName("isPreBB")]
         public bool IsPreBB { get; set; }
 
         /// <summary>
         /// Whether this is a beta MapleStory format (v0.01-v0.30) with single Data.wz containing all categories
         /// </summary>
-        [JsonProperty("isBetaMs")]
+        [JsonPropertyName("isBetaMs")]
         public bool IsBetaMs { get; set; }
 
         /// <summary>
         /// Whether this is a Big Bang 2 / Chaos update version (has BigBang2 marker in UIWindow2.img)
         /// </summary>
-        [JsonProperty("isBigBang2")]
+        [JsonPropertyName("isBigBang2")]
         public bool IsBigBang2 { get; set; }
 
         /// <summary>
         /// The original MapleStory patch version number (e.g., 83, 176, 230)
         /// </summary>
-        [JsonProperty("patchVersion")]
+        [JsonPropertyName("patchVersion")]
         public int PatchVersion { get; set; }
 
         /// <summary>
         /// Category information (file counts, last modified dates)
         /// </summary>
-        [JsonProperty("categories")]
+        [JsonPropertyName("categories")]
         public Dictionary<string, CategoryInfo> Categories { get; set; } = new Dictionary<string, CategoryInfo>();
 
         /// <summary>
         /// Feature flags indicating what content is available
         /// </summary>
-        [JsonProperty("features")]
+        [JsonPropertyName("features")]
         public VersionFeatures Features { get; set; } = new VersionFeatures();
 
         /// <summary>
@@ -132,25 +132,25 @@ namespace MapleLib.Img
         /// <summary>
         /// Number of IMG files in this category
         /// </summary>
-        [JsonProperty("fileCount")]
+        [JsonPropertyName("fileCount")]
         public int FileCount { get; set; }
 
         /// <summary>
         /// Total size of all files in bytes
         /// </summary>
-        [JsonProperty("totalSize")]
+        [JsonPropertyName("totalSize")]
         public long TotalSize { get; set; }
 
         /// <summary>
         /// Last modification date of any file in this category
         /// </summary>
-        [JsonProperty("lastModified")]
+        [JsonPropertyName("lastModified")]
         public DateTime LastModified { get; set; }
 
         /// <summary>
         /// List of subdirectories in this category
         /// </summary>
-        [JsonProperty("subdirectories")]
+        [JsonPropertyName("subdirectories")]
         public List<string> Subdirectories { get; set; } = new List<string>();
     }
 

@@ -4,7 +4,7 @@ using MapleLib.WzLib.MSFile;
 using MapleLib.WzLib.Serializer;
 using MapleLib.WzLib.Util;
 using MapleLib.WzLib.WzProperties;
-using Newtonsoft.Json;
+using MapleLib;
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
@@ -13,6 +13,7 @@ using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using System.Text.Json;
 
 namespace MapleLib.Img
 {
@@ -1590,7 +1591,7 @@ namespace MapleLib.Img
                 RemainingEntries = remainingEntries
             };
 
-            string json = JsonConvert.SerializeObject(listData, Formatting.Indented);
+            string json = JsonSerializer.Serialize(listData, MapleJsonContext.Default.ListWzJsonFormat);
             File.WriteAllText(Path.Combine(listOutputPath, "List.json"), json);
 
             Debug.WriteLine($"[WzExtraction] List.wz: {listWzEntries.Count} total, {decryptedEntries.Count} decrypted, {remainingEntries.Count} remaining");
@@ -1658,7 +1659,7 @@ namespace MapleLib.Img
         private void SaveManifest(string outputPath, VersionInfo versionInfo)
         {
             string manifestPath = Path.Combine(outputPath, MANIFEST_FILENAME);
-            string json = JsonConvert.SerializeObject(versionInfo, Formatting.Indented);
+            string json = JsonSerializer.Serialize(versionInfo, MapleJsonContext.Default.VersionInfo);
             File.WriteAllText(manifestPath, json);
         }
 
@@ -1752,7 +1753,7 @@ namespace MapleLib.Img
                         .ToDictionary(kvp => kvp.Key, kvp => kvp.Value, StringComparer.Ordinal)
                 };
 
-                string json = JsonConvert.SerializeObject(payload, Formatting.Indented);
+                string json = JsonSerializer.Serialize(payload, MapleJsonContext.Default.ImageCaseMapData);
                 string mapPath = Path.Combine(categoryOutputPath, IMG_CASE_MAP_FILENAME);
                 File.WriteAllText(mapPath, json);
             }

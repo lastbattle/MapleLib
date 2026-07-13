@@ -1,7 +1,8 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
-using Newtonsoft.Json;
+using System.Text.Json;
+using System.Text.Json.Serialization;
 
 namespace MapleLib.Img
 {
@@ -35,37 +36,37 @@ namespace MapleLib.Img
         /// <summary>
         /// The data source mode to use
         /// </summary>
-        [JsonProperty("dataSourceMode")]
+        [JsonPropertyName("dataSourceMode")]
         public DataSourceMode DataSourceMode { get; set; } = DataSourceMode.ImgFileSystem;
 
         /// <summary>
         /// Root path for IMG filesystem data
         /// </summary>
-        [JsonProperty("imgRootPath")]
+        [JsonPropertyName("imgRootPath")]
         public string ImgRootPath { get; set; } = HaCreatorPaths.DefaultDataPath;
 
         /// <summary>
         /// Last used version identifier
         /// </summary>
-        [JsonProperty("lastUsedVersion")]
+        [JsonPropertyName("lastUsedVersion")]
         public string LastUsedVersion { get; set; }
 
         /// <summary>
         /// Cache configuration
         /// </summary>
-        [JsonProperty("cache")]
+        [JsonPropertyName("cache")]
         public CacheConfig Cache { get; set; } = new CacheConfig();
 
         /// <summary>
         /// Extraction configuration
         /// </summary>
-        [JsonProperty("extraction")]
+        [JsonPropertyName("extraction")]
         public ExtractionConfig Extraction { get; set; } = new ExtractionConfig();
 
         /// <summary>
         /// Legacy WZ file configuration
         /// </summary>
-        [JsonProperty("legacy")]
+        [JsonPropertyName("legacy")]
         public LegacyConfig Legacy { get; set; } = new LegacyConfig();
 
         /// <summary>
@@ -79,14 +80,14 @@ namespace MapleLib.Img
         /// Additional version folder paths added via Browse
         /// These are paths outside the default versions directory
         /// </summary>
-        [JsonProperty("additionalVersionPaths")]
+        [JsonPropertyName("additionalVersionPaths")]
         public List<string> AdditionalVersionPaths { get; set; } = new List<string>();
 
         /// <summary>
         /// History of recently selected version folder paths (most recent first).
         /// No duplicates - selecting a path moves it to the front.
         /// </summary>
-        [JsonProperty("recentVersionPaths")]
+        [JsonPropertyName("recentVersionPaths")]
         public List<string> RecentVersionPaths { get; set; } = new List<string>();
 
         /// <summary>
@@ -138,7 +139,7 @@ namespace MapleLib.Img
                 if (File.Exists(configPath))
                 {
                     string json = File.ReadAllText(configPath);
-                    return JsonConvert.DeserializeObject<HaCreatorConfig>(json) ?? new HaCreatorConfig();
+                    return JsonSerializer.Deserialize(json, MapleJsonContext.Default.HaCreatorConfig) ?? new HaCreatorConfig();
                 }
             }
             catch (Exception)
@@ -169,7 +170,7 @@ namespace MapleLib.Img
                     Directory.CreateDirectory(directory);
                 }
 
-                string json = JsonConvert.SerializeObject(this, Formatting.Indented);
+                string json = JsonSerializer.Serialize(this, MapleJsonContext.Default.HaCreatorConfig);
                 File.WriteAllText(configPath, json);
             }
             catch (Exception ex)
@@ -214,25 +215,25 @@ namespace MapleLib.Img
         /// <summary>
         /// Maximum memory cache size in MB
         /// </summary>
-        [JsonProperty("maxMemoryCacheMB")]
+        [JsonPropertyName("maxMemoryCacheMB")]
         public int MaxMemoryCacheMB { get; set; } = 512;
 
         /// <summary>
         /// Categories to preload on startup
         /// </summary>
-        [JsonProperty("preloadCategories")]
+        [JsonPropertyName("preloadCategories")]
         public string[] PreloadCategories { get; set; } = new[] { "String" };
 
         /// <summary>
         /// Whether to use memory-mapped files for large images
         /// </summary>
-        [JsonProperty("enableMemoryMappedFiles")]
+        [JsonPropertyName("enableMemoryMappedFiles")]
         public bool EnableMemoryMappedFiles { get; set; } = true;
 
         /// <summary>
         /// Maximum number of images to keep in LRU cache
         /// </summary>
-        [JsonProperty("maxCachedImages")]
+        [JsonPropertyName("maxCachedImages")]
         public int MaxCachedImages { get; set; } = 1000;
     }
 
@@ -244,25 +245,25 @@ namespace MapleLib.Img
         /// <summary>
         /// Default output path for extraction
         /// </summary>
-        [JsonProperty("defaultOutputPath")]
+        [JsonPropertyName("defaultOutputPath")]
         public string DefaultOutputPath { get; set; }
 
         /// <summary>
         /// Whether to generate index files during extraction
         /// </summary>
-        [JsonProperty("generateIndex")]
+        [JsonPropertyName("generateIndex")]
         public bool GenerateIndex { get; set; } = true;
 
         /// <summary>
         /// Whether to validate after extraction
         /// </summary>
-        [JsonProperty("validateAfterExtract")]
+        [JsonPropertyName("validateAfterExtract")]
         public bool ValidateAfterExtract { get; set; } = true;
 
         /// <summary>
         /// Number of parallel extraction threads
         /// </summary>
-        [JsonProperty("parallelThreads")]
+        [JsonPropertyName("parallelThreads")]
         public int ParallelThreads { get; set; } = 4;
     }
 
@@ -274,19 +275,19 @@ namespace MapleLib.Img
         /// <summary>
         /// Path to WZ files (for legacy mode)
         /// </summary>
-        [JsonProperty("wzFilePath")]
+        [JsonPropertyName("wzFilePath")]
         public string WzFilePath { get; set; }
 
         /// <summary>
         /// Whether to allow fallback to WZ files when IMG not found
         /// </summary>
-        [JsonProperty("allowWzFallback")]
+        [JsonPropertyName("allowWzFallback")]
         public bool AllowWzFallback { get; set; } = false;
 
         /// <summary>
         /// Automatically convert WZ files to IMG on load
         /// </summary>
-        [JsonProperty("autoConvertOnLoad")]
+        [JsonPropertyName("autoConvertOnLoad")]
         public bool AutoConvertOnLoad { get; set; } = false;
     }
 

@@ -2,6 +2,7 @@ using MapleLib.WzLib;
 using MapleLib.WzLib.Serializer;
 using MapleLib.WzLib.Util;
 using MapleLib.WzLib.WzProperties;
+using MapleLib;
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
@@ -10,6 +11,7 @@ using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using System.Text.Json;
 
 namespace MapleLib.Img
 {
@@ -126,7 +128,7 @@ namespace MapleLib.Img
             if (File.Exists(manifestPath))
             {
                 string json = File.ReadAllText(manifestPath);
-                _versionInfo = Newtonsoft.Json.JsonConvert.DeserializeObject<VersionInfo>(json);
+                _versionInfo = JsonSerializer.Deserialize(json, MapleJsonContext.Default.VersionInfo);
                 _versionInfo.DirectoryPath = _versionPath;
             }
             else

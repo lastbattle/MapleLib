@@ -65,7 +65,7 @@ namespace MapleLib.WzLib.WzStructure.Data
         public static int GetMaxFieldLimitType()
         {
             int max = 0;
-            foreach (FieldLimitType limitType in Enum.GetValues(typeof(FieldLimitType)))
+            foreach (FieldLimitType limitType in Enum.GetValues<FieldLimitType>())
             {
                 if ((int)limitType > max)
                     max = (int)limitType;
