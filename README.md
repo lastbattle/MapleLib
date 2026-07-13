@@ -18,12 +18,13 @@ MapleLib is a .NET library designed to work with MapleStory's file formats and n
 
 - Support for parsing and modifying .wz archive files, which contain game data like maps, items, and UI elements.
 - Handling of compressed data streams.
-- Encrypting and decrypting (.ms)
-- Packet reading and writing for MapleStory's network communication.
+- Encrypting and decrypting (.ms v2 SnowCipher / v4 ChaCha20)
+- Packet reading and writing for MapleStory's network communication protocol.
 - Compatibility with various MapleStory versions through version-specific handling. (beta v1 -> v260 ++)
 - Integration with external tools for advanced editing, such as map creation and asset extraction.
 - Support for loading hotfix files like Data.wz and raw .img files.
 - Handling of list files (List.wz) for pre-Big Bang versions.
+- Handling '_Canvas' wz image file
 
 ## Installation
 
@@ -252,11 +253,11 @@ writer.WriteMapleString("Hello Maple");
 
 ## Dependencies
  - .NET 10.0 runtime
- - [spine-runtime 2.1.25 and namespaced 4.1](https://github.com/EsotericSoftware/spine-runtimes)
+ - [spine-runtime 2.1.25 (version 180-210 starting with Kinesis job and Ursus) and namespaced 4.1 (version 230++)](https://github.com/EsotericSoftware/spine-runtimes)
  - [lz4net 1.0.15.93+](https://github.com/MiloszKrajewski/lz4net)
  - [MonoGame.Framework.DesktopGL 3.8.2.1105+](https://www.nuget.org/packages/MonoGame.Framework.DesktopGL)
  - [NAudio 2.2.0+](https://www.nuget.org/packages/NAudio)
- - [Newtonsoft.Json](https://www.nuget.org/packages/Newtonsoft.Json/)
+ - [Newtonsoft.Json.Bson](https://www.nuget.org/packages/Newtonsoft.Json.Bson/)
  - [SharpDX 4.2.0](https://www.nuget.org/packages/SharpDX)
 
 ## Contributing
