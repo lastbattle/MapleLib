@@ -24,6 +24,10 @@ namespace MapleLib.WzLib
         /// bNewID_0x1b
         /// </summary>
         public const int WzImageHeaderByte_WithOffset = 0x1B;
+        /// <summary>
+        /// bLuaID_0x01
+        /// </summary>
+        public const int WzImageHeaderByte_Lua = 0x01;
 
         #region Fields
         internal bool parsed = false;

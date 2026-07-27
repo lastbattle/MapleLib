@@ -375,6 +375,7 @@ namespace MapleLib.WzLib
 
                         switch (checkByte)
                         {
+                            case WzImage.WzImageHeaderByte_Lua:
                             case 0x73:
                             case 0x1b:
                                 {
