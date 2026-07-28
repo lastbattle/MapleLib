@@ -47,10 +47,17 @@ namespace MapleLib.Img
         public bool Is64Bit { get; set; }
 
         /// <summary>
-        /// Whether this is a pre-Big Bang format (Data.wz only)
+        /// Whether this uses a pre-Big Bang WZ format, including split WZ files with List.wz.
         /// </summary>
         [JsonPropertyName("isPreBB")]
         public bool IsPreBB { get; set; }
+
+        /// <summary>
+        /// Whether this uses the pre-Big Bang WZ format detected from the source installation.
+        /// This is persisted separately for format-preserving IMG to WZ round trips.
+        /// </summary>
+        [JsonPropertyName("isPreBBDataWzFormat")]
+        public bool IsPreBBDataWzFormat { get; set; }
 
         /// <summary>
         /// Whether this is a beta MapleStory format (v0.01-v0.30) with single Data.wz containing all categories

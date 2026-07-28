@@ -95,11 +95,13 @@ namespace MapleLib.Img
             bool resolveLinks = false,
             CancellationToken cancellationToken = default,
             IProgress<ExtractionProgress> progress = null,
-            WzMapleVersion? outputEncryption = null)
+            WzMapleVersion? outputEncryption = null,
+            bool? sourceIsPreBBDataWzFormat = null)
         {
             // Discover all WZ files and extract them
             bool is64Bit = WzFileManager.Detect64BitDirectoryWzFileFormat(mapleStoryPath);
-            bool isPreBB = WzFileManager.DetectIsPreBBDataWZFileFormat(mapleStoryPath, encryption);
+            bool isPreBB = sourceIsPreBBDataWzFormat ??
+                           WzFileManager.DetectIsPreBBDataWZFileFormat(mapleStoryPath, encryption);
             var allCategories = DiscoverWzFiles(mapleStoryPath, is64Bit, isPreBB);
 
             return await ExtractAsync(
@@ -112,7 +114,8 @@ namespace MapleLib.Img
                 resolveLinks,
                 cancellationToken,
                 progress,
-                outputEncryption);
+                outputEncryption,
+                sourceIsPreBBDataWzFormat);
         }
 
         /// <summary>
@@ -138,7 +141,8 @@ namespace MapleLib.Img
             bool resolveLinks = false,
             CancellationToken cancellationToken = default,
             IProgress<ExtractionProgress> progress = null,
-            WzMapleVersion? outputEncryption = null)
+            WzMapleVersion? outputEncryption = null,
+            bool? sourceIsPreBBDataWzFormat = null)
         {
             var result = new ExtractionResult
             {
@@ -159,7 +163,8 @@ namespace MapleLib.Img
             {
                 // Detect WZ format
                 bool is64Bit = WzFileManager.Detect64BitDirectoryWzFileFormat(mapleStoryPath);
-                bool isPreBB = WzFileManager.DetectIsPreBBDataWZFileFormat(mapleStoryPath, encryption);
+                bool isPreBB = sourceIsPreBBDataWzFormat ??
+                               WzFileManager.DetectIsPreBBDataWZFileFormat(mapleStoryPath, encryption);
                 bool isBetaMs = WzFileManager.DetectBetaDataWzFormat(mapleStoryPath);
                 bool isBigBang2 = WzFileManager.DetectBigBang2Format(mapleStoryPath, encryption, is64Bit);
 
@@ -1620,6 +1625,7 @@ namespace MapleLib.Img
                 Encryption = encryption.ToString(),
                 Is64Bit = is64Bit,
                 IsPreBB = isPreBB,
+                IsPreBBDataWzFormat = isPreBB,
                 IsBetaMs = isBetaMs,
                 IsBigBang2 = isBigBang2,
                 ExtractedDate = DateTime.Now,
