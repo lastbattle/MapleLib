@@ -51,6 +51,7 @@ namespace MapleLib.WzLib.WzStructure
         public FieldType? fieldType = null;
         public string onFirstUserEnter = null;
         public string onUserEnter = null;
+        public MapDirectionInfo directionInfo = null;
         public MapleBool fly = null;
         public MapleBool noMapCmd = null;
         public MapleBool partyOnly = null;
@@ -135,6 +136,8 @@ namespace MapleLib.WzLib.WzStructure
             string loggerSuffix = ", map " + image.Name + ((file != null) ? (" of version " + Enum.GetName(typeof(WzMapleVersion), file.MapleVersion) + ", v" + file.Version.ToString()) : "");
 
             WzImageProperty infoImage = image["info"];
+
+            directionInfo = MapDirectionInfo.FromProperty(image["directionInfo"]);
 
             foreach (WzImageProperty prop in infoImage.WzProperties)
             {
