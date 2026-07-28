@@ -64,10 +64,21 @@ namespace MapleLib {
 
         private readonly bool _bIsPreBBDataWzFormat;
         /// <summary>
-        /// Defines if the currently loaded WZ directory are in the pre-BB format with only Data.wz (beta version?)
+        /// Defines if the currently loaded WZ directory is in a pre-Big Bang format.
         /// </summary>
         public bool IsPreBBDataWzFormat {
             get { return _bIsPreBBDataWzFormat; }
+            private set { }
+        }
+
+        private readonly bool _bIsBetaDataWzFormat;
+        /// <summary>
+        /// Defines if the currently loaded WZ directory stores its game data in a
+        /// single legacy Data.wz archive.
+        /// </summary>
+        public bool IsBetaDataWzFormat
+        {
+            get { return _bIsBetaDataWzFormat; }
             private set { }
         }
 
@@ -149,6 +160,7 @@ namespace MapleLib {
             {
                 this._bInitAs64Bit = WzFileManager.Detect64BitDirectoryWzFileFormat(this.baseDir); // set
                 this._bIsPreBBDataWzFormat = WzFileManager.DetectIsPreBBDataWZFileFormat(this.baseDir); // set
+                this._bIsBetaDataWzFormat = WzFileManager.DetectBetaDataWzFormat(this.baseDir);
                 this._bIsMapleStoryClassicWorlds = _bInitAs64Bit && !_bIsPreBBDataWzFormat;
             }
             fileManager = this;
@@ -1065,7 +1077,7 @@ namespace MapleLib {
         /// <param name="baseName"></param>
         /// <returns></returns>
         public List<string> GetWzFileNameListFromBase(string baseName) {
-            if (_bIsPreBBDataWzFormat) {
+            if (_bIsBetaDataWzFormat) {
                 if (!_wzFilesList.ContainsKey("data"))
                     return new List<string>(); // return as an empty list if none
                 return _wzFilesList["data"];
@@ -1086,7 +1098,7 @@ namespace MapleLib {
         public List<WzDirectory> GetWzDirectoriesFromBase(string baseName, bool isCanvas = false) {
             List<string> wzDirs = GetWzFileNameListFromBase(baseName); // {[character\pants\_canvas, Count = 1]}
             var results = new List<WzDirectory>(wzDirs.Count);
-            if (_bIsPreBBDataWzFormat) {
+            if (_bIsBetaDataWzFormat) {
                 WzDirectory dataDirectory = this["data"];
                 foreach (string _ in wzDirs)
                 {
