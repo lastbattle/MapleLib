@@ -67,7 +67,7 @@ namespace MapleLib.WzLib.WzProperties
         {
             get
             {
-                return properties.FirstOrDefault(iwp => iwp.Name.ToLower() == name.ToLower());
+                return properties.FindByName(name);
                 //throw new KeyNotFoundException("A wz property with the specified name was not found");
             }
             set
@@ -95,7 +95,7 @@ namespace MapleLib.WzLib.WzProperties
             WzImageProperty ret = this;
             foreach (string segment in segments)
             {
-                ret = ret.WzProperties.FirstOrDefault(iwp => iwp.Name == segment);
+                ret = ret.WzProperties.Find(segment, System.StringComparison.Ordinal);
                 if (ret == null)
                 {
                     break;

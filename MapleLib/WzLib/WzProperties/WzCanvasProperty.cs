@@ -139,6 +139,11 @@ namespace MapleLib.WzLib.WzProperties {
                 return null;
             }
 
+            if (comparisonType == StringComparison.OrdinalIgnoreCase)
+            {
+                return propertyCollection.FindByName(propertyName);
+            }
+
             for (int i = 0; i < propertyCollection.Count; i++) {
                 WzImageProperty property = propertyCollection[i];
                 if (string.Equals(property.Name, propertyName, comparisonType)) {

@@ -67,22 +67,13 @@ namespace MapleLib.WzLib.WzProperties
 		{
 			get
 			{
-                string nameLower = name.ToLower();
-                foreach (WzImageProperty iwp in properties)
-					if (iwp.Name.ToLower() == nameLower)
-						return iwp;
-				//throw new KeyNotFoundException("A wz property with the specified name was not found");
-				return null;
+                return properties.FindByName(name);
 			}
 		}
 
         public WzImageProperty GetProperty(string name)
         {
-			string nameLower = name.ToLower();
-            foreach (WzImageProperty iwp in properties)
-                if (iwp.Name.ToLower() == nameLower)
-                    return iwp;
-            return null;
+            return properties.FindByName(name);
         }
 
 		/// <summary>
@@ -100,7 +91,7 @@ namespace MapleLib.WzLib.WzProperties
 			WzImageProperty ret = this;
 			foreach (string segment in segments)
 			{
-                ret = ret.WzProperties.FirstOrDefault(iwp => iwp.Name == segment);
+                ret = ret.WzProperties.Find(segment, StringComparison.Ordinal);
                 if (ret == null)
                 {
                     break;

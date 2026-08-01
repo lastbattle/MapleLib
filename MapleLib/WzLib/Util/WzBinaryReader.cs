@@ -117,15 +117,24 @@ namespace MapleLib.WzLib.Util
                     ? stackalloc char[length]
                     : (pooledArray = s_charPool.Rent(length)).AsSpan(0, length);
 
+                // Read the complete encrypted payload in one operation.  The
+                // previous implementation called BinaryReader.ReadUInt16 for
+                // every character, which repeatedly crossed the stream API and
+                // grew the mutable key one byte at a time for long strings.
+                // Decode in place so no second temporary buffer is needed.
+                int keyLength = checked(length * sizeof(ushort));
+                WzKey.EnsureKeySize(keyLength);
+                Span<ushort> encryptedChars = MemoryMarshal.Cast<char, ushort>(chars);
+                BaseStream.ReadExactly(MemoryMarshal.AsBytes(encryptedChars));
+
                 ushort mask = 0xAAAA;
-                ref char charsRef = ref MemoryMarshal.GetReference(chars);
 
                 for (int i = 0; i < length; i++)
                 {
-                    ushort encryptedChar = ReadUInt16();
+                    ushort encryptedChar = encryptedChars[i];
                     encryptedChar ^= mask;
                     encryptedChar ^= (ushort)((WzKey[(i * 2 + 1)] << 8) + WzKey[(i * 2)]);
-                    Unsafe.Add(ref charsRef, i) = (char)encryptedChar;
+                    encryptedChars[i] = encryptedChar;
                     mask++;
                 }
 
@@ -155,15 +164,20 @@ namespace MapleLib.WzLib.Util
                     ? stackalloc byte[length]
                     : (pooledArray = s_bytePool.Rent(length)).AsSpan(0, length);
 
+                // Read and decode the complete payload in place.  Keeping the
+                // key growth outside the loop preserves the original key stream
+                // while avoiding one stream call per byte.
+                WzKey.EnsureKeySize(length);
+                BaseStream.ReadExactly(bytes);
+
                 byte mask = 0xAA;
-                ref byte bytesRef = ref MemoryMarshal.GetReference(bytes);
 
                 for (int i = 0; i < length; i++)
                 {
-                    byte encryptedChar = ReadByte();
+                    byte encryptedChar = bytes[i];
                     encryptedChar ^= mask;
                     encryptedChar ^= (byte)WzKey[i];
-                    Unsafe.Add(ref bytesRef, i) = encryptedChar;
+                    bytes[i] = encryptedChar;
                     mask++;
                 }
 

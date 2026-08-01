@@ -19,6 +19,12 @@ namespace MapleLib.WzLib
         #region Fields
         private List<WzImage> images = new List<WzImage>();
         internal List<WzDirectory> subDirs = new List<WzDirectory>();
+        private Dictionary<string, NameIndexEntry<WzImage>> imageIndex =
+            new(StringComparer.OrdinalIgnoreCase);
+        private Dictionary<string, NameIndexEntry<WzDirectory>> directoryIndex =
+            new(StringComparer.OrdinalIgnoreCase);
+        private NameIndexEntry<WzImage>? nullImageIndex;
+        private NameIndexEntry<WzDirectory>? nullDirectoryIndex;
         internal WzBinaryReader reader;
         internal long offset = 0;
         internal string name;
@@ -27,6 +33,17 @@ namespace MapleLib.WzLib
         internal byte[] WzIv;
         internal WzObject parent;
         internal WzFile wzFile;
+
+        private struct NameIndexEntry<T> where T : WzObject
+        {
+            internal T First;
+            internal int DuplicateCount;
+
+            internal NameIndexEntry(T first)
+            {
+                First = first;
+            }
+        }
         #endregion
 
         #region Inherited Members
@@ -61,12 +78,16 @@ namespace MapleLib.WzLib
                     img.Dispose();
                 images.Clear();
             }
+            imageIndex.Clear();
+            nullImageIndex = null;
             if (subDirs != null)
             {
                 foreach (WzDirectory dir in subDirs)
                     dir.Dispose();
                 subDirs.Clear();
             }
+            directoryIndex.Clear();
+            nullDirectoryIndex = null;
             images = null;
             subDirs = null;
         }
@@ -102,12 +123,13 @@ namespace MapleLib.WzLib
         {
             get
             {
-                foreach (WzImage i in images)
-                    if (string.Equals(i.Name, name, StringComparison.OrdinalIgnoreCase))
-                        return i;
-                foreach (WzDirectory d in subDirs)
-                    if (string.Equals(d.Name, name, StringComparison.OrdinalIgnoreCase))
-                        return d;
+                WzImage image = GetImageByName(name);
+                if (image != null)
+                    return image;
+
+                WzDirectory directory = GetDirectoryByName(name);
+                if (directory != null)
+                    return directory;
 
                 //throw new KeyNotFoundException("No wz image or directory was found with the specified name");
                 return null;
@@ -241,7 +263,7 @@ namespace MapleLib.WzLib
                         Offset = offset,
                         Parent = this
                     };
-                    subDirs.Add(subDir);
+                    AddDirectory(subDir);
 
                     if (lazyParse)
                         break;
@@ -254,7 +276,7 @@ namespace MapleLib.WzLib
                         Offset = offset,
                         Parent = this
                     };
-                    images.Add(img);
+                    AddImage(img);
                     //Debug.WriteLine("Adding image: " + fname);
 
                     if (lazyParse)
@@ -527,6 +549,7 @@ namespace MapleLib.WzLib
         {
             images.Add(img);
             img.Parent = this;
+            AddToIndex(img, imageIndex, ref nullImageIndex);
         }
         /// <summary>
         /// Adds a WzDirectory to the list of sub directories
@@ -537,6 +560,7 @@ namespace MapleLib.WzLib
             subDirs.Add(dir);
             dir.wzFile = wzFile;
             dir.Parent = this;
+            AddToIndex(dir, directoryIndex, ref nullDirectoryIndex);
         }
         /// <summary>
         /// Clears the list of images
@@ -546,6 +570,8 @@ namespace MapleLib.WzLib
             foreach (WzImage img in images) 
                 img.Parent = null;
             images.Clear();
+            imageIndex.Clear();
+            nullImageIndex = null;
         }
 
         /// <summary>
@@ -556,6 +582,8 @@ namespace MapleLib.WzLib
             foreach (WzDirectory dir in subDirs) 
                 dir.Parent = null;
             subDirs.Clear();
+            directoryIndex.Clear();
+            nullDirectoryIndex = null;
         }
 
         /// <summary>
@@ -565,12 +593,7 @@ namespace MapleLib.WzLib
         /// <returns>The wz image that has the specified name or null if none was found</returns>
         public virtual WzImage GetImageByName(string name)
         {
-            foreach (WzImage image in images)
-            {
-                if (string.Equals(image.Name, name, StringComparison.OrdinalIgnoreCase))
-                    return image;
-            }
-            return null;
+            return FindByName(name, images, imageIndex, ref nullImageIndex);
         }
 
         /// <summary>
@@ -580,12 +603,7 @@ namespace MapleLib.WzLib
         /// <returns>The wz directory that has the specified name or null if none was found</returns>
         public virtual WzDirectory GetDirectoryByName(string name)
         {
-            foreach (WzDirectory directory in subDirs)
-            {
-                if (string.Equals(directory.Name, name, StringComparison.OrdinalIgnoreCase))
-                    return directory;
-            }
-            return null;
+            return FindByName(name, subDirs, directoryIndex, ref nullDirectoryIndex);
         }
 
         /// <summary>
@@ -594,8 +612,10 @@ namespace MapleLib.WzLib
         /// <param name="image">The image to remove</param>
         public void RemoveImage(WzImage image)
         {
-            images.Remove(image);
+            bool removed = images.Remove(image);
             image.Parent = null;
+            if (removed)
+                RemoveFromIndex(image, images, imageIndex, ref nullImageIndex);
         }
         /// <summary>
         /// Removes a sub directory from the list
@@ -603,8 +623,188 @@ namespace MapleLib.WzLib
         /// <param name="name">The sub directory to remove</param>
         public void RemoveDirectory(WzDirectory dir)
         {
-            subDirs.Remove(dir);
+            bool removed = subDirs.Remove(dir);
             dir.Parent = null;
+            if (removed)
+                RemoveFromIndex(dir, subDirs, directoryIndex, ref nullDirectoryIndex);
+        }
+
+        private static T FindByName<T>(string name, List<T> items,
+            Dictionary<string, NameIndexEntry<T>> index,
+            ref NameIndexEntry<T>? nullEntry) where T : WzObject
+        {
+            if (items == null)
+                return null;
+
+            if (name == null)
+            {
+                if (nullEntry.HasValue && string.Equals(nullEntry.Value.First?.Name, null,
+                    StringComparison.Ordinal))
+                    return nullEntry.Value.First;
+
+                for (int i = 0; i < items.Count; i++)
+                {
+                    T item = items[i];
+                    if (item?.Name == null)
+                    {
+                        RebuildIndex(items, index, ref nullEntry);
+                        return item;
+                    }
+                }
+
+                return null;
+            }
+
+            if (index.TryGetValue(name, out NameIndexEntry<T> entry))
+            {
+                T indexed = entry.First;
+                if (string.Equals(indexed?.Name, name, StringComparison.OrdinalIgnoreCase))
+                    return indexed;
+
+                RebuildIndex(items, index, ref nullEntry);
+                return index.TryGetValue(name, out entry) ? entry.First : null;
+            }
+
+            // Name is mutable and has no setter callback into the directory.
+            // Repair the index only on a miss; stable hits stay dictionary probes.
+            for (int i = 0; i < items.Count; i++)
+            {
+                T item = items[i];
+                if (string.Equals(item?.Name, name, StringComparison.OrdinalIgnoreCase))
+                {
+                    RebuildIndex(items, index, ref nullEntry);
+                    return item;
+                }
+            }
+
+            return null;
+        }
+
+        private static void AddToIndex<T>(T item,
+            Dictionary<string, NameIndexEntry<T>> index,
+            ref NameIndexEntry<T>? nullEntry) where T : WzObject
+        {
+            if (item == null)
+                return;
+
+            string name = item.Name;
+            if (name == null)
+            {
+                if (!nullEntry.HasValue)
+                    nullEntry = new NameIndexEntry<T>(item);
+                else
+                {
+                    NameIndexEntry<T> entry = nullEntry.Value;
+                    entry.DuplicateCount++;
+                    nullEntry = entry;
+                }
+                return;
+            }
+
+            if (index.TryGetValue(name, out NameIndexEntry<T> existing))
+            {
+                existing.DuplicateCount++;
+                index[name] = existing;
+            }
+            else
+                index.Add(name, new NameIndexEntry<T>(item));
+        }
+
+        private static void RebuildIndex<T>(List<T> items,
+            Dictionary<string, NameIndexEntry<T>> index,
+            ref NameIndexEntry<T>? nullEntry) where T : WzObject
+        {
+            index.Clear();
+            nullEntry = null;
+            if (items == null)
+                return;
+
+            for (int i = 0; i < items.Count; i++)
+                AddToIndex(items[i], index, ref nullEntry);
+        }
+
+        private static void RemoveFromIndex<T>(T item, List<T> items,
+            Dictionary<string, NameIndexEntry<T>> index,
+            ref NameIndexEntry<T>? nullEntry) where T : WzObject
+        {
+            if (item == null)
+                return;
+
+            string name = item.Name;
+            if (name == null)
+            {
+                if (!nullEntry.HasValue)
+                    return;
+
+                NameIndexEntry<T> entry = nullEntry.Value;
+                if (!ReferenceEquals(entry.First, item))
+                {
+                    if (entry.DuplicateCount > 0)
+                    {
+                        entry.DuplicateCount--;
+                        nullEntry = entry;
+                        return;
+                    }
+
+                    RebuildIndex(items, index, ref nullEntry);
+                    return;
+                }
+
+                if (entry.DuplicateCount == 0)
+                {
+                    nullEntry = null;
+                    return;
+                }
+
+                entry.DuplicateCount--;
+                entry.First = FindFirstByName(items, null);
+                nullEntry = entry;
+                return;
+            }
+
+            if (!index.TryGetValue(name, out NameIndexEntry<T> indexedEntry))
+            {
+                RebuildIndex(items, index, ref nullEntry);
+                return;
+            }
+
+            if (!ReferenceEquals(indexedEntry.First, item))
+            {
+                if (indexedEntry.DuplicateCount > 0)
+                {
+                    indexedEntry.DuplicateCount--;
+                    index[name] = indexedEntry;
+                    return;
+                }
+
+                RebuildIndex(items, index, ref nullEntry);
+                return;
+            }
+
+            if (indexedEntry.DuplicateCount == 0)
+            {
+                index.Remove(name);
+                return;
+            }
+
+            indexedEntry.DuplicateCount--;
+            indexedEntry.First = FindFirstByName(items, name);
+            index[name] = indexedEntry;
+        }
+
+        private static T FindFirstByName<T>(List<T> items, string name) where T : WzObject
+        {
+            if (items == null)
+                return null;
+
+            for (int i = 0; i < items.Count; i++)
+            {
+                T item = items[i];
+                if (string.Equals(item?.Name, name, StringComparison.OrdinalIgnoreCase))
+                    return item;
+            }
+
+            return null;
         }
 
         public WzDirectory DeepClone()
@@ -612,6 +812,12 @@ namespace MapleLib.WzLib
             WzDirectory result = (WzDirectory)MemberwiseClone();
             result.subDirs = new List<WzDirectory>(subDirs.Count);
             result.images = new List<WzImage>(images.Count);
+            result.imageIndex = new Dictionary<string, NameIndexEntry<WzImage>>(
+                StringComparer.OrdinalIgnoreCase);
+            result.directoryIndex = new Dictionary<string, NameIndexEntry<WzDirectory>>(
+                StringComparer.OrdinalIgnoreCase);
+            result.nullImageIndex = null;
+            result.nullDirectoryIndex = null;
             foreach (WzDirectory dir in WzDirectories)
                 result.AddDirectory(dir.DeepClone());
             foreach (WzImage img in WzImages)

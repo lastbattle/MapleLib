@@ -172,6 +172,167 @@ public class WzCoreOptimizationTests
         Assert.IsTrue(file.IsUnloaded);
     }
 
+    [TestMethod]
+    public void PropertyCollectionIndex_PreservesOrderDuplicatesAndParentLinks()
+    {
+        var image = new WzImage("Indexed.img");
+        var first = new WzIntProperty("Value", 1);
+        var duplicate = new WzIntProperty("value", 2);
+        image.WzProperties.Add(first);
+        image.WzProperties.Add(duplicate);
+
+        Assert.AreSame(first, image["VALUE"]);
+        Assert.AreSame(image, first.Parent);
+        Assert.AreSame(image, duplicate.Parent);
+        Assert.Throws<Exception>(() => image.AddProperty(new WzIntProperty("vAlUe", 3)));
+
+        // A public Name setter can rename an already-indexed property.  The
+        // lookup must repair itself without changing list order.
+        first.Name = "Renamed";
+        Assert.AreSame(first, image["renamed"]);
+        Assert.AreSame(duplicate, image["VALUE"]);
+
+        var inserted = new WzIntProperty("VALUE", 4);
+        image.WzProperties.Insert(0, inserted);
+        Assert.AreSame(inserted, image["value"]);
+        Assert.AreSame(image, inserted.Parent);
+
+        image.WzProperties.Remove(inserted);
+        Assert.IsNull(inserted.Parent);
+        Assert.AreSame(duplicate, image["VALUE"]);
+
+        var replacement = new WzIntProperty("Replacement", 5);
+        image.WzProperties[1] = replacement;
+        Assert.IsNull(duplicate.Parent);
+        Assert.AreSame(image, replacement.Parent);
+        Assert.AreSame(replacement, image["replacement"]);
+        Assert.IsNull(image["value"]);
+
+        image.WzProperties.Clear();
+        Assert.IsNull(first.Parent);
+        Assert.IsNull(replacement.Parent);
+        Assert.IsEmpty(image.WzProperties);
+        Assert.IsNull(image["replacement"]);
+    }
+
+    [TestMethod]
+    public void PropertyCollectionIndex_ReindexesReverseAndRangeMutations()
+    {
+        var property = new WzSubProperty("Group");
+        var first = new WzIntProperty("Same", 1);
+        var second = new WzIntProperty("same", 2);
+        var third = new WzIntProperty("Other", 3);
+        property.WzProperties.Add(first);
+        property.WzProperties.Add(second);
+        property.WzProperties.Add(third);
+
+        Assert.AreSame(first, property["SAME"]);
+        property.WzProperties.Reverse();
+        Assert.AreSame(second, property["same"]);
+
+        property.WzProperties.RemoveRange(1, 2);
+        Assert.IsNull(first.Parent);
+        Assert.IsNull(second.Parent);
+        Assert.AreSame(third, property["other"]);
+
+        var added = new WzIntProperty("Added", 4);
+        property.WzProperties.AddRange(new[] { first, added });
+        Assert.AreSame(property, first.Parent);
+        Assert.AreSame(property, added.Parent);
+        Assert.AreSame(first, property["same"]);
+
+        int removed = property.WzProperties.RemoveAll(item => item.Name == "Added");
+        Assert.AreEqual(1, removed);
+        Assert.IsNull(added.Parent);
+        Assert.IsNull(property["added"]);
+    }
+
+    [TestMethod]
+    public void PropertyCollectionIndex_RemovalMaintainsDuplicateCounts()
+    {
+        var property = new WzSubProperty("Group");
+        var first = new WzIntProperty("Same", 1);
+        var second = new WzIntProperty("same", 2);
+        var unique = new WzIntProperty("Unique", 3);
+        property.WzProperties.Add(first);
+        property.WzProperties.Add(second);
+        property.WzProperties.Add(unique);
+
+        // Removing a non-first duplicate should leave the indexed first item
+        // in place without rebuilding the entire collection.
+        property.WzProperties.RemoveAt(1);
+        Assert.AreSame(first, property["SAME"]);
+
+        // Removing the indexed first item must promote the remaining item
+        // when a duplicate exists, then remove the key once it is unique.
+        property.WzProperties.Add(second);
+        Assert.AreSame(first, property["same"]);
+        property.WzProperties.RemoveAt(0);
+        Assert.AreSame(second, property["SAME"]);
+        property.WzProperties.Remove(second);
+        Assert.IsNull(property["same"]);
+        Assert.AreSame(unique, property["unique"]);
+    }
+
+    [TestMethod]
+    public void DirectoryIndex_PreservesOrderDuplicatesAndParentLinks()
+    {
+        var root = new WzDirectory("Root");
+        var firstImage = new WzImage("Entry.img");
+        var secondImage = new WzImage("entry.IMG");
+        root.AddImage(firstImage);
+        root.AddImage(secondImage);
+
+        Assert.AreSame(firstImage, root["ENTRY.IMG"]);
+        Assert.AreSame(root, firstImage.Parent);
+        Assert.AreSame(root, secondImage.Parent);
+
+        root.RemoveImage(firstImage);
+        Assert.IsNull(firstImage.Parent);
+        Assert.AreSame(secondImage, root.GetImageByName("entry.img"));
+
+        root.RemoveImage(secondImage);
+        Assert.IsNull(secondImage.Parent);
+        Assert.IsNull(root.GetImageByName("entry.img"));
+
+        var firstDirectory = new WzDirectory("Group");
+        var secondDirectory = new WzDirectory("group");
+        root.AddDirectory(firstDirectory);
+        root.AddDirectory(secondDirectory);
+        Assert.AreSame(firstDirectory, root["GROUP"]);
+        root.RemoveDirectory(firstDirectory);
+        Assert.IsNull(firstDirectory.Parent);
+        Assert.AreSame(secondDirectory, root.GetDirectoryByName("group"));
+
+        root.ClearDirectories();
+        Assert.IsNull(secondDirectory.Parent);
+        Assert.IsNull(root.GetDirectoryByName("group"));
+    }
+
+    [TestMethod]
+    public void DirectoryIndex_RepairsAfterNameMutationAndListAdd()
+    {
+        var root = new WzDirectory("Root");
+        var image = new WzImage("Original.img");
+        root.AddImage(image);
+
+        image.Name = "Renamed.img";
+        Assert.AreSame(image, root.GetImageByName("renamed.IMG"));
+        Assert.IsNull(root.GetImageByName("original.img"));
+
+        // The public List surface remains available.  A direct list mutation
+        // is repaired lazily on the first lookup miss.
+        var directImage = new WzImage("Direct.img");
+        root.WzImages.Add(directImage);
+        Assert.AreSame(directImage, root["DIRECT.IMG"]);
+
+        var directory = new WzDirectory("OriginalDir");
+        root.AddDirectory(directory);
+        directory.Name = "RenamedDir";
+        Assert.AreSame(directory, root.GetDirectoryByName("renameddir"));
+        Assert.IsNull(root.GetDirectoryByName("originaldir"));
+    }
+
     private static WzFile CreateCanvasShard(string name, bool includeTarget)
     {
         var file = CreateInMemoryCanvasEraWzFile();

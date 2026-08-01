@@ -227,12 +227,7 @@ namespace MapleLib.WzLib
                     if (!parsed) 
                         ParseImage();
                 
-                foreach (WzImageProperty property in properties)
-                {
-                    if (string.Equals(property.Name, name, StringComparison.OrdinalIgnoreCase))
-                        return property;
-                }
-                return null;
+                return properties.FindByName(name);
             }
             set
             {

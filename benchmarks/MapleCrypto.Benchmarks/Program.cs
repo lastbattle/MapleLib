@@ -7,6 +7,8 @@ internal static class Program
     public static void Main(string[] args)
     {
         CryptoCorrectness.Verify();
+        WzBinaryIoCorrectness.Verify();
+        WzFilePipelineCorrectness.Verify();
 
         if (args.Contains("--verify", StringComparer.Ordinal))
         {

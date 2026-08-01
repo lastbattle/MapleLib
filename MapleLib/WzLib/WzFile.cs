@@ -674,22 +674,9 @@ namespace MapleLib.WzLib
                 return GetObjectsFromDirectory(WzDirectory);
 
             var objList = new List<WzObject>();
-            foreach (WzImage image in WzDirectory.WzImages)
-            {
-                foreach (string objectPath in GetPathsFromImage(image, name + "/" + image.Name))
-                {
-                    if (StringMatch(path, objectPath))
-                        objList.Add(GetObjectFromPath(objectPath));
-                }
-            }
-            foreach (WzDirectory directory in wzDir.WzDirectories)
-            {
-                foreach (string objectPath in GetPathsFromDirectory(directory, name + "/" + directory.Name))
-                {
-                    if (StringMatch(path, objectPath))
-                        objList.Add(GetObjectFromPath(objectPath));
-                }
-            }
+            var pathSegments = new List<string>(8) { name };
+            TraverseSearchImages(WzDirectory.WzImages, pathSegments, false, path, null, objList);
+            TraverseSearchDirectories(wzDir.WzDirectories, pathSegments, path, null, objList);
             return objList;
         }
 
@@ -700,23 +687,144 @@ namespace MapleLib.WzLib
 
             Regex regex = new Regex(path);
             var objList = new List<WzObject>();
-            foreach (WzImage image in WzDirectory.WzImages)
-            {
-                foreach (string objectPath in GetPathsFromImage(image, name + "/" + image.Name))
-                {
-                    if (regex.IsMatch(objectPath))
-                        objList.Add(GetObjectFromPath(objectPath));
-                }
-            }
-            foreach (WzDirectory directory in wzDir.WzDirectories)
-            {
-                foreach (string objectPath in GetPathsFromDirectory(directory, name + "/" + directory.Name))
-                {
-                    if (regex.IsMatch(objectPath))
-                        objList.Add(GetObjectFromPath(objectPath));
-                }
-            }
+            var pathSegments = new List<string>(8) { name };
+            TraverseSearchImages(WzDirectory.WzImages, pathSegments, false, null, regex, objList);
+            TraverseSearchDirectories(wzDir.WzDirectories, pathSegments, null, regex, objList);
             return objList;
+        }
+
+        /// <summary>
+        /// Walks images in their existing order and evaluates each generated path as it is
+        /// visited.  Root images are intentionally not evaluated as objects: GetPathsFromImage
+        /// (used by the legacy root search loops) emits only their property paths.  Images reached
+        /// through a directory are evaluated by GetPathsFromDirectory and pass includeImage=true.
+        /// The old implementation first materialized every path and then looked up each match
+        /// again through the global file manager; traversing the object graph directly avoids both
+        /// allocations and a second lookup while retaining the path enumeration order.
+        /// </summary>
+        private void TraverseSearchImages(
+            IEnumerable<WzImage> images,
+            List<string> pathSegments,
+            bool includeImage,
+            string wildcardPath,
+            Regex regexPath,
+            List<WzObject> results)
+        {
+            foreach (WzImage image in images)
+            {
+                pathSegments.Add(image.Name);
+                if (includeImage)
+                    AddSearchMatch(pathSegments, image, wildcardPath, regexPath, results);
+
+                foreach (WzImageProperty property in image.WzProperties)
+                {
+                    pathSegments.Add(property.Name);
+                    TraverseSearchProperty(property, pathSegments, true, wildcardPath, regexPath, results);
+                    pathSegments.RemoveAt(pathSegments.Count - 1);
+                }
+
+                pathSegments.RemoveAt(pathSegments.Count - 1);
+            }
+        }
+
+        /// <summary>
+        /// Walks directories in their existing order.  Images are visited before child
+        /// directories, matching GetPathsFromDirectory and GetObjectsFromDirectory.
+        /// </summary>
+        private void TraverseSearchDirectories(
+            IEnumerable<WzDirectory> directories,
+            List<string> pathSegments,
+            string wildcardPath,
+            Regex regexPath,
+            List<WzObject> results)
+        {
+            foreach (WzDirectory directory in directories)
+            {
+                pathSegments.Add(directory.Name);
+                AddSearchMatch(pathSegments, directory, wildcardPath, regexPath, results);
+
+                TraverseSearchImages(directory.WzImages, pathSegments, true, wildcardPath, regexPath, results);
+                TraverseSearchDirectories(directory.WzDirectories, pathSegments, wildcardPath, regexPath, results);
+
+                pathSegments.RemoveAt(pathSegments.Count - 1);
+            }
+        }
+
+        /// <summary>
+        /// Evaluates an image property and then follows only the descendants represented by
+        /// GetPathsFromProperty.  Scalar child properties do not have a path of their own;
+        /// Canvas exposes PNG and Vector exposes X/Y terminal objects.
+        /// </summary>
+        private void TraverseSearchProperty(
+            WzImageProperty property,
+            List<string> pathSegments,
+            bool includeProperty,
+            string wildcardPath,
+            Regex regexPath,
+            List<WzObject> results)
+        {
+            if (includeProperty)
+                AddSearchMatch(pathSegments, property, wildcardPath, regexPath, results);
+
+            switch (property.PropertyType)
+            {
+                case WzPropertyType.Canvas:
+                    pathSegments.Add("PNG");
+                    AddSearchMatch(pathSegments, ((WzCanvasProperty)property).PngProperty, wildcardPath, regexPath, results);
+                    pathSegments.RemoveAt(pathSegments.Count - 1);
+
+                    foreach (WzImageProperty child in ((WzCanvasProperty)property).WzProperties)
+                    {
+                        pathSegments.Add(child.Name);
+                        TraverseSearchProperty(child, pathSegments, false, wildcardPath, regexPath, results);
+                        pathSegments.RemoveAt(pathSegments.Count - 1);
+                    }
+                    break;
+
+                case WzPropertyType.Convex:
+                    foreach (WzImageProperty child in ((WzConvexProperty)property).WzProperties)
+                    {
+                        pathSegments.Add(child.Name);
+                        TraverseSearchProperty(child, pathSegments, false, wildcardPath, regexPath, results);
+                        pathSegments.RemoveAt(pathSegments.Count - 1);
+                    }
+                    break;
+
+                case WzPropertyType.SubProperty:
+                    foreach (WzImageProperty child in ((WzSubProperty)property).WzProperties)
+                    {
+                        pathSegments.Add(child.Name);
+                        TraverseSearchProperty(child, pathSegments, false, wildcardPath, regexPath, results);
+                        pathSegments.RemoveAt(pathSegments.Count - 1);
+                    }
+                    break;
+
+                case WzPropertyType.Vector:
+                    WzVectorProperty vector = (WzVectorProperty)property;
+                    pathSegments.Add("X");
+                    AddSearchMatch(pathSegments, vector.X, wildcardPath, regexPath, results);
+                    pathSegments.RemoveAt(pathSegments.Count - 1);
+
+                    pathSegments.Add("Y");
+                    AddSearchMatch(pathSegments, vector.Y, wildcardPath, regexPath, results);
+                    pathSegments.RemoveAt(pathSegments.Count - 1);
+                    break;
+            }
+        }
+
+        private void AddSearchMatch(
+            List<string> pathSegments,
+            WzObject value,
+            string wildcardPath,
+            Regex regexPath,
+            List<WzObject> results)
+        {
+            string candidatePath = string.Join("/", pathSegments);
+            if ((wildcardPath != null && StringMatch(wildcardPath, candidatePath)) ||
+                (regexPath != null && regexPath.IsMatch(candidatePath)))
+            {
+                results.Add(value);
+            }
         }
 
         public List<WzObject> GetObjectsFromDirectory(WzDirectory dir)
@@ -1056,59 +1164,42 @@ namespace MapleLib.WzLib
 
         internal bool StringMatch(string strWildCard, string strCompare)
         {
-            int wildCardLength = strWildCard.Length;
-            int compareLength = strCompare.Length;
             int wildCardIndex = 0;
             int compareIndex = 0;
+            int lastStarIndex = -1;
+            int starMatchIndex = 0;
 
-            while (wildCardIndex < wildCardLength && compareIndex < compareLength)
+            // Greedy matching with backtracking to the most recent star has the same
+            // semantics as the recursive matcher, while avoiding Substring allocations and
+            // exponential recursion for patterns containing multiple stars.
+            while (compareIndex < strCompare.Length)
             {
-                if (strWildCard[wildCardIndex] == '*')
-                {
-                    // If there are multiple * in the wildcard, move to the last *
-                    while (wildCardIndex < wildCardLength && strWildCard[wildCardIndex] == '*')
-                    {
-                        wildCardIndex++;
-                    }
-
-                    // If there are no characters left in the wildcard, return true
-                    if (wildCardIndex == wildCardLength)
-                    {
-                        return true;
-                    }
-
-                    // Try to match the remaining part of the wildcard with the remaining part of the compare string
-                    // starting from the current compare index.
-                    while (compareIndex < compareLength)
-                    {
-                        if (StringMatch(strWildCard.Substring(wildCardIndex), strCompare.Substring(compareIndex)))
-                        {
-                            return true;
-                        }
-
-                        compareIndex++;
-                    }
-
-                    // If we reached here, it means the remaining part of the wildcard could not be matched
-                    // with the remaining part of the compare string, so return false.
-                    return false;
-                }
-                else if (strWildCard[wildCardIndex] == strCompare[compareIndex])
+                if (wildCardIndex < strWildCard.Length &&
+                    strWildCard[wildCardIndex] == strCompare[compareIndex])
                 {
                     wildCardIndex++;
                     compareIndex++;
                 }
+                else if (wildCardIndex < strWildCard.Length && strWildCard[wildCardIndex] == '*')
+                {
+                    lastStarIndex = wildCardIndex++;
+                    starMatchIndex = compareIndex;
+                }
+                else if (lastStarIndex >= 0)
+                {
+                    wildCardIndex = lastStarIndex + 1;
+                    compareIndex = ++starMatchIndex;
+                }
                 else
                 {
-                    // If the current characters do not match and the wildcard character is not a *,
-                    // return false.
                     return false;
                 }
             }
 
-            // If we reached here, it means one of the strings has been fully processed.
-            // If both strings have been fully processed, return true, else return false.
-            return wildCardIndex == wildCardLength && compareIndex == compareLength;
+            while (wildCardIndex < strWildCard.Length && strWildCard[wildCardIndex] == '*')
+                wildCardIndex++;
+
+            return wildCardIndex == strWildCard.Length;
         }
 
         public override void Remove()
