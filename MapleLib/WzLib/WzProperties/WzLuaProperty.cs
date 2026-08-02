@@ -23,6 +23,7 @@ namespace MapleLib.WzLib.WzProperties
     public class WzLuaProperty : WzImageProperty
     {
         #region Fields
+        private static readonly Encoding LuaEncoding = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false);
         internal string name;
         internal byte[] encryptedBytes;
         internal WzObject parent;
@@ -93,6 +94,15 @@ namespace MapleLib.WzLib.WzProperties
         public byte[] Value { get { return encryptedBytes; } set { encryptedBytes = value; } }
 
         /// <summary>
+        /// Replaces the Lua source while applying the WZ Lua XOR layer.
+        /// MapleStory stores Lua source as UTF-8, including non-ASCII text.
+        /// </summary>
+        public void SetString(string value)
+        {
+            Value = EncodeDecode(LuaEncoding.GetBytes(value ?? string.Empty));
+        }
+
+        /// <summary>
         /// Creates a WzStringProperty with the specified name and value
         /// </summary>
         /// <param name="name">The name of the property</param>
@@ -111,7 +121,7 @@ namespace MapleLib.WzLib.WzProperties
             byte[] decodedBytes = EncodeDecode(encryptedBytes);
             // MapleStory Lua payloads are UTF-8 after the WZ XOR layer.  ASCII
             // replaces non-ASCII bytes (for example Korean text) with '?'.
-            string decoded = Encoding.UTF8.GetString(decodedBytes);
+            string decoded = LuaEncoding.GetString(decodedBytes);
 
             return decoded;
         }

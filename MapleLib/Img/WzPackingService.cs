@@ -60,19 +60,26 @@ namespace MapleLib.Img
         private const long CANVAS_SIZE_THRESHOLD = 100_000;
 
         /// <summary>
-        /// Maximum degree of parallelism for concurrent IMG file processing
+        /// Maximum degree of parallelism for concurrent image-file processing
         /// </summary>
         private static readonly int MAX_DEGREE_OF_PARALLELISM = Math.Max(1, Environment.ProcessorCount - 1);
 
         /// <summary>
-        /// Hard cap for IMG parsing fan-out to avoid extreme memory spikes on large categories.
+        /// Hard cap for binary IMG parsing fan-out to avoid extreme memory spikes on large categories.
         /// </summary>
         private const int MAX_IMG_PARSE_PARALLELISM = 2;
+
+        private static readonly Encoding LuaTextEncoding =
+            new UTF8Encoding(encoderShouldEmitUTF8Identifier: false, throwOnInvalidBytes: true);
+        private static readonly Encoding LuaUtf16LittleEndianEncoding =
+            new UnicodeEncoding(bigEndian: false, byteOrderMark: true, throwOnInvalidBytes: true);
+        private static readonly Encoding LuaUtf16BigEndianEncoding =
+            new UnicodeEncoding(bigEndian: true, byteOrderMark: true, throwOnInvalidBytes: true);
         #endregion
 
         #region Helper Classes for Concurrent Processing
         /// <summary>
-        /// Information about an IMG file to be processed
+        /// Information about an extracted image file to be processed
         /// </summary>
         private class ImgFileInfo
         {
@@ -83,7 +90,7 @@ namespace MapleLib.Img
         }
 
         /// <summary>
-        /// Result of processing a single IMG file
+        /// Result of processing a single extracted image file
         /// </summary>
         private class ImgProcessingResult
         {
@@ -126,6 +133,69 @@ namespace MapleLib.Img
         #endregion
 
         #region Public Methods
+
+        /// <summary>
+        /// Returns whether a filesystem entry can represent a WZ image.
+        /// Lua scripts are stored as plain UTF-8 .lua files; normal images use .img.
+        /// </summary>
+        public static bool IsPackableImageFile(string filePath)
+        {
+            string extension = Path.GetExtension(filePath);
+            return extension.Equals(".img", StringComparison.OrdinalIgnoreCase) ||
+                   extension.Equals(".lua", StringComparison.OrdinalIgnoreCase);
+        }
+
+        /// <summary>
+        /// Enumerates image files in an extracted category. When both a Lua text
+        /// file and its legacy binary .lua.img counterpart exist, the text file
+        /// wins and the binary duplicate is ignored.
+        /// </summary>
+        public static IEnumerable<string> EnumeratePackableImageFiles(
+            string rootPath,
+            SearchOption searchOption = SearchOption.AllDirectories)
+        {
+            if (string.IsNullOrEmpty(rootPath) || !Directory.Exists(rootPath))
+            {
+                return Enumerable.Empty<string>();
+            }
+
+            var files = HaCreatorPaths.EnumerateFilesExcludingBackups(rootPath, "*", searchOption)
+                .Where(IsPackableImageFile)
+                .ToList();
+            var luaTextFiles = new HashSet<string>(
+                files.Where(IsLuaTextFile).Select(Path.GetFullPath),
+                StringComparer.OrdinalIgnoreCase);
+
+            return files.Where(path =>
+                !IsLegacyLuaBinaryFile(path) ||
+                !luaTextFiles.Contains(GetLegacyLuaTextPath(path)));
+        }
+
+        private static bool IsLuaTextFile(string filePath)
+        {
+            return Path.GetExtension(filePath).Equals(".lua", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static bool IsLegacyLuaBinaryFile(string filePath)
+        {
+            return Path.GetFileName(filePath)
+                .EndsWith(".lua.img", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static string GetLegacyLuaTextPath(string filePath)
+        {
+            string fileName = Path.GetFileName(filePath);
+            string luaFileName = fileName.Substring(0, fileName.Length - ".img".Length);
+            return Path.GetFullPath(Path.Combine(Path.GetDirectoryName(filePath) ?? string.Empty, luaFileName));
+        }
+
+        private static string GetWzImageNameFromFileName(string fileName)
+        {
+            return IsLegacyLuaBinaryFile(fileName)
+                ? fileName.Substring(0, fileName.Length - ".img".Length)
+                : fileName;
+        }
+
         /// <summary>
         /// Packs all IMG files from a version directory into WZ files
         /// </summary>
@@ -675,9 +745,8 @@ namespace MapleLib.Img
                     string categoryPath = Path.Combine(versionPath, category);
                     if (Directory.Exists(categoryPath))
                     {
-                        progressData.TotalFiles += HaCreatorPaths.EnumerateFilesExcludingBackups(
+                        progressData.TotalFiles += EnumeratePackableImageFiles(
                             categoryPath,
-                            "*.img",
                             SearchOption.AllDirectories).Count();
                     }
                 }
@@ -801,9 +870,8 @@ namespace MapleLib.Img
                     string categoryPath = Path.Combine(versionPath, category);
                     if (Directory.Exists(categoryPath))
                     {
-                        progressData.TotalFiles += HaCreatorPaths.EnumerateFilesExcludingBackups(
+                        progressData.TotalFiles += EnumeratePackableImageFiles(
                             categoryPath,
-                            "*.img",
                             SearchOption.AllDirectories).Count();
                     }
                 }
@@ -1351,9 +1419,8 @@ namespace MapleLib.Img
         private static int ApplyImageCaseMapEntries(string categoryPath, IDictionary<string, string> entries)
         {
             int renamedCount = 0;
-            var imgFiles = HaCreatorPaths.EnumerateFilesExcludingBackups(
+            var imgFiles = EnumeratePackableImageFiles(
                 categoryPath,
-                "*.img",
                 SearchOption.AllDirectories).ToList();
             foreach (var filePath in imgFiles)
             {
@@ -1365,9 +1432,25 @@ namespace MapleLib.Img
                 string relativePath = Path.GetRelativePath(categoryPath, filePath)
                     .Replace(Path.DirectorySeparatorChar, '/');
                 string lowerKey = relativePath.ToLowerInvariant();
-                if (!entries.TryGetValue(lowerKey, out var canonicalRelativePath) || string.IsNullOrWhiteSpace(canonicalRelativePath))
+                if (!entries.TryGetValue(lowerKey, out var canonicalRelativePath) && IsLuaTextFile(filePath))
+                {
+                    // Older exports recorded Lua images as "*.lua.img". If the
+                    // text representation is now present, use that legacy entry
+                    // only for casing/directory metadata, never for the file type.
+                    entries.TryGetValue(lowerKey + ".img", out canonicalRelativePath);
+                }
+
+                if (string.IsNullOrWhiteSpace(canonicalRelativePath))
                 {
                     continue;
+                }
+
+                if (IsLuaTextFile(filePath) &&
+                    canonicalRelativePath.EndsWith(".lua.img", StringComparison.OrdinalIgnoreCase))
+                {
+                    canonicalRelativePath = canonicalRelativePath.Substring(
+                        0,
+                        canonicalRelativePath.Length - ".img".Length);
                 }
 
                 if (string.Equals(relativePath, canonicalRelativePath, StringComparison.Ordinal))
@@ -1453,7 +1536,7 @@ namespace MapleLib.Img
         {
             int count = 0;
 
-            // Count from all subdirectories that contain .img files
+            // Count all packable image files, including plain-text Lua scripts.
             foreach (var dirPath in HaCreatorPaths.EnumerateDirectoriesExcludingBackups(versionPath))
             {
                 string dirName = Path.GetFileName(dirPath);
@@ -1462,9 +1545,8 @@ namespace MapleLib.Img
                 if (dirName.StartsWith(".") || dirName.Equals("manifest", StringComparison.OrdinalIgnoreCase))
                     continue;
 
-                count += HaCreatorPaths.EnumerateFilesExcludingBackups(
+                count += EnumeratePackableImageFiles(
                     dirPath,
-                    "*.img",
                     SearchOption.AllDirectories).Count();
 
                 // Pre-BB List category can exist as List.json without any IMG files.
@@ -1494,9 +1576,8 @@ namespace MapleLib.Img
                     continue;
                 }
 
-                bool hasImgFiles = HaCreatorPaths.EnumerateFilesExcludingBackups(
+                bool hasImgFiles = EnumeratePackableImageFiles(
                     categoryPath,
-                    "*.img",
                     SearchOption.AllDirectories).Any();
                 bool hasListJson = category.Equals("List", StringComparison.OrdinalIgnoreCase) &&
                                    File.Exists(Path.Combine(categoryPath, "List.json"));
@@ -1520,10 +1601,9 @@ namespace MapleLib.Img
                 if (dirName.StartsWith(".") || dirName.Equals("manifest", StringComparison.OrdinalIgnoreCase))
                     continue;
 
-                // Check for .img files
-                int imgCount = HaCreatorPaths.EnumerateFilesExcludingBackups(
+                // Check for packable image files (.img and .lua)
+                int imgCount = EnumeratePackableImageFiles(
                     dirPath,
-                    "*.img",
                     SearchOption.AllDirectories).Count();
                 bool hasListJson = dirName.Equals("List", StringComparison.OrdinalIgnoreCase) &&
                                    File.Exists(Path.Combine(dirPath, "List.json"));
@@ -1600,8 +1680,8 @@ namespace MapleLib.Img
                     cancellationToken);
             }
 
-            // Process IMG files in current directory
-            foreach (var imgFilePath in HaCreatorPaths.EnumerateFilesExcludingBackups(currentPath, "*.img"))
+            // Process image files in current directory
+            foreach (var imgFilePath in EnumeratePackableImageFiles(currentPath, SearchOption.TopDirectoryOnly))
             {
                 cancellationToken.ThrowIfCancellationRequested();
 
@@ -1697,16 +1777,15 @@ namespace MapleLib.Img
         }
 
         /// <summary>
-        /// Collects all IMG files from a category directory without building directory structure.
+        /// Collects all packable image files from a category directory without building directory structure.
         /// Used for size-based splitting where we need to know all files first.
         /// </summary>
         private List<ImgFileInfo> CollectImgFiles(string categoryPath)
         {
             var imgFiles = new List<ImgFileInfo>();
 
-            foreach (var imgFilePath in HaCreatorPaths.EnumerateFilesExcludingBackups(
+            foreach (var imgFilePath in EnumeratePackableImageFiles(
                 categoryPath,
-                "*.img",
                 SearchOption.AllDirectories))
             {
                 string relativePath = imgFilePath.Substring(categoryPath.Length).TrimStart(Path.DirectorySeparatorChar);
@@ -1858,8 +1937,8 @@ namespace MapleLib.Img
                     referenceImageOrder);
             }
 
-            // Collect IMG files in current directory
-            foreach (var imgFilePath in HaCreatorPaths.EnumerateFilesExcludingBackups(currentPath, "*.img")
+            // Collect image files in current directory
+            foreach (var imgFilePath in EnumeratePackableImageFiles(currentPath, SearchOption.TopDirectoryOnly)
                 .OrderBy(path => ResolveReferenceOrder(path, referenceImageOrder))
                 .ThenBy(path => Path.GetFileName(path), StringComparer.OrdinalIgnoreCase))
             {
@@ -1877,7 +1956,8 @@ namespace MapleLib.Img
         }
 
         /// <summary>
-        /// Processes a single IMG file: reads, parses, and clones it.
+        /// Processes a single extracted image. Plain-text Lua files are converted
+        /// directly into WzLuaProperty images; binary IMG files are parsed and cloned.
         /// This method is thread-safe and can be called concurrently.
         /// </summary>
         /// <param name="imgFileInfo">Information about the IMG file to process</param>
@@ -1892,7 +1972,14 @@ namespace MapleLib.Img
 
             try
             {
-                string imgFileName = Path.GetFileName(imgFileInfo.FilePath);
+                string imgFileName = GetWzImageNameFromFileName(Path.GetFileName(imgFileInfo.FilePath));
+
+                if (IsLuaTextFile(imgFileInfo.FilePath))
+                {
+                    result.Image = CreateLuaImageFromText(imgFileInfo.FilePath, imgFileName);
+                    result.Success = true;
+                    return result;
+                }
 
                 // Read the raw IMG file bytes
                 byte[] imgBytes = File.ReadAllBytes(imgFileInfo.FilePath);
@@ -1946,6 +2033,46 @@ namespace MapleLib.Img
             }
 
             return result;
+        }
+
+        private static WzImage CreateLuaImageFromText(string filePath, string imageName)
+        {
+            string script = ReadLuaText(filePath);
+
+            // WzLuaProperty stores the XOR-encoded UTF-8 payload. The property
+            // generates the same fixed Lua key used by the WZ parser, so encoding
+            // here is the exact inverse of WzLuaProperty.GetString().
+            var luaProperty = new WzLuaProperty("Script", Array.Empty<byte>());
+            luaProperty.SetString(script);
+
+            var image = new WzImage(imageName)
+            {
+                Changed = true
+            };
+            image.WzProperties.Add(luaProperty);
+            return image;
+        }
+
+        private static string ReadLuaText(string filePath)
+        {
+            byte[] bytes = File.ReadAllBytes(filePath);
+
+            if (bytes.Length >= 2 && bytes[0] == 0xFF && bytes[1] == 0xFE)
+            {
+                return LuaUtf16LittleEndianEncoding.GetString(bytes, 2, bytes.Length - 2);
+            }
+
+            if (bytes.Length >= 2 && bytes[0] == 0xFE && bytes[1] == 0xFF)
+            {
+                return LuaUtf16BigEndianEncoding.GetString(bytes, 2, bytes.Length - 2);
+            }
+
+            if (bytes.Length >= 3 && bytes[0] == 0xEF && bytes[1] == 0xBB && bytes[2] == 0xBF)
+            {
+                return LuaTextEncoding.GetString(bytes, 3, bytes.Length - 3);
+            }
+
+            return LuaTextEncoding.GetString(bytes);
         }
         #endregion
 

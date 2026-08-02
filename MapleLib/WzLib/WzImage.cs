@@ -52,7 +52,7 @@ namespace MapleLib.WzLib
         /// </summary>
         public bool IsLuaWzImage
         {
-            get { return Name.EndsWith(".lua"); } // TODO: find some ways to avoid user from adding a new image with .lua name
+            get { return Name.EndsWith(".lua", StringComparison.OrdinalIgnoreCase); } // TODO: find some ways to avoid user from adding a new image with .lua name
         }
         #endregion
 

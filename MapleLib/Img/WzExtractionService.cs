@@ -11,6 +11,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Text.Json;
@@ -1162,9 +1163,9 @@ namespace MapleLib.Img
                         linkResolver.ResolveLinksInImage(img);
                     }
 
-                    string imgPath = Path.Combine(outputPath, EscapeFileName(img.Name));
+                    string imgPath = GetImageOutputPath(outputPath, img.Name);
                     EnsureExactFilePathCase(imgPath);
-                    serializer.SerializeImage(img, imgPath);
+                    SerializeImageToOutput(img, imgPath, serializer);
                     TryRecordImageCaseMap(categoryOutputRootPath, imgPath, extractedImageCaseMap);
 
                     processedCount++;
@@ -1304,9 +1305,9 @@ namespace MapleLib.Img
                                     linkResolver.ResolveLinksInImage(img);
                                 }
 
-                                string imgPath = Path.Combine(categoryOutputPath, ProgressingWzSerializer.EscapeInvalidFilePathNames(img.Name));
+                                string imgPath = GetImageOutputPath(categoryOutputPath, img.Name);
                                 EnsureExactFilePathCase(imgPath);
-                                serializer.SerializeImage(img, imgPath);
+                                SerializeImageToOutput(img, imgPath, serializer);
                                 TryRecordImageCaseMap(categoryOutputPath, imgPath, extractedImageCaseMap);
 
                                 processedCount++;
@@ -1557,11 +1558,11 @@ namespace MapleLib.Img
                                         {
                                             Directory.CreateDirectory(subDirPath);
                                         }
-                                        imgOutputPath = Path.Combine(subDirPath, EscapeFileName(imgName));
+                                        imgOutputPath = GetImageOutputPath(subDirPath, imgName);
                                     }
                                     else
                                     {
-                                        imgOutputPath = Path.Combine(categoryOutputPath, EscapeFileName(remainingPath));
+                                        imgOutputPath = GetImageOutputPath(categoryOutputPath, remainingPath);
                                     }
 
                                     // Find the corresponding WzImage in the loaded WzFile
@@ -1582,7 +1583,7 @@ namespace MapleLib.Img
 
                                     // Serialize the image
                                     EnsureExactFilePathCase(imgOutputPath);
-                                    serializer.SerializeImage(wzImage, imgOutputPath);
+                                    SerializeImageToOutput(wzImage, imgOutputPath, serializer);
 
                                     processedCount++;
                                     result.TotalSize += new FileInfo(imgOutputPath).Length;
@@ -1739,6 +1740,49 @@ namespace MapleLib.Img
         private string EscapeFileName(string fileName)
         {
             return ProgressingWzSerializer.EscapeInvalidFilePathNames(fileName);
+        }
+
+        /// <summary>
+        /// Gets the filesystem path for an extracted WZ image.
+        /// Lua WZ images are represented by their decoded script text, so they
+        /// keep the original .lua extension. All other images use .img.
+        /// </summary>
+        private string GetImageOutputPath(string outputDirectory, string imageName)
+        {
+            string escapedName = EscapeFileName(imageName);
+            if (!escapedName.EndsWith(".img", StringComparison.OrdinalIgnoreCase) &&
+                !escapedName.EndsWith(".lua", StringComparison.OrdinalIgnoreCase))
+            {
+                escapedName += ".img";
+            }
+
+            return Path.Combine(outputDirectory, escapedName);
+        }
+
+        /// <summary>
+        /// Writes a Lua image as UTF-8 source text or serializes a normal image
+        /// as a binary IMG file.
+        /// </summary>
+        private void SerializeImageToOutput(WzImage image, string outputPath, WzImgSerializer serializer)
+        {
+            if (!image.IsLuaWzImage)
+            {
+                serializer.SerializeImage(image, outputPath);
+                return;
+            }
+
+            WzLuaProperty luaProperty = image.WzProperties
+                .OfType<WzLuaProperty>()
+                .FirstOrDefault();
+            if (luaProperty == null)
+            {
+                throw new InvalidDataException($"Lua image {image.Name} does not contain a Lua property.");
+            }
+
+            File.WriteAllText(
+                outputPath,
+                luaProperty.GetString(),
+                new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
         }
 
         /// <summary>
