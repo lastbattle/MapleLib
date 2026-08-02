@@ -109,7 +109,9 @@ namespace MapleLib.WzLib.WzProperties
         public override string GetString()
         {
             byte[] decodedBytes = EncodeDecode(encryptedBytes);
-            string decoded = Encoding.ASCII.GetString(decodedBytes);
+            // MapleStory Lua payloads are UTF-8 after the WZ XOR layer.  ASCII
+            // replaces non-ASCII bytes (for example Korean text) with '?'.
+            string decoded = Encoding.UTF8.GetString(decodedBytes);
 
             return decoded;
         }
