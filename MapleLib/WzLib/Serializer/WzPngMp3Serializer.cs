@@ -10,7 +10,7 @@ using System.Threading.Tasks;
 namespace MapleLib.WzLib.Serializer
 {
     /// <summary>
-    /// Serialiser for MP3
+    /// Serialiser for PNG and audio files
     /// </summary>
     public class WzPngMp3Serializer : ProgressingWzSerializer, IWzImageSerializer, IWzObjectSerializer
     {
@@ -98,7 +98,10 @@ namespace MapleLib.WzLib.Serializer
             }
             else if (currObj is WzBinaryProperty binProperty)
             {
-                string path = outPath + EscapeInvalidFilePathNames(currObj.Name) + ".mp3";
+                string fileName = EscapeInvalidFilePathNames(currObj.Name);
+                if (!fileName.EndsWith(binProperty.FileExtension, StringComparison.OrdinalIgnoreCase))
+                    fileName += binProperty.FileExtension;
+                string path = outPath + fileName;
 
                 binProperty.SaveToFile(path);
             }
