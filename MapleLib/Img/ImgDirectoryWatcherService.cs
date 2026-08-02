@@ -106,6 +106,7 @@ namespace MapleLib.Img
         private readonly object _ignorePathsLock = new();
         private readonly int _debounceMs;
         private readonly bool _trackContentHash;
+        private readonly bool _recordInitialState;
         private bool _disposed;
         #endregion
 
@@ -142,10 +143,15 @@ namespace MapleLib.Img
         /// </summary>
         /// <param name="debounceMs">Milliseconds to wait before processing changes (default 500ms)</param>
         /// <param name="trackContentHash">Whether to use MD5 hash for change detection (default true)</param>
-        public ImgDirectoryWatcherService(int debounceMs = 500, bool trackContentHash = true)
+        /// <param name="recordInitialState">Whether to recursively snapshot every existing IMG file when watching starts.</param>
+        public ImgDirectoryWatcherService(
+            int debounceMs = 500,
+            bool trackContentHash = true,
+            bool recordInitialState = true)
         {
             _debounceMs = debounceMs;
             _trackContentHash = trackContentHash;
+            _recordInitialState = recordInitialState;
         }
         #endregion
 
@@ -185,8 +191,13 @@ namespace MapleLib.Img
 
                 _watchers[normalizedPath] = watcher;
 
-                // Record initial state of all .img files in the directory
-                RecordDirectoryState(normalizedPath);
+                // Large extracted versions can contain tens of thousands of files and many gigabytes of data.
+                // Callers that only need live FileSystemWatcher events can skip this recursive snapshot and
+                // record state lazily when a file is opened or changed.
+                if (_recordInitialState)
+                {
+                    RecordDirectoryState(normalizedPath);
+                }
             }
             catch (Exception ex)
             {
@@ -561,11 +572,10 @@ namespace MapleLib.Img
             if (_disposed || IsPathIgnored(e.FullPath))
                 return;
 
-            // No debounce for deletes - process immediately
-            if (_fileStates.TryRemove(e.FullPath, out _))
-            {
-                ImgFileDeleted?.Invoke(this, new ImgFileModifiedEventArgs(e.FullPath, ImgChangeType.Deleted));
-            }
+            // No debounce for deletes - process immediately. A file may not have a cached state when the
+            // watcher uses lazy state tracking, but the FileSystemWatcher event is still authoritative.
+            _fileStates.TryRemove(e.FullPath, out _);
+            ImgFileDeleted?.Invoke(this, new ImgFileModifiedEventArgs(e.FullPath, ImgChangeType.Deleted));
         }
 
         private void OnFileRenamed(object sender, RenamedEventArgs e)
