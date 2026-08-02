@@ -20,7 +20,7 @@ namespace MapleLib.WzLib.WzProperties
     }
 
     /// <summary>
-    /// A property that contains data for an MP3 or binary file
+    /// A property that contains data for an MP3, WAV, or other binary file
     /// </summary>
     public class WzBinaryProperty : WzExtended
     {
@@ -127,11 +127,11 @@ namespace MapleLib.WzLib.WzProperties
 
         #region Custom Members
         /// <summary>
-        /// The data of the mp3 header
+        /// The data of the audio header
         /// </summary>
         public byte[] Header { get { return header; } set { header = value; } }
         /// <summary>
-        /// Length of the mp3 file in milliseconds
+        /// Length of the audio file in milliseconds
         /// </summary>
         public int Length { get { return len_ms; } set { len_ms = value; } }
         /// <summary>
@@ -146,6 +146,20 @@ namespace MapleLib.WzLib.WzProperties
             get { return wavFormat; }
             private set { }
         }
+        public WzBinaryPropertyType SoundType
+        {
+            get
+            {
+                return wavFormat?.Encoding switch
+                {
+                    WaveFormatEncoding.MpegLayer3 => WzBinaryPropertyType.MP3,
+                    WaveFormatEncoding.Pcm => WzBinaryPropertyType.WAV,
+                    _ => WzBinaryPropertyType.Raw,
+                };
+            }
+        }
+        public bool IsWaveFile => SoundType == WzBinaryPropertyType.WAV;
+        public string FileExtension => IsWaveFile ? ".wav" : ".mp3";
         /// <summary>
         /// BPS of the mp3 file
         /// </summary>
@@ -255,12 +269,30 @@ namespace MapleLib.WzLib.WzProperties
         public WzBinaryProperty(string name, string file)
         {
             this.name = name;
-            Mp3FileReader reader = new Mp3FileReader(file);
-            this.wavFormat = reader.Mp3WaveFormat;
-            this.len_ms = (int)((double)reader.Length * 1000d / (double)reader.WaveFormat.AverageBytesPerSecond);
+            if (string.Equals(Path.GetExtension(file), ".wav", StringComparison.OrdinalIgnoreCase))
+            {
+                using WaveFileReader reader = new WaveFileReader(file);
+                if (reader.WaveFormat.Encoding != WaveFormatEncoding.Pcm)
+                {
+                    throw new NotSupportedException($"Only PCM WAV files are supported, but this file uses {reader.WaveFormat.Encoding}.");
+                }
+
+                this.wavFormat = reader.WaveFormat;
+                this.len_ms = (int)reader.TotalTime.TotalMilliseconds;
+                using MemoryStream data = new MemoryStream();
+                reader.CopyTo(data);
+                this.fileBytes = data.ToArray();
+            }
+            else
+            {
+                using Mp3FileReader reader = new Mp3FileReader(file);
+                this.wavFormat = reader.Mp3WaveFormat;
+                this.len_ms = (int)((double)reader.Length * 1000d / (double)reader.WaveFormat.AverageBytesPerSecond);
+                this.fileBytes = File.ReadAllBytes(file);
+            }
+
+            this.soundDataLen = this.fileBytes.Length;
             RebuildHeader();
-            reader.Dispose();
-            this.fileBytes = File.ReadAllBytes(file);
         }
 
         private void RebuildHeader()
@@ -377,15 +409,17 @@ namespace MapleLib.WzLib.WzProperties
         #region Parsing Methods
         public byte[] GetBytesForWAVPlayback()
         {
+            if (!IsWaveFile)
+                throw new InvalidOperationException("Only PCM audio can be converted to a WAV stream.");
+
             byte[] soundBytes = GetBytes(false);
+            using MemoryStream wavStream = new MemoryStream();
+            using (WaveFileWriter writer = new WaveFileWriter(wavStream, wavFormat))
+            {
+                writer.Write(soundBytes, 0, soundBytes.Length);
+            }
 
-            byte[] combinedArray = new byte[_riff_waveHeader.Length + header.Length + soundBytes.Length];
-
-            Array.Copy(_riff_waveHeader, 0, combinedArray, 0, _riff_waveHeader.Length);
-            Array.Copy(header, 0, combinedArray, _riff_waveHeader.Length, header.Length);
-            Array.Copy(soundBytes, 0, combinedArray, _riff_waveHeader.Length + header.Length, soundBytes.Length);
-
-            return combinedArray;
+            return wavStream.ToArray();
         }
 
         public byte[] GetBytes(bool saveInMemory)
@@ -417,7 +451,7 @@ namespace MapleLib.WzLib.WzProperties
 
         public void SaveToFile(string file)
         {
-            File.WriteAllBytes(file, GetBytes(false));
+            File.WriteAllBytes(file, IsWaveFile ? GetBytesForWAVPlayback() : GetBytes(false));
         }
         #endregion
 
