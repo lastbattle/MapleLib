@@ -272,6 +272,14 @@ namespace MapleLib.Img
                 StartTime = DateTime.Now
             };
 
+            if (HaCreatorPaths.IsBackupsDirectoryName(category))
+            {
+                result.Success = false;
+                result.Errors.Add($"Category '{category}' is reserved for backups and cannot be packed.");
+                result.EndTime = DateTime.Now;
+                return result;
+            }
+
             string categoryPath = Path.Combine(versionPath, category);
             if (!Directory.Exists(categoryPath))
             {
@@ -657,19 +665,26 @@ namespace MapleLib.Img
                     Directory.CreateDirectory(outputPath);
                 }
 
+                var categoriesToPack = categories
+                    .Where(category => !HaCreatorPaths.IsBackupsDirectoryName(category))
+                    .ToList();
+
                 // Count images for selected categories
-                foreach (var category in categories)
+                foreach (var category in categoriesToPack)
                 {
                     string categoryPath = Path.Combine(versionPath, category);
                     if (Directory.Exists(categoryPath))
                     {
-                        progressData.TotalFiles += Directory.EnumerateFiles(categoryPath, "*.img", SearchOption.AllDirectories).Count();
+                        progressData.TotalFiles += HaCreatorPaths.EnumerateFilesExcludingBackups(
+                            categoryPath,
+                            "*.img",
+                            SearchOption.AllDirectories).Count();
                     }
                 }
                 progress?.Report(progressData);
 
                 // Pack each category
-                foreach (var category in categories)
+                foreach (var category in categoriesToPack)
                 {
                     cancellationToken.ThrowIfCancellationRequested();
 
@@ -775,7 +790,9 @@ namespace MapleLib.Img
                 byte[] readIv = WzAESConstant.WZ_BMSCLASSIC;
 
                 // Separate List category from others (List.wz is always separate)
-                var categoriesList = categories.ToList();
+                var categoriesList = categories
+                    .Where(category => !HaCreatorPaths.IsBackupsDirectoryName(category))
+                    .ToList();
                 bool hasListCategory = categoriesList.RemoveAll(c => c.Equals("List", StringComparison.OrdinalIgnoreCase)) > 0;
 
                 // Count total images for progress
@@ -784,7 +801,10 @@ namespace MapleLib.Img
                     string categoryPath = Path.Combine(versionPath, category);
                     if (Directory.Exists(categoryPath))
                     {
-                        progressData.TotalFiles += Directory.EnumerateFiles(categoryPath, "*.img", SearchOption.AllDirectories).Count();
+                        progressData.TotalFiles += HaCreatorPaths.EnumerateFilesExcludingBackups(
+                            categoryPath,
+                            "*.img",
+                            SearchOption.AllDirectories).Count();
                     }
                 }
                 progress?.Report(progressData);
@@ -1331,7 +1351,10 @@ namespace MapleLib.Img
         private static int ApplyImageCaseMapEntries(string categoryPath, IDictionary<string, string> entries)
         {
             int renamedCount = 0;
-            var imgFiles = Directory.EnumerateFiles(categoryPath, "*.img", SearchOption.AllDirectories).ToList();
+            var imgFiles = HaCreatorPaths.EnumerateFilesExcludingBackups(
+                categoryPath,
+                "*.img",
+                SearchOption.AllDirectories).ToList();
             foreach (var filePath in imgFiles)
             {
                 if (!File.Exists(filePath))
@@ -1431,7 +1454,7 @@ namespace MapleLib.Img
             int count = 0;
 
             // Count from all subdirectories that contain .img files
-            foreach (var dirPath in Directory.EnumerateDirectories(versionPath))
+            foreach (var dirPath in HaCreatorPaths.EnumerateDirectoriesExcludingBackups(versionPath))
             {
                 string dirName = Path.GetFileName(dirPath);
 
@@ -1439,7 +1462,10 @@ namespace MapleLib.Img
                 if (dirName.StartsWith(".") || dirName.Equals("manifest", StringComparison.OrdinalIgnoreCase))
                     continue;
 
-                count += Directory.EnumerateFiles(dirPath, "*.img", SearchOption.AllDirectories).Count();
+                count += HaCreatorPaths.EnumerateFilesExcludingBackups(
+                    dirPath,
+                    "*.img",
+                    SearchOption.AllDirectories).Count();
 
                 // Pre-BB List category can exist as List.json without any IMG files.
                 if (dirName.Equals("List", StringComparison.OrdinalIgnoreCase) &&
@@ -1468,7 +1494,10 @@ namespace MapleLib.Img
                     continue;
                 }
 
-                bool hasImgFiles = Directory.EnumerateFiles(categoryPath, "*.img", SearchOption.AllDirectories).Any();
+                bool hasImgFiles = HaCreatorPaths.EnumerateFilesExcludingBackups(
+                    categoryPath,
+                    "*.img",
+                    SearchOption.AllDirectories).Any();
                 bool hasListJson = category.Equals("List", StringComparison.OrdinalIgnoreCase) &&
                                    File.Exists(Path.Combine(categoryPath, "List.json"));
 
@@ -1479,7 +1508,7 @@ namespace MapleLib.Img
             }
 
             // Then add any additional categories not in standard list (like Base, List, etc.)
-            foreach (var dirPath in Directory.EnumerateDirectories(versionPath))
+            foreach (var dirPath in HaCreatorPaths.EnumerateDirectoriesExcludingBackups(versionPath))
             {
                 string dirName = Path.GetFileName(dirPath);
 
@@ -1492,12 +1521,17 @@ namespace MapleLib.Img
                     continue;
 
                 // Check for .img files
-                int imgCount = Directory.EnumerateFiles(dirPath, "*.img", SearchOption.AllDirectories).Count();
+                int imgCount = HaCreatorPaths.EnumerateFilesExcludingBackups(
+                    dirPath,
+                    "*.img",
+                    SearchOption.AllDirectories).Count();
                 bool hasListJson = dirName.Equals("List", StringComparison.OrdinalIgnoreCase) &&
                                    File.Exists(Path.Combine(dirPath, "List.json"));
 
                 // Also check for subdirectories (some WZ files like Base.wz only have directory structure)
-                int subDirCount = Directory.EnumerateDirectories(dirPath, "*", SearchOption.AllDirectories).Count();
+                int subDirCount = HaCreatorPaths.EnumerateDirectoriesExcludingBackups(
+                    dirPath,
+                    SearchOption.AllDirectories).Count();
 
                 Debug.WriteLine($"[GetCategoriesToPack] Checking '{dirName}': {imgCount} .img files, {subDirCount} subdirs");
 
@@ -1536,7 +1570,7 @@ namespace MapleLib.Img
             CancellationToken cancellationToken)
         {
             // Process subdirectories first - create WzDirectory for each
-            foreach (var subDirPath in Directory.EnumerateDirectories(currentPath))
+            foreach (var subDirPath in HaCreatorPaths.EnumerateDirectoriesExcludingBackups(currentPath))
             {
                 cancellationToken.ThrowIfCancellationRequested();
 
@@ -1567,7 +1601,7 @@ namespace MapleLib.Img
             }
 
             // Process IMG files in current directory
-            foreach (var imgFilePath in Directory.EnumerateFiles(currentPath, "*.img"))
+            foreach (var imgFilePath in HaCreatorPaths.EnumerateFilesExcludingBackups(currentPath, "*.img"))
             {
                 cancellationToken.ThrowIfCancellationRequested();
 
@@ -1670,7 +1704,10 @@ namespace MapleLib.Img
         {
             var imgFiles = new List<ImgFileInfo>();
 
-            foreach (var imgFilePath in Directory.EnumerateFiles(categoryPath, "*.img", SearchOption.AllDirectories))
+            foreach (var imgFilePath in HaCreatorPaths.EnumerateFilesExcludingBackups(
+                categoryPath,
+                "*.img",
+                SearchOption.AllDirectories))
             {
                 string relativePath = imgFilePath.Substring(categoryPath.Length).TrimStart(Path.DirectorySeparatorChar);
                 var fileInfo = new FileInfo(imgFilePath);
@@ -1794,7 +1831,7 @@ namespace MapleLib.Img
             }
 
             // Process subdirectories first - create WzDirectory for each
-            foreach (var subDirPath in Directory.EnumerateDirectories(currentPath)
+            foreach (var subDirPath in HaCreatorPaths.EnumerateDirectoriesExcludingBackups(currentPath)
                 .OrderBy(path => ResolveReferenceOrder(path, referenceDirectoryOrder))
                 .ThenBy(path => Path.GetFileName(path), StringComparer.OrdinalIgnoreCase))
             {
@@ -1822,7 +1859,7 @@ namespace MapleLib.Img
             }
 
             // Collect IMG files in current directory
-            foreach (var imgFilePath in Directory.EnumerateFiles(currentPath, "*.img")
+            foreach (var imgFilePath in HaCreatorPaths.EnumerateFilesExcludingBackups(currentPath, "*.img")
                 .OrderBy(path => ResolveReferenceOrder(path, referenceImageOrder))
                 .ThenBy(path => Path.GetFileName(path), StringComparer.OrdinalIgnoreCase))
             {

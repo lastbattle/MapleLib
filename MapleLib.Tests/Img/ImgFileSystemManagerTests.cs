@@ -60,12 +60,16 @@ namespace MapleLib.Tests.Img
             Directory.CreateDirectory(Path.Combine(_testVersionPath, "Map", "Map"));
             Directory.CreateDirectory(Path.Combine(_testVersionPath, "Map", "Map", "Map0"));
             Directory.CreateDirectory(Path.Combine(_testVersionPath, "Mob"));
+            Directory.CreateDirectory(Path.Combine(_testVersionPath, HaCreatorPaths.BackupsFolderName));
+            Directory.CreateDirectory(Path.Combine(_testVersionPath, "Map", HaCreatorPaths.BackupsFolderName));
 
             // Create mock .img files (required for category detection)
             // The manager only recognizes categories that contain .img files
             CreateMockImgFile(Path.Combine(_testVersionPath, "String", "Test.img"));
             CreateMockImgFile(Path.Combine(_testVersionPath, "Map", "Test.img"));
             CreateMockImgFile(Path.Combine(_testVersionPath, "Mob", "Test.img"));
+            CreateMockImgFile(Path.Combine(_testVersionPath, HaCreatorPaths.BackupsFolderName, "Ignored.img"));
+            CreateMockImgFile(Path.Combine(_testVersionPath, "Map", HaCreatorPaths.BackupsFolderName, "Ignored.img"));
 
             // Create manifest
             CreateTestManifest();
@@ -137,6 +141,7 @@ namespace MapleLib.Tests.Img
             Assert.Contains(categories, c => c.Equals("string", StringComparison.OrdinalIgnoreCase));
             Assert.Contains(categories, c => c.Equals("map", StringComparison.OrdinalIgnoreCase));
             Assert.Contains(categories, c => c.Equals("mob", StringComparison.OrdinalIgnoreCase));
+            Assert.DoesNotContain(categories, c => c.Equals(HaCreatorPaths.BackupsFolderName, StringComparison.OrdinalIgnoreCase));
         }
 
         [Fact]
@@ -188,6 +193,20 @@ namespace MapleLib.Tests.Img
             // Assert
             Assert.NotEmpty(subdirs);
             Assert.Contains(subdirs, s => s.Contains("Map"));
+            Assert.DoesNotContain(subdirs, s => HaCreatorPaths.ContainsBackupsDirectory(s));
+        }
+
+        [Fact]
+        public void EnumerateFilesExcludingBackups_SkipsTopLevelAndNestedBackups()
+        {
+            var imageFiles = HaCreatorPaths.EnumerateFilesExcludingBackups(
+                    _testVersionPath,
+                    "*.img",
+                    SearchOption.AllDirectories)
+                .ToList();
+
+            Assert.Contains(imageFiles, path => path.EndsWith(Path.Combine("String", "Test.img"), StringComparison.OrdinalIgnoreCase));
+            Assert.DoesNotContain(imageFiles, path => HaCreatorPaths.ContainsBackupsDirectory(path));
         }
 
         [Fact]
@@ -255,6 +274,44 @@ namespace MapleLib.Tests.Img
             // Assert
             Assert.NotNull(loadedImage);
             Assert.Equal("test", Assert.IsType<WzStringProperty>(loadedImage["value"]).Value);
+        }
+
+        [Fact]
+        public void SaveImageToFile_ReplacesExistingImageAndKeepsExternalBackup()
+        {
+            string imagePath = Path.Combine(_testVersionPath, "Map", "BackupTest.img");
+            string backupDirectory = Path.Combine(
+                HaCreatorPaths.GetBackupsPath(_testVersionPath),
+                "IMG",
+                Path.GetFileName(_testVersionPath),
+                "Map");
+            string backupVersionDirectory = Path.GetDirectoryName(backupDirectory) ?? string.Empty;
+
+            try
+            {
+                using var manager = new ImgFileSystemManager(_testVersionPath, _config);
+                WzImage firstImage = new("BackupTest.img");
+                firstImage.AddProperty(new WzStringProperty("value", "before"));
+                Assert.True(manager.SaveImageToFile(firstImage, imagePath));
+                byte[] originalBytes = File.ReadAllBytes(imagePath);
+
+                WzImage secondImage = new("BackupTest.img");
+                secondImage.AddProperty(new WzStringProperty("value", "after"));
+                Assert.True(manager.SaveImageToFile(secondImage, imagePath));
+
+                string[] backupFiles = Directory.GetFiles(backupDirectory, "BackupTest.img_BAK_*.img");
+                Assert.Single(backupFiles);
+                Assert.Equal(originalBytes, File.ReadAllBytes(backupFiles[0]));
+                Assert.NotEqual(Convert.ToBase64String(originalBytes), Convert.ToBase64String(File.ReadAllBytes(imagePath)));
+                Assert.False(Path.GetFullPath(backupFiles[0]).StartsWith(
+                    Path.GetFullPath(_testVersionPath) + Path.DirectorySeparatorChar,
+                    StringComparison.OrdinalIgnoreCase));
+            }
+            finally
+            {
+                if (!string.IsNullOrEmpty(backupVersionDirectory) && Directory.Exists(backupVersionDirectory))
+                    Directory.Delete(backupVersionDirectory, true);
+            }
         }
 
         [Fact]

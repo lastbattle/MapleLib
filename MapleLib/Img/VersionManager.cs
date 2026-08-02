@@ -112,7 +112,7 @@ namespace MapleLib.Img
 
             if (Directory.Exists(_rootPath))
             {
-                foreach (var dir in Directory.EnumerateDirectories(_rootPath))
+                foreach (var dir in HaCreatorPaths.EnumerateDirectoriesExcludingBackups(_rootPath))
                 {
                     var versionInfo = LoadVersionManifest(dir);
                     if (versionInfo != null)
@@ -172,6 +172,9 @@ namespace MapleLib.Img
         /// </summary>
         public VersionInfo LoadVersionManifest(string versionPath)
         {
+            if (HaCreatorPaths.IsBackupsDirectory(versionPath))
+                return null;
+
             string manifestPath = Path.Combine(versionPath, MANIFEST_FILENAME);
 
             VersionInfo versionInfo;
@@ -219,10 +222,13 @@ namespace MapleLib.Img
             };
 
             // Scan for categories
-            foreach (var dir in Directory.EnumerateDirectories(versionPath))
+            foreach (var dir in HaCreatorPaths.EnumerateDirectoriesExcludingBackups(versionPath))
             {
                 string categoryName = Path.GetFileName(dir);
-                int fileCount = Directory.EnumerateFiles(dir, "*.img", SearchOption.AllDirectories).Count();
+                int fileCount = HaCreatorPaths.EnumerateFilesExcludingBackups(
+                    dir,
+                    "*.img",
+                    SearchOption.AllDirectories).Count();
 
                 if (fileCount > 0)
                 {
@@ -315,7 +321,10 @@ namespace MapleLib.Img
                 else
                 {
                     // Check for at least one .img file
-                    bool hasImgFiles = Directory.EnumerateFiles(categoryPath, "*.img", SearchOption.AllDirectories).Any();
+                    bool hasImgFiles = HaCreatorPaths.EnumerateFilesExcludingBackups(
+                        categoryPath,
+                        "*.img",
+                        SearchOption.AllDirectories).Any();
                     if (!hasImgFiles)
                     {
                         versionInfo.ValidationErrors.Add($"Category '{category}' has no .img files");
@@ -371,8 +380,14 @@ namespace MapleLib.Img
                 if (Directory.Exists(categoryPath))
                 {
                     categoryReport.Exists = true;
-                    categoryReport.FileCount = Directory.EnumerateFiles(categoryPath, "*.img", SearchOption.AllDirectories).Count();
-                    categoryReport.TotalSize = Directory.EnumerateFiles(categoryPath, "*.img", SearchOption.AllDirectories)
+                    categoryReport.FileCount = HaCreatorPaths.EnumerateFilesExcludingBackups(
+                        categoryPath,
+                        "*.img",
+                        SearchOption.AllDirectories).Count();
+                    categoryReport.TotalSize = HaCreatorPaths.EnumerateFilesExcludingBackups(
+                                                            categoryPath,
+                                                            "*.img",
+                                                            SearchOption.AllDirectories)
                                                         .Sum(f => new FileInfo(f).Length);
                 }
 

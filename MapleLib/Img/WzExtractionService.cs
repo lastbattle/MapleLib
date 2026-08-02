@@ -195,7 +195,9 @@ namespace MapleLib.Img
                 }
 
                 // Use the provided categories
-                var wzFilesToExtract = categoriesToExtract.ToList();
+                var wzFilesToExtract = categoriesToExtract
+                    .Where(category => !HaCreatorPaths.IsBackupsDirectoryName(category))
+                    .ToList();
 
                 // If Packs is selected along with other categories, skip categories covered by .ms files
                 // to avoid duplicate extraction (Packs contains the complete image data)
@@ -693,7 +695,10 @@ namespace MapleLib.Img
                 }
                 else
                 {
-                    int mapCount = Directory.EnumerateFiles(mapPath, "*.img", SearchOption.AllDirectories).Count();
+                    int mapCount = HaCreatorPaths.EnumerateFilesExcludingBackups(
+                        mapPath,
+                        "*.img",
+                        SearchOption.AllDirectories).Count();
                     if (mapCount == 0)
                     {
                         result.Errors.Add("Map category has no .img files");
@@ -708,7 +713,10 @@ namespace MapleLib.Img
                 string categoryPath = Path.Combine(versionPath, category);
                 if (Directory.Exists(categoryPath))
                 {
-                    int count = Directory.EnumerateFiles(categoryPath, "*.img", SearchOption.AllDirectories).Count();
+                    int count = HaCreatorPaths.EnumerateFilesExcludingBackups(
+                        categoryPath,
+                        "*.img",
+                        SearchOption.AllDirectories).Count();
                     result.CategoryImageCounts[category] = count;
                     if (category != "Map") // Already counted above if Map was checked
                     {
@@ -729,6 +737,9 @@ namespace MapleLib.Img
         private List<string> DiscoverWzFiles(string mapleStoryPath, bool is64Bit, bool isPreBB)
         {
             var categories = new List<string>();
+
+            if (HaCreatorPaths.ContainsBackupsDirectory(mapleStoryPath))
+                return categories;
 
             // Check if this is specifically beta Data.wz format (single Data.wz with all categories)
             bool isBetaDataWz = WzFileManager.DetectBetaDataWzFormat(mapleStoryPath);
@@ -757,11 +768,12 @@ namespace MapleLib.Img
                     }
 
                     // Then add any additional categories (like Base, List, etc.)
-                    foreach (var dir in Directory.EnumerateDirectories(dataPath))
+                    foreach (var dir in HaCreatorPaths.EnumerateDirectoriesExcludingBackups(dataPath))
                     {
                         string dirName = Path.GetFileName(dir);
                         // Skip Packs - it will be added separately if .ms files exist
-                        if (dirName.Equals("Packs", StringComparison.OrdinalIgnoreCase))
+                        if (dirName.Equals("Packs", StringComparison.OrdinalIgnoreCase) ||
+                            HaCreatorPaths.IsBackupsDirectoryName(dirName))
                             continue;
                         if (!categories.Contains(dirName, StringComparer.OrdinalIgnoreCase))
                         {
@@ -791,9 +803,12 @@ namespace MapleLib.Img
                 }
 
                 // Then scan for any other WZ files (like Base.wz, List.wz, etc.)
-                foreach (var wzFile in Directory.EnumerateFiles(mapleStoryPath, "*.wz"))
+                foreach (var wzFile in HaCreatorPaths.EnumerateFilesExcludingBackups(mapleStoryPath, "*.wz"))
                 {
                     string fileName = Path.GetFileNameWithoutExtension(wzFile);
+
+                    if (HaCreatorPaths.IsBackupsDirectoryName(fileName))
+                        continue;
 
                     // Skip if already added or if it's a numbered variant (like Mob001, Map002)
                     if (categories.Contains(fileName, StringComparer.OrdinalIgnoreCase))
@@ -830,6 +845,9 @@ namespace MapleLib.Img
         {
             var files = new List<string>();
 
+            if (HaCreatorPaths.ContainsBackupsDirectory(mapleStoryPath))
+                return files;
+
             // Special handling for beta Data.wz format - all categories come from single Data.wz
             if (isBetaDataWz)
             {
@@ -847,7 +865,10 @@ namespace MapleLib.Img
                 string packsPath = Path.Combine(mapleStoryPath, "Data", "Packs");
                 if (Directory.Exists(packsPath))
                 {
-                    files.AddRange(Directory.EnumerateFiles(packsPath, "*.ms", SearchOption.AllDirectories)
+                    files.AddRange(HaCreatorPaths.EnumerateFilesExcludingBackups(
+                            packsPath,
+                            "*.ms",
+                            SearchOption.AllDirectories)
                         .OrderBy(path => path, StringComparer.OrdinalIgnoreCase));
                 }
                 return files;
@@ -858,7 +879,10 @@ namespace MapleLib.Img
                 string dataPath = Path.Combine(mapleStoryPath, "Data", category);
                 if (Directory.Exists(dataPath))
                 {
-                    files.AddRange(Directory.EnumerateFiles(dataPath, "*.wz", SearchOption.AllDirectories)
+                    files.AddRange(HaCreatorPaths.EnumerateFilesExcludingBackups(
+                            dataPath,
+                            "*.wz",
+                            SearchOption.AllDirectories)
                         .OrderBy(path => path, StringComparer.OrdinalIgnoreCase));
                 }
             }
@@ -876,7 +900,7 @@ namespace MapleLib.Img
                     $@"^{System.Text.RegularExpressions.Regex.Escape(category)}\d+\.wz$",
                     System.Text.RegularExpressions.RegexOptions.IgnoreCase);
 
-                foreach (var file in Directory.EnumerateFiles(mapleStoryPath, "*.wz")
+                foreach (var file in HaCreatorPaths.EnumerateFilesExcludingBackups(mapleStoryPath, "*.wz")
                     .OrderBy(path => path, StringComparer.OrdinalIgnoreCase))
                 {
                     string fileName = Path.GetFileName(file);
@@ -904,7 +928,10 @@ namespace MapleLib.Img
 
             // Scan .ms files and extract category names from filenames
             // Format: "Mob_00000.ms" -> "Mob"
-            foreach (var msFile in Directory.EnumerateFiles(packsPath, "*.ms", SearchOption.AllDirectories)
+            foreach (var msFile in HaCreatorPaths.EnumerateFilesExcludingBackups(
+                packsPath,
+                "*.ms",
+                SearchOption.AllDirectories)
                 .OrderBy(path => path, StringComparer.OrdinalIgnoreCase))
             {
                 string fileName = Path.GetFileNameWithoutExtension(msFile);
@@ -912,7 +939,8 @@ namespace MapleLib.Img
                 if (underscoreIndex > 0)
                 {
                     string category = fileName.Substring(0, underscoreIndex);
-                    categories.Add(category);
+                    if (!HaCreatorPaths.IsBackupsDirectoryName(category))
+                        categories.Add(category);
                 }
             }
 
@@ -972,7 +1000,7 @@ namespace MapleLib.Img
                         {
                             if (dir.Name.Equals(category, StringComparison.OrdinalIgnoreCase))
                             {
-                                total += dir.CountImages();
+                                total += CountImagesExcludingBackups(dir);
                                 break;
                             }
                         }
@@ -1000,7 +1028,8 @@ namespace MapleLib.Img
                                 using (var msFile = new WzMsFile(memoryStream, Path.GetFileName(msFilePath), msFilePath, true))
                                 {
                                     msFile.ReadEntries();
-                                    total += msFile.Entries.Count;
+                                    total += msFile.Entries.Count(entry =>
+                                        !HaCreatorPaths.ContainsBackupsDirectory(entry.Name));
                                 }
                             }
                             catch
@@ -1030,7 +1059,7 @@ namespace MapleLib.Img
                                 var parseStatus = wzFile.ParseWzFile();
                                 if (parseStatus == WzFileParseStatus.Success && wzFile.WzDirectory != null)
                                 {
-                                    total += wzFile.WzDirectory.CountImages();
+                                    total += CountImagesExcludingBackups(wzFile.WzDirectory);
                                 }
                             }
                         }
@@ -1047,6 +1076,26 @@ namespace MapleLib.Img
             }
 
             return total;
+        }
+
+        private static int CountImagesExcludingBackups(WzDirectory directory)
+        {
+            if (directory == null)
+                return 0;
+
+            int count = directory.WzImages?.Count ?? 0;
+            if (directory.WzDirectories == null)
+                return count;
+
+            foreach (var subDirectory in directory.WzDirectories)
+            {
+                if (subDirectory == null || HaCreatorPaths.IsBackupsDirectoryName(subDirectory.Name))
+                    continue;
+
+                count += CountImagesExcludingBackups(subDirectory);
+            }
+
+            return count;
         }
 
         /// <summary>
@@ -1075,6 +1124,7 @@ namespace MapleLib.Img
                 foreach (var subDir in directory.WzDirectories)
                 {
                     if (subDir == null) continue;
+                    if (HaCreatorPaths.IsBackupsDirectoryName(subDir.Name)) continue;
 
                     string subDirPath = Path.Combine(outputPath, EscapeFileName(subDir.Name));
                     if (!Directory.Exists(subDirPath))
@@ -1347,6 +1397,9 @@ namespace MapleLib.Img
                 int underscoreIndex = msFileName.IndexOf('_');
                 string category = underscoreIndex > 0 ? msFileName.Substring(0, underscoreIndex) : msFileName;
 
+                if (HaCreatorPaths.IsBackupsDirectoryName(category))
+                    continue;
+
                 if (!msFilesByCategory.ContainsKey(category))
                     msFilesByCategory[category] = new List<string>();
                 msFilesByCategory[category].Add(msFilePath);
@@ -1384,13 +1437,21 @@ namespace MapleLib.Img
                             var categoryWzFiles = new List<WzFile>();
 
                             // Find all _Canvas directories recursively
-                            var canvasDirs = Directory.EnumerateDirectories(categoryPath, "_Canvas", SearchOption.AllDirectories)
+                            var canvasDirs = HaCreatorPaths.EnumerateDirectoriesExcludingBackups(
+                                    categoryPath,
+                                    SearchOption.AllDirectories)
+                                .Where(path => Path.GetFileName(path).Equals(
+                                    "_Canvas",
+                                    StringComparison.OrdinalIgnoreCase))
                                 .OrderBy(path => path, StringComparer.OrdinalIgnoreCase)
                                 .ToList();
 
                             foreach (var canvasDir in canvasDirs)
                             {
-                                var canvasWzFiles = Directory.EnumerateFiles(canvasDir, "*.wz", SearchOption.AllDirectories)
+                                var canvasWzFiles = HaCreatorPaths.EnumerateFilesExcludingBackups(
+                                        canvasDir,
+                                        "*.wz",
+                                        SearchOption.AllDirectories)
                                     .OrderBy(path => path, StringComparer.OrdinalIgnoreCase)
                                     .ToList();
 
@@ -1463,6 +1524,9 @@ namespace MapleLib.Img
                                 {
                                     // Parse entry name: "Category/ImageName.img" or "Category/SubDir/ImageName.img"
                                     string entryName = entry.Name;
+                                    if (HaCreatorPaths.ContainsBackupsDirectory(entryName))
+                                        continue;
+
                                     int firstSlash = entryName.IndexOf('/');
                                     if (firstSlash < 0)
                                     {
@@ -1648,7 +1712,7 @@ namespace MapleLib.Img
                     };
 
                     // Get subdirectories
-                    categoryInfo.Subdirectories = Directory.EnumerateDirectories(categoryPath)
+                    categoryInfo.Subdirectories = HaCreatorPaths.EnumerateDirectoriesExcludingBackups(categoryPath)
                         .Select(Path.GetFileName)
                         .ToList();
 

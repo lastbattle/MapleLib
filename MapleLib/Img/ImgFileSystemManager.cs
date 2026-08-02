@@ -3,6 +3,7 @@ using MapleLib.WzLib.Serializer;
 using MapleLib.WzLib.Util;
 using MapleLib.WzLib.WzProperties;
 using MapleLib;
+using MapleLib.Helpers;
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
@@ -213,7 +214,7 @@ namespace MapleLib.Img
         private void BuildCategoryIndex()
         {
             // Look for category directories
-            foreach (var dir in Directory.EnumerateDirectories(_versionPath))
+            foreach (var dir in HaCreatorPaths.EnumerateDirectoriesExcludingBackups(_versionPath))
             {
                 string categoryName = Path.GetFileName(dir);
 
@@ -243,7 +244,7 @@ namespace MapleLib.Img
         private void ScanDirectoryForImages(string baseDir, string currentDir, List<string> imageFiles)
         {
             // Add .img files in current directory
-            foreach (var file in Directory.EnumerateFiles(currentDir, "*.img"))
+            foreach (var file in HaCreatorPaths.EnumerateFilesExcludingBackups(currentDir, "*.img"))
             {
                 // Store relative path from category root
                 string relativePath = file.Substring(baseDir.Length).TrimStart(Path.DirectorySeparatorChar);
@@ -251,7 +252,7 @@ namespace MapleLib.Img
             }
 
             // Recurse into subdirectories
-            foreach (var subDir in Directory.EnumerateDirectories(currentDir))
+            foreach (var subDir in HaCreatorPaths.EnumerateDirectoriesExcludingBackups(currentDir))
             {
                 ScanDirectoryForImages(baseDir, subDir, imageFiles);
             }
@@ -477,6 +478,9 @@ namespace MapleLib.Img
         /// </summary>
         public VirtualWzDirectory GetDirectory(string category)
         {
+            if (HaCreatorPaths.IsBackupsDirectoryName(category))
+                return null;
+
             string categoryLower = category.ToLower();
 
             if (_directoryCache.TryGetValue(categoryLower, out var cached))
@@ -542,7 +546,7 @@ namespace MapleLib.Img
 
             if (categoryDirExists)
             {
-                var imgFiles = Directory.EnumerateFiles(categoryPath, "*.img", SearchOption.TopDirectoryOnly)
+                var imgFiles = HaCreatorPaths.EnumerateFilesExcludingBackups(categoryPath, "*.img")
                     .Select(Path.GetFileName)
                     .Take(10)
                     .ToList();
@@ -563,7 +567,7 @@ namespace MapleLib.Img
                 return Enumerable.Empty<string>();
             }
 
-            return Directory.EnumerateDirectories(categoryPath, "*", SearchOption.AllDirectories)
+            return HaCreatorPaths.EnumerateDirectoriesExcludingBackups(categoryPath, SearchOption.AllDirectories)
                            .Select(d => d.Substring(categoryPath.Length).TrimStart(Path.DirectorySeparatorChar));
         }
         #endregion
@@ -597,8 +601,11 @@ namespace MapleLib.Img
             if (image == null)
                 throw new ArgumentNullException(nameof(image));
 
+            string tmpPath = null;
             try
             {
+                filePath = Path.GetFullPath(filePath);
+
                 // Ensure directory exists
                 string directory = Path.GetDirectoryName(filePath);
                 if (!Directory.Exists(directory))
@@ -606,8 +613,9 @@ namespace MapleLib.Img
                     Directory.CreateDirectory(directory);
                 }
 
-                // Save to temp file first
-                string tmpPath = filePath + ".tmp";
+                // Save to a unique temporary file first. The destination is not touched
+                // until serialization has completed successfully.
+                tmpPath = $"{filePath}.{Guid.NewGuid():N}.tmp";
 
                 using (FileStream fs = File.Open(tmpPath, FileMode.Create))
                 {
@@ -617,12 +625,9 @@ namespace MapleLib.Img
                     }
                 }
 
-                // Replace original file
-                if (File.Exists(filePath))
-                {
-                    File.Delete(filePath);
-                }
-                File.Move(tmpPath, filePath);
+                string backupPath = GetExternalBackupFilePath(filePath);
+                FileReplacement.ReplaceWithBackup(tmpPath, filePath, backupPath);
+                tmpPath = null;
 
                 // Update cache key
                 string cacheKey = GetCacheKeyFromPath(filePath);
@@ -636,9 +641,45 @@ namespace MapleLib.Img
             }
             catch (Exception ex)
             {
+                if (!string.IsNullOrEmpty(tmpPath))
+                {
+                    try
+                    {
+                        if (File.Exists(tmpPath))
+                            File.Delete(tmpPath);
+                    }
+                    catch
+                    {
+                        // Preserve the original save error.
+                    }
+                }
+
                 Debug.WriteLine($"Error saving image {filePath}: {ex.Message}");
                 return false;
             }
+        }
+
+        private string GetExternalBackupFilePath(string filePath)
+        {
+            string versionName = Path.GetFileName(Path.TrimEndingDirectorySeparator(_versionPath));
+            if (string.IsNullOrWhiteSpace(versionName))
+                versionName = "UnknownVersion";
+
+            string fullFilePath = Path.GetFullPath(filePath);
+            string versionRoot = Path.GetFullPath(_versionPath);
+            string versionRootWithSeparator = Path.EndsInDirectorySeparator(versionRoot)
+                ? versionRoot
+                : versionRoot + Path.DirectorySeparatorChar;
+            string relativePath = fullFilePath.StartsWith(versionRootWithSeparator, StringComparison.OrdinalIgnoreCase)
+                ? fullFilePath.Substring(versionRootWithSeparator.Length)
+                : Path.GetFileName(fullFilePath);
+
+            string backupFilePath = Path.Combine(
+                HaCreatorPaths.GetBackupsPath(_versionPath),
+                "IMG",
+                versionName,
+                relativePath);
+            return FileReplacement.GetBackupFilePath(backupFilePath);
         }
 
         private string GetContainedImagePath(string category, string relativePath)
@@ -961,7 +1002,9 @@ namespace MapleLib.Img
             // Use index if valid and not stale
             if (index != null && !index.IsStale(categoryPath))
             {
-                return index.AllImagePaths.ToList();
+                return index.AllImagePaths
+                    .Where(path => !HaCreatorPaths.ContainsBackupsDirectory(Path.Combine(categoryPath, path)))
+                    .ToList();
             }
 
             // Fall back to directory scan

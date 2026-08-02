@@ -1,5 +1,6 @@
 ﻿using MapleLib.Helpers;
 using MapleLib.WzLib;
+using MapleLib.Img;
 using MapleLib.WzLib.MSFile;
 using MapleLib.WzLib.WzProperties;
 using Microsoft.Xna.Framework;
@@ -23,7 +24,7 @@ namespace MapleLib {
 
     public class WzFileManager : IDisposable {
         #region Constants
-        private static readonly string[] EXCLUDED_DIRECTORY_FROM_WZ_LIST = { "bak", "backup", "original", "xml", "hshield", "blackcipher", "harepacker", "hacreator" };
+        private static readonly string[] EXCLUDED_DIRECTORY_FROM_WZ_LIST = { "bak", "backup", HaCreatorPaths.BackupsFolderName, "original", "xml", "hshield", "blackcipher", "harepacker", "hacreator" };
 
         public static readonly string[] COMMON_MAPLESTORY_DIRECTORY = new string[] {
             @"C:\Nexon\MapleStory",
@@ -183,7 +184,10 @@ namespace MapleLib {
             if (bDirectoryContainsDataDir) {
                 // Use a regular expression to search for .wz files in the Data directory
                 string searchPattern = @"*.wz";
-                int nNumWzFilesInDataDir = Directory.EnumerateFileSystemEntries(dataDirectoryPath, searchPattern, SearchOption.AllDirectories).Count();
+                int nNumWzFilesInDataDir = HaCreatorPaths.EnumerateFilesExcludingBackups(
+                    dataDirectoryPath,
+                    searchPattern,
+                    SearchOption.AllDirectories).Count();
 
                 if (nNumWzFilesInDataDir > 40)
                     return true;
@@ -392,7 +396,7 @@ namespace MapleLib {
                     string uiPath = Path.Combine(mapleStoryPath, "Data", "UI");
                     if (Directory.Exists(uiPath))
                     {
-                        var wzFiles = Directory.GetFiles(uiPath, "UI_*.wz");
+                        var wzFiles = HaCreatorPaths.EnumerateFilesExcludingBackups(uiPath, "UI_*.wz").ToArray();
                         uiWzPath = wzFiles.FirstOrDefault();
                     }
                 }
@@ -438,7 +442,7 @@ namespace MapleLib {
                 return (null, -1);
 
             // Find .ini files in directory
-            string[] iniFiles = Directory.GetFiles(directoryPath, "*.ini");
+            string[] iniFiles = HaCreatorPaths.EnumerateFilesExcludingBackups(directoryPath, "*.ini").ToArray();
             if (iniFiles.Length <= 0 || iniFiles.Length > 1)
                 throw new Exception(".ini file at the directory '" + directoryPath + "' is missing, or unavailable.");
 
@@ -481,8 +485,9 @@ namespace MapleLib {
             if (b64BitClient) {
                 // parse through "Data" directory and iterate through every folder
                 // Use Where() and Select() to filter and transform the directories
-                var directories = Directory.EnumerateDirectories(baseDir, "*", SearchOption.AllDirectories)
-                                           .Where(dir => !EXCLUDED_DIRECTORY_FROM_WZ_LIST.Any(x => dir.ToLower().Contains(x)));
+                var directories = HaCreatorPaths.EnumerateDirectoriesExcludingBackups(baseDir, SearchOption.AllDirectories)
+                                           .Where(dir => !EXCLUDED_DIRECTORY_FROM_WZ_LIST.Any(x =>
+                                               dir.Contains(x, StringComparison.OrdinalIgnoreCase)));
 
                 // Iterate over the filtered and transformed directories
                 foreach (string path in directories) {
@@ -507,7 +512,8 @@ namespace MapleLib {
 
                         string wzDirectoryNameOfWzFile = path.Replace(baseDir, "").ToLower();
 
-                        if (EXCLUDED_DIRECTORY_FROM_WZ_LIST.Any(item => fileName2.ToLower().Contains(item)))
+                        if (EXCLUDED_DIRECTORY_FROM_WZ_LIST.Any(item =>
+                            fileName2.Contains(item, StringComparison.OrdinalIgnoreCase)))
                             continue; // backup files
 
                         //Debug.WriteLine(partialWzFileName);
@@ -541,15 +547,20 @@ namespace MapleLib {
             }
             else
             {
-                var wzFilePathNames = Directory.EnumerateFileSystemEntries(baseDir, "*.wz", SearchOption.AllDirectories)
+                var wzFilePathNames = HaCreatorPaths.EnumerateFilesExcludingBackups(baseDir, "*.wz", SearchOption.AllDirectories)
                     .Where(f => !File.GetAttributes(f).HasFlag(FileAttributes.Directory) // exclude directories
-                                && !EXCLUDED_DIRECTORY_FROM_WZ_LIST.Any(x => x.ToLower() == new DirectoryInfo(Path.GetDirectoryName(f)).Name)); // exclude folders
+                                && !EXCLUDED_DIRECTORY_FROM_WZ_LIST.Any(x =>
+                                    string.Equals(x, new DirectoryInfo(Path.GetDirectoryName(f)).Name,
+                                        StringComparison.OrdinalIgnoreCase))); // exclude folders
                 foreach (string wzFilePathName in wzFilePathNames) {
                     //string folderName = new DirectoryInfo(Path.GetDirectoryName(wzFileName)).Name;
                     string directory = Path.GetDirectoryName(wzFilePathName);
 
                     string fileName = Path.GetFileName(wzFilePathName);
                     string fileName2 = fileName.Replace(".wz", "");
+
+                    if (HaCreatorPaths.IsBackupsDirectoryName(fileName2))
+                        continue;
 
                     // Mob2, Mob001, Map001, Map002
                     // remove the numbers to get the base name 'map'
@@ -579,8 +590,10 @@ namespace MapleLib {
             {
                 // parse through "Data" directory and iterate through every folder where name == "Packs"
                 // Use Where() and Select() to filter and transform the directories
-                var directory = Directory.EnumerateDirectories(baseDir, "Packs", SearchOption.AllDirectories)
-                                           .Where(dir => !EXCLUDED_DIRECTORY_FROM_WZ_LIST.Any(x => dir.ToLower().Contains(x))).FirstOrDefault();
+                var directory = HaCreatorPaths.EnumerateDirectoriesExcludingBackups(baseDir, SearchOption.AllDirectories)
+                                           .Where(dir => Path.GetFileName(dir).Equals("Packs", StringComparison.OrdinalIgnoreCase))
+                                           .Where(dir => !EXCLUDED_DIRECTORY_FROM_WZ_LIST.Any(x =>
+                                               dir.Contains(x, StringComparison.OrdinalIgnoreCase))).FirstOrDefault();
 
                 if (directory != null)
                 {

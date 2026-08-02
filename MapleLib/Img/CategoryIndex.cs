@@ -68,7 +68,7 @@ namespace MapleLib.Img
                 return index;
 
             // Index root level images
-            foreach (var file in Directory.EnumerateFiles(categoryPath, "*.img"))
+            foreach (var file in HaCreatorPaths.EnumerateFilesExcludingBackups(categoryPath, "*.img"))
             {
                 var fileInfo = new FileInfo(file);
                 index.Images.Add(new ImageIndexEntry
@@ -83,7 +83,7 @@ namespace MapleLib.Img
             }
 
             // Index subdirectories
-            foreach (var dir in Directory.EnumerateDirectories(categoryPath))
+            foreach (var dir in HaCreatorPaths.EnumerateDirectoriesExcludingBackups(categoryPath))
             {
                 var dirInfo = new DirectoryInfo(dir);
                 var subdirEntry = new SubdirectoryEntry
@@ -100,7 +100,7 @@ namespace MapleLib.Img
 
         private static void IndexDirectoryRecursive(string dirPath, string relativePath, SubdirectoryEntry entry, CategoryIndex index)
         {
-            foreach (var file in Directory.EnumerateFiles(dirPath, "*.img"))
+            foreach (var file in HaCreatorPaths.EnumerateFilesExcludingBackups(dirPath, "*.img"))
             {
                 var fileInfo = new FileInfo(file);
                 var imgRelPath = Path.GetFileName(file);
@@ -115,7 +115,7 @@ namespace MapleLib.Img
                 index.TotalImageCount++;
             }
 
-            foreach (var subdir in Directory.EnumerateDirectories(dirPath))
+            foreach (var subdir in HaCreatorPaths.EnumerateDirectoriesExcludingBackups(dirPath))
             {
                 var subdirInfo = new DirectoryInfo(subdir);
                 var nestedEntry = new SubdirectoryEntry
