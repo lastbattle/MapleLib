@@ -32,6 +32,50 @@ namespace MapleLib.WzLib.WzProperties
         internal WzBinaryReader wzReader;
         internal long offs;
         private readonly object imageLock = new();
+
+        private static void EnsureAvailable(WzBinaryReader reader, long byteCount, string description)
+        {
+            if (byteCount < 0 || !reader.BaseStream.CanSeek)
+                throw new InvalidDataException($"Invalid {description} length.");
+
+            long remaining = reader.BaseStream.Length - reader.BaseStream.Position;
+            if (remaining < 0 || byteCount > remaining)
+                throw new InvalidDataException($"{description} exceeds the containing stream.");
+        }
+
+        private static int ReadPayloadLength(WzBinaryReader reader, string description)
+        {
+            int encodedLength = reader.ReadInt32();
+            long payloadLength = (long)encodedLength - 1L;
+            if (payloadLength < 0 || payloadLength > int.MaxValue)
+                throw new InvalidDataException($"Invalid {description} length: {encodedLength}.");
+
+            return (int)payloadLength;
+        }
+
+        private void ValidateDimensions()
+        {
+            if (width <= 0 || height <= 0)
+                throw new InvalidDataException("PNG dimensions must be positive.");
+            if (width > WzPngFormatExtensions.MaxDimension || height > WzPngFormatExtensions.MaxDimension)
+                throw new InvalidDataException("PNG dimensions exceed the supported limit.");
+
+            try
+            {
+                // GDI+ uses at least four bytes per pixel for the formats decoded
+                // by this class. Validate that allocation independently of the
+                // compressed format's decoded buffer size.
+                long bitmapBytes = checked((long)width * height * 4L);
+                if (bitmapBytes > WzPngFormatExtensions.MaxDecodedSize)
+                    throw new InvalidDataException("PNG bitmap size exceeds the supported limit.");
+
+                _ = format.GetDecodedSize(width, height);
+            }
+            catch (OverflowException ex)
+            {
+                throw new InvalidDataException("PNG dimensions are too large.", ex);
+            }
+        }
         #endregion
 
         #region Inherited Members
@@ -208,12 +252,32 @@ namespace MapleLib.WzLib.WzProperties
         /// <param name="format">Image format</param>
         public void SetCompressedBytes(byte[] bytes, int width, int height, WzPngFormat format)
         {
+            if (bytes == null)
+                throw new ArgumentNullException(nameof(bytes));
+
+            // Validate metadata before retaining caller-supplied data so an
+            // invalid canvas cannot become a later allocation bomb.
+            int previousWidth = this.width;
+            int previousHeight = this.height;
+            WzPngFormat previousFormat = this.format;
+            this.width = width;
+            this.height = height;
+            this.format = format;
+            try
+            {
+                ValidateDimensions();
+            }
+            catch
+            {
+                this.width = previousWidth;
+                this.height = previousHeight;
+                this.format = previousFormat;
+                throw;
+            }
+
             lock (imageLock)
             {
                 this.compressedImageBytes = bytes;
-                this.width = width;
-                this.height = height;
-                this.format = format;
 
                 // Clear any cached bitmap since we're replacing the data
                 if (this.png != null)
@@ -246,12 +310,28 @@ namespace MapleLib.WzLib.WzProperties
             int format1 = reader.ReadCompressedInt();
             int format2 = reader.ReadCompressedInt();
             // Reconstruct the original format using bit shifting
-            format = (WzPngFormat)(format1 + (format2 << 8));
+            long formatValue;
+            try
+            {
+                formatValue = checked((long)format1 + ((long)format2 << 8));
+            }
+            catch (OverflowException ex)
+            {
+                throw new InvalidDataException("PNG format value is invalid.", ex);
+            }
 
+            if (formatValue < int.MinValue || formatValue > int.MaxValue)
+                throw new InvalidDataException("PNG format value is invalid.");
+            format = (WzPngFormat)formatValue;
+            ValidateDimensions();
+
+            EnsureAvailable(reader, 4, "PNG metadata");
             reader.BaseStream.Position += 4;
             offs = reader.BaseStream.Position;
-            int len = reader.ReadInt32() - 1;
+            int len = ReadPayloadLength(reader, "PNG payload");
+            EnsureAvailable(reader, 1, "PNG payload marker");
             reader.BaseStream.Position += 1;
+            EnsureAvailable(reader, len, "PNG payload");
 
             lock (reader) // lock WzBinaryReader, allowing it to be loaded from multiple threads at once
             {
@@ -267,6 +347,8 @@ namespace MapleLib.WzLib.WzProperties
                         {
                             compressedImageBytes = wzReader.ReadBytes(len);
                         }
+                        if (compressedImageBytes.Length != len)
+                            throw new InvalidDataException("PNG payload is truncated.");
                         ParsePng(true);
                     }
                     else
@@ -283,19 +365,34 @@ namespace MapleLib.WzLib.WzProperties
             {
                 if (compressedImageBytes == null)
                 {
+                    if (wzReader == null)
+                        return null;
+
                     lock (wzReader)// lock WzBinaryReader, allowing it to be loaded from multiple threads at once
                     {
                         long pos = this.wzReader.BaseStream.Position;
-                        this.wzReader.BaseStream.Position = offs;
-                        int len = this.wzReader.ReadInt32() - 1;
-                        if (len <= 0) // possibility an image written with the wrong wzIv
-                            throw new Exception("The length of the image is negative. WzPngProperty. Wrong WzIV?");
+                        try
+                        {
+                            if (offs < 0 || offs > this.wzReader.BaseStream.Length - sizeof(int))
+                                throw new InvalidDataException("PNG payload offset is outside the containing stream.");
 
-                        this.wzReader.BaseStream.Position += 1;
+                            this.wzReader.BaseStream.Position = offs;
+                            int len = ReadPayloadLength(this.wzReader, "PNG payload");
+                            EnsureAvailable(this.wzReader, 1, "PNG payload marker");
+                            this.wzReader.BaseStream.Position += 1;
+                            EnsureAvailable(this.wzReader, len, "PNG payload");
 
-                        if (len > 0)
-                            compressedImageBytes = this.wzReader.ReadBytes(len);
-                        this.wzReader.BaseStream.Position = pos;
+                            if (len > 0)
+                            {
+                                compressedImageBytes = this.wzReader.ReadBytes(len);
+                                if (compressedImageBytes.Length != len)
+                                    throw new InvalidDataException("PNG payload is truncated.");
+                            }
+                        }
+                        finally
+                        {
+                            this.wzReader.BaseStream.Position = pos;
+                        }
                     }
 
                     if (!saveInMemory)
@@ -407,6 +504,9 @@ namespace MapleLib.WzLib.WzProperties
 
         internal static byte[] Decompress(byte[] compressedBuffer, int decompressedSize)
         {
+            if (decompressedSize < 0 || decompressedSize > WzPngFormatExtensions.MaxDecodedSize)
+                throw new InvalidDataException("PNG decoded size exceeds the supported limit.");
+
             using (MemoryStream memStream = new MemoryStream(compressedBuffer, 2, compressedBuffer.Length - 2, writable: false))
             using (DeflateStream zip = new DeflateStream(memStream, CompressionMode.Decompress))
             {
@@ -451,6 +551,10 @@ namespace MapleLib.WzLib.WzProperties
 
         private Bitmap DecodeBitmap(bool saveInMemory, Texture2D texture2d = null)
         {
+            // Validate dimensions before reading/decompressing data or creating
+            // the GDI+ bitmap. This keeps malformed metadata from causing a
+            // large allocation even when the compressed payload is tiny.
+            ValidateDimensions();
             byte[] rawBytes = GetRawImage(saveInMemory);
             if (rawBytes == null)
             {
@@ -582,6 +686,7 @@ namespace MapleLib.WzLib.WzProperties
         /// <returns></returns>
         internal byte[] GetRawImage(bool saveInMemory)
         {
+            ValidateDimensions();
             byte[] rawImageBytes = GetCompressedBytes(saveInMemory);
             if (rawImageBytes == null || rawImageBytes.Length < 2)
             {
@@ -626,13 +731,13 @@ namespace MapleLib.WzLib.WzProperties
                 {
                     case WzPngFormat.Format1: // 0x1
                         {
-                            uncompressedSize = width * height * 2;
+                            uncompressedSize = Format.GetDecodedSize(width, height);
                             decBuf = new byte[uncompressedSize];
                             break;
                         }
                     case WzPngFormat.Format2: // 0x2
                         {
-                            uncompressedSize = width * height * 4;
+                            uncompressedSize = Format.GetDecodedSize(width, height);
                             decBuf = new byte[uncompressedSize];
                             break;
                         }
@@ -642,7 +747,7 @@ namespace MapleLib.WzLib.WzProperties
                             // thank you Elem8100, http://forum.ragezone.com/f702/wz-png-format-decode-code-1114978/ 
                             // you'll be remembered forever <3 
 
-                            uncompressedSize = ((width + 3) / 4) * ((height + 3) / 4) * 16;
+                            uncompressedSize = Format.GetDecodedSize(width, height);
                             decBuf = new byte[uncompressedSize];
                             break;
                         }
@@ -651,37 +756,37 @@ namespace MapleLib.WzLib.WzProperties
                             // http://forum.ragezone.com/f702/wz-png-format-decode-code-1114978/index2.html#post9053713
                             // "Npc.wz\\2570101.img\\info\\illustration2\\face\\0"
 
-                            uncompressedSize = width * height * 2;
+                            uncompressedSize = Format.GetDecodedSize(width, height);
                             decBuf = new byte[uncompressedSize];
                             break;
                         }
                     case WzPngFormat.Format513: // 0x200 nexon wizet logo
                         {
-                            uncompressedSize = width * height * 2;
+                            uncompressedSize = Format.GetDecodedSize(width, height);
                             decBuf = new byte[uncompressedSize];
                             break;
                         }
                     case WzPngFormat.Format517: // 0x200 + 5
                         {
-                            uncompressedSize = width * height / 128;
+                            uncompressedSize = Format.GetDecodedSize(width, height);
                             decBuf = new byte[uncompressedSize];
                             break;
                         }
                     case WzPngFormat.Format1026: // 0x400 + 2?
                         {
-                            uncompressedSize = ((width + 3) / 4) * ((height + 3) / 4) * 16;
+                            uncompressedSize = Format.GetDecodedSize(width, height);
                             decBuf = new byte[uncompressedSize];
                             break;
                         }
                     case WzPngFormat.Format2050: // 0x800 + 2? new
                         {
-                            uncompressedSize = ((width + 3) / 4) * ((height + 3) / 4) * 16;
+                            uncompressedSize = Format.GetDecodedSize(width, height);
                             decBuf = new byte[uncompressedSize];
                             break;
                         }
                     case WzPngFormat.Format4098: // 0x1000 + 2, BC7
                         {
-                            uncompressedSize = ((width + 3) / 4) * ((height + 3) / 4) * 16;
+                            uncompressedSize = Format.GetDecodedSize(width, height);
                             decBuf = new byte[uncompressedSize];
                             break;
                         }

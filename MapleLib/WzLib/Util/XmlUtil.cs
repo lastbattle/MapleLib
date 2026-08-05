@@ -54,7 +54,7 @@ namespace MapleLib.WzLib.Util
 
 		public static string OpenNamedTag(string tag, string name, bool finish, bool empty)
 		{
-			return "<" + tag + " name=\"" + name + "\"" + (finish ? (empty ? "/>" : ">") : " ");
+			return "<" + tag + " name=\"" + SanitizeText(name ?? string.Empty) + "\"" + (finish ? (empty ? "/>" : ">") : " ");
 		}
 
 		public static string Attrib(string name, string value)

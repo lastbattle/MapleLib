@@ -68,6 +68,16 @@ namespace MapleLib.WzLib.WzProperties
         internal int soundDataLen;
 
         internal WaveFormat wavFormat;
+
+        private static void EnsurePayloadAvailable(WzBinaryReader reader, int length, string description)
+        {
+            if (length < 0 || !reader.BaseStream.CanSeek)
+                throw new InvalidDataException($"Invalid {description} length: {length}.");
+
+            long remaining = reader.BaseStream.Length - reader.BaseStream.Position;
+            if (remaining < 0 || length > remaining)
+                throw new InvalidDataException($"{description} exceeds the containing stream: {length} bytes.");
+        }
         #endregion
 
         #region Inherited Members
@@ -178,6 +188,8 @@ namespace MapleLib.WzLib.WzProperties
 
             //note - soundDataLen does NOT include the length of the header.
             soundDataLen = reader.ReadCompressedInt();
+            if (soundDataLen < 0)
+                throw new InvalidDataException($"Invalid sound data length: {soundDataLen}.");
             len_ms = reader.ReadCompressedInt();
 
             long headerOff = reader.BaseStream.Position;
@@ -199,8 +211,13 @@ namespace MapleLib.WzLib.WzProperties
 
             //sound file offs
             this.offs = reader.BaseStream.Position;
+            EnsurePayloadAvailable(reader, soundDataLen, "Sound data");
             if (parseNow)
+            {
                 fileBytes = reader.ReadBytes(soundDataLen);
+                if (fileBytes.Length != soundDataLen)
+                    throw new InvalidDataException("Sound data is truncated.");
+            }
             else
                 reader.BaseStream.Position += soundDataLen;
         }
@@ -435,9 +452,21 @@ namespace MapleLib.WzLib.WzProperties
                 Buffer.BlockCopy(header, soundHeader.Length + 1, wavHeader, 0, wavHeader.Length);
 
                 long currentPos = wzReader.BaseStream.Position;
-                wzReader.BaseStream.Position = offs;
-                fileBytes = wzReader.ReadBytes(soundDataLen);
-                wzReader.BaseStream.Position = currentPos;
+                try
+                {
+                    if (offs < 0 || offs > wzReader.BaseStream.Length)
+                        throw new InvalidDataException("Sound data offset is outside the containing stream.");
+
+                    wzReader.BaseStream.Position = offs;
+                    EnsurePayloadAvailable(wzReader, soundDataLen, "Sound data");
+                    fileBytes = wzReader.ReadBytes(soundDataLen);
+                    if (fileBytes.Length != soundDataLen)
+                        throw new InvalidDataException("Sound data is truncated.");
+                }
+                finally
+                {
+                    wzReader.BaseStream.Position = currentPos;
+                }
                 if (saveInMemory)
                     return fileBytes;
                 else

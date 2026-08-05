@@ -56,6 +56,10 @@ namespace MapleLib.WzLib.MSFile
     /// 
     public class WzMsFile : IDisposable
     {
+        private const int Version2MinimumEntryBytes = sizeof(int) + (7 * sizeof(int)) + WzMsConstants.EntryKeySize;
+        private const int MaxEntryCount = 100_000;
+        private const int MaxEntryNameLength = 1_048_576;
+
         private readonly string originalFileName;
         private readonly string msFilePath;
         private static readonly byte[] ChaCha20KeyObscure =
@@ -145,6 +149,40 @@ namespace MapleLib.WzLib.MSFile
         #endregion
 
         #region Read file
+        private void ValidateVersion2EntryCount(int entryCount, long entryStartPosition)
+        {
+            if (entryCount < 0 || entryCount > MaxEntryCount)
+                throw new InvalidDataException($"Invalid version {WzMsConstants.Version2} entry count: {entryCount}");
+            if (entryStartPosition < 0 || entryStartPosition > BaseStream.Length)
+                throw new InvalidDataException($"Invalid version {WzMsConstants.Version2} entry start position: {entryStartPosition}");
+
+            long available = BaseStream.Length - entryStartPosition;
+            if (entryCount > available / Version2MinimumEntryBytes)
+                throw new InvalidDataException($"Version {WzMsConstants.Version2} entry table exceeds the containing stream.");
+        }
+
+        private void ValidateEntryDataBounds(WzMsEntry entry)
+        {
+            if (entry == null)
+                throw new InvalidDataException("MS entry is null.");
+            if (entry.Size < 0 || entry.SizeAligned < 0 || entry.SizeAligned < entry.Size)
+                throw new InvalidDataException($"Invalid MS entry size for '{entry.Name}'.");
+
+            if (entry.Data != null)
+            {
+                if (entry.Size > entry.Data.Length)
+                    throw new InvalidDataException($"MS entry '{entry.Name}' size exceeds its in-memory data.");
+                return;
+            }
+
+            if (entry.StartPos < 0 || entry.StartPos > BaseStream.Length)
+                throw new InvalidDataException($"MS entry '{entry.Name}' offset is outside the containing stream.");
+
+            long remaining = BaseStream.Length - entry.StartPos;
+            if (entry.Size > remaining || entry.SizeAligned > remaining)
+                throw new InvalidDataException($"MS entry '{entry.Name}' exceeds the containing stream.");
+        }
+
         /// <summary>
         /// Reads and parses the .ms file header from the provided stream.
         /// </summary>
@@ -186,10 +224,19 @@ namespace MapleLib.WzLib.MSFile
             int fileNameCharSum = SumChars(fileName);
             int randByteCount = fileNameCharSum % WzMsConstants.RandByteMod + WzMsConstants.RandByteOffset;
             byte[] randBytes = bReader.ReadBytes(randByteCount);
+            if (randBytes.Length != randByteCount || randBytes.Length == 0)
+                throw new EndOfStreamException();
 
             int hashedSaltLen = bReader.ReadInt32();
             int saltLen = (byte)hashedSaltLen ^ randBytes[0];
+            if (saltLen > randBytes.Length)
+                throw new InvalidDataException($"Invalid version {WzMsConstants.Version2} salt length: {saltLen}");
+
+            if ((long)saltLen * 2 > BaseStream.Length - BaseStream.Position)
+                throw new EndOfStreamException();
             byte[] saltBytes = bReader.ReadBytes(saltLen * 2);
+            if (saltBytes.Length != saltLen * 2)
+                throw new EndOfStreamException();
             char[] saltChars = new char[saltLen];
             for (int i = 0; i < saltLen; i++)
             {
@@ -211,7 +258,8 @@ namespace MapleLib.WzLib.MSFile
 
                 var (entryCount, headerHash) = ReadAndValidateHeader(snowReader, hashedSaltLen, saltBytes, saltLen);
                 int padAmount = (fileNameCharSum * 3) % WzMsConstants.HeaderPadMod + WzMsConstants.HeaderPadOffset;
-                long entryStartPos = headerStartPos + 9 + padAmount;
+                long entryStartPos = checked(headerStartPos + 9L + padAmount);
+                ValidateVersion2EntryCount(entryCount, entryStartPos);
 
                 var header = new WzMsHeader(fullFileName, saltStr, fileNameWithSalt, headerHash, WzMsConstants.Version2, entryCount, headerStartPos, entryStartPos);
                 this.Header = header;
@@ -303,7 +351,7 @@ namespace MapleLib.WzLib.MSFile
             if (version != WzMsConstants.Version2)
                 throw new Exception($"Unsupported version: expected {WzMsConstants.Version2}, got {version}");
 
-            int actualHash = hashedSaltLen + version + entryCount;
+            long actualHash = (long)hashedSaltLen + version + entryCount;
             ReadOnlySpan<ushort> u16SaltBytes = MemoryMarshal.Cast<byte, ushort>(saltBytes.AsSpan(0, saltLen * 2));
             for (int i = 0; i < u16SaltBytes.Length; i++)
             {
@@ -313,7 +361,10 @@ namespace MapleLib.WzLib.MSFile
             if (hash != actualHash)
                 throw new Exception($"Header hash mismatch: expected {actualHash}, got {hash}");
 
-            return (entryCount, actualHash);
+            if (entryCount < 0 || entryCount > MaxEntryCount)
+                throw new InvalidDataException($"Invalid version {WzMsConstants.Version2} entry count: {entryCount}");
+
+            return (entryCount, checked((int)actualHash));
         }
 
         /// <summary>
@@ -342,6 +393,7 @@ namespace MapleLib.WzLib.MSFile
         private void ReadEntriesVersion2()
         {
             int entryCount = this.Header.EntryCount;
+            ValidateVersion2EntryCount(entryCount, this.Header.EntryStartPosition);
             if (this.Entries.Capacity < entryCount)
                 this.Entries.Capacity = entryCount;
 
@@ -354,9 +406,17 @@ namespace MapleLib.WzLib.MSFile
             var snowDecoderStream = new CryptoStream(this.BaseStream, snowCipher, CryptoStreamMode.Read);
             var snowReader = new BinaryReader(snowDecoderStream, Encoding.Unicode, true);
 
+            long tableBytesConsumed = 0;
             for (int i = 0; i < entryCount; i++)
             {
                 int entryNameLen = snowReader.ReadInt32();
+                long remainingTableBytes = BaseStream.Length - this.Header.EntryStartPosition - tableBytesConsumed;
+                long minimumBytesAfterName = (long)(entryCount - i - 1) * Version2MinimumEntryBytes;
+                long maximumNameBytes = remainingTableBytes - Version2MinimumEntryBytes - minimumBytesAfterName;
+                if (entryNameLen < 0 || entryNameLen > MaxEntryNameLength ||
+                    (long)entryNameLen * sizeof(char) > maximumNameBytes / 1L)
+                    throw new InvalidDataException($"Invalid version {WzMsConstants.Version2} entry name length: {entryNameLen}");
+
                 char[] entryNameBuffer = ArrayPool<char>.Shared.Rent(entryNameLen);
                 string entryName;
                 try
@@ -377,6 +437,10 @@ namespace MapleLib.WzLib.MSFile
                 int unk1 = snowReader.ReadInt32();
                 int unk2 = snowReader.ReadInt32();
                 byte[] entryKey = snowReader.ReadBytes(WzMsConstants.SnowKeyLength);
+                if (entryKey.Length != WzMsConstants.SnowKeyLength)
+                    throw new EndOfStreamException();
+
+                tableBytesConsumed = checked(tableBytesConsumed + ((long)entryNameLen * sizeof(char)) + Version2MinimumEntryBytes);
 
                 var entry = new WzMsEntry(entryName, checkSum, flags, startPos, size, sizeAligned, unk1, unk2, entryKey);
                 // CalculatedCheckSum is set in constructor or via RecalculateFields, no need to set here
@@ -389,7 +453,12 @@ namespace MapleLib.WzLib.MSFile
 
             foreach (var entry in this.Entries)
             {
-                entry.StartPos = dataStartPos + entry.StartPos * WzMsConstants.BlockAlignment;
+                if (entry.StartPos < 0)
+                    throw new InvalidDataException($"MS entry '{entry.Name}' has a negative start position.");
+
+                long absoluteStart = checked(dataStartPos + entry.StartPos * (long)WzMsConstants.BlockAlignment);
+                entry.StartPos = absoluteStart;
+                ValidateEntryDataBounds(entry);
             }
         }
 
@@ -430,7 +499,8 @@ namespace MapleLib.WzLib.MSFile
 
             foreach (var entry in this.Entries)
             {
-                entry.StartPos = dataStartPos + entry.StartPos * WzMsConstants.BlockAlignment;
+                long absoluteStart = checked(dataStartPos + entry.StartPos * (long)WzMsConstants.BlockAlignment);
+                entry.StartPos = absoluteStart;
             }
         }
 
@@ -940,6 +1010,7 @@ namespace MapleLib.WzLib.MSFile
 
         private byte[] DecryptDataToArray(WzMsEntry entry)
         {
+            ValidateEntryDataBounds(entry);
             if (this.Header.Version == WzMsConstants.Version4)
                 return DecryptDataToArrayVersion4(entry);
 

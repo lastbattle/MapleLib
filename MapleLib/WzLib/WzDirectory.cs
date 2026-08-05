@@ -16,6 +16,11 @@ namespace MapleLib.WzLib
     /// </summary>
     public class WzDirectory : WzObject
     {
+        // Directory records are attacker-controlled and recursively reference
+        // one another by absolute stream offset.  Keep malformed chains from
+        // exhausting the process stack even when every offset is unique.
+        private const int MaxDirectoryDepth = 256;
+
         #region Fields
         private List<WzImage> images = new List<WzImage>();
         internal List<WzDirectory> subDirs = new List<WzDirectory>();
@@ -194,14 +199,31 @@ namespace MapleLib.WzLib
         /// </summary>
         internal void ParseDirectory(bool lazyParse = false)
         {
+            ParseDirectory(lazyParse, 0, new HashSet<long>());
+        }
+
+        private void ParseDirectory(bool lazyParse, int depth, HashSet<long> visitedOffsets)
+        {
+            if (depth > MaxDirectoryDepth)
+                throw new InvalidDataException("WZ directory nesting exceeds the supported depth.");
+
+            long directoryPosition = reader.BaseStream.Position;
+            if (directoryPosition < 0 || directoryPosition > reader.BaseStream.Length)
+                throw new InvalidDataException("WZ directory offset is outside the stream.");
+
+            if (!visitedOffsets.Add(directoryPosition))
+                throw new InvalidDataException("WZ directory contains a cyclic offset.");
+
             //reader.PrintHexBytes(20);
             long available = reader.Available();
+            if (available < 0)
+                throw new InvalidDataException("WZ directory position is outside the stream.");
             if (available == 0)
                 return;
 
             int entryCount = reader.ReadCompressedInt();
-            if (entryCount < 0 || entryCount > 100000) // probably nothing > 100k folders for now.
-                throw new Exception("Invalid wz version used for decryption, try parsing other version numbers.");
+            if (entryCount < 0 || entryCount > 100000 || (long)entryCount > reader.Available()) // probably nothing > 100k folders for now.
+                throw new InvalidDataException("Invalid WZ directory entry count.");
 
             for (int i = 0; i < entryCount; i++)
             {
@@ -228,7 +250,20 @@ namespace MapleLib.WzLib
 
                             // For 64-bit WZ files (no version header), the string offset needs +1 adjustment
                             int extraOffset = (wzFile != null && wzFile.Is64BitWzFile) ? 1 : 0;
-                            reader.BaseStream.Position = reader.Header.FStart + stringOffset + extraOffset;
+                            long stringPosition;
+                            try
+                            {
+                                stringPosition = checked((long)reader.Header.FStart + stringOffset + extraOffset);
+                            }
+                            catch (OverflowException ex)
+                            {
+                                throw new InvalidDataException("WZ directory string offset is invalid.", ex);
+                            }
+
+                            if (stringPosition < 0 || stringPosition >= reader.BaseStream.Length)
+                                throw new InvalidDataException("WZ directory string offset is outside the stream.");
+
+                            reader.BaseStream.Position = stringPosition;
 
                             type = reader.ReadByte();
                             fname = reader.ReadString();
@@ -253,6 +288,11 @@ namespace MapleLib.WzLib
                 fsize = reader.ReadCompressedInt();
                 checksum = reader.ReadCompressedInt();
                 offset = reader.ReadOffset(); // IWzArchive::Getposition(pArchive)
+
+                if (fsize < 0)
+                    throw new InvalidDataException("WZ directory entry has a negative block size.");
+                if (offset < 0 || offset > reader.BaseStream.Length)
+                    throw new InvalidDataException("WZ directory entry offset is outside the stream.");
 
                 if (type == (byte) WzDirectoryType.WzDirectory_3)
                 {
@@ -287,7 +327,7 @@ namespace MapleLib.WzLib
             foreach (WzDirectory subdir in subDirs)
             {
                 reader.BaseStream.Position = subdir.offset;
-                subdir.ParseDirectory();
+                subdir.ParseDirectory(false, depth + 1, visitedOffsets);
             }
         }
 

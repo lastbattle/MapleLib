@@ -18,6 +18,16 @@ namespace MapleLib.WzLib.WzProperties
         internal int _length;
         internal int type;
         internal byte[] _bytes;
+
+        private static void EnsurePayloadAvailable(WzBinaryReader reader, int length, string description)
+        {
+            if (length < 0 || !reader.BaseStream.CanSeek)
+                throw new InvalidDataException($"Invalid {description} length: {length}.");
+
+            long remaining = reader.BaseStream.Length - reader.BaseStream.Position;
+            if (remaining < 0 || length > remaining)
+                throw new InvalidDataException($"{description} exceeds the containing stream: {length} bytes.");
+        }
         #endregion
 
         /// <summary>
@@ -105,11 +115,12 @@ namespace MapleLib.WzLib.WzProperties
         {
             type = wzReader.ReadByte();
             _length = wzReader.ReadCompressedInt();
+            EnsurePayloadAvailable(wzReader, _length, "Video data");
             _offset = wzReader.BaseStream.Position;
             if (parseNow)
                 GetBytes(true);
             else
-                wzReader.BaseStream.Position = _offset + _length;
+                wzReader.BaseStream.Position = checked(_offset + _length);
         }
 
         public override object WzValue => GetBytes(false);
@@ -195,9 +206,21 @@ namespace MapleLib.WzLib.WzProperties
 
             // read if none
             var currentPos = wzReader.BaseStream.Position;
-            this.wzReader.BaseStream.Position = _offset;
-            this._bytes = wzReader.ReadBytes(_length);
-            this.wzReader.BaseStream.Position = currentPos;
+            try
+            {
+                if (_offset < 0 || _offset > wzReader.BaseStream.Length)
+                    throw new InvalidDataException("Video data offset is outside the containing stream.");
+
+                this.wzReader.BaseStream.Position = _offset;
+                EnsurePayloadAvailable(wzReader, _length, "Video data");
+                this._bytes = wzReader.ReadBytes(_length);
+                if (this._bytes.Length != _length)
+                    throw new InvalidDataException("Video data is truncated.");
+            }
+            finally
+            {
+                this.wzReader.BaseStream.Position = currentPos;
+            }
             if (saveInMemory)
             {
                 return this._bytes;

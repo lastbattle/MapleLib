@@ -42,6 +42,14 @@ namespace MapleLib.WzLib
                     int len = wzParser.ReadInt32();
                     if (len < 0)
                         throw new InvalidDataException("List.wz contains a negative string length.");
+
+                    // Each entry contains len UTF-16 code units followed by an
+                    // encrypted null terminator.  Validate against the bytes
+                    // still present before renting an attacker-controlled array.
+                    long remaining = wzParser.BaseStream.Length - wzParser.BaseStream.Position;
+                    if (remaining < sizeof(ushort) || (long)len > (remaining - sizeof(ushort)) / sizeof(short))
+                        throw new InvalidDataException("List.wz string length exceeds the remaining file data.");
+
                     if (len > charBuffer.Length)
                     {
                         ArrayPool<char>.Shared.Return(charBuffer);
@@ -67,7 +75,10 @@ namespace MapleLib.WzLib
 
             int lastIndex = listEntries.Count - 1;
             string lastEntry = listEntries[lastIndex];
-            listEntries[lastIndex] = lastEntry.Substring(0, lastEntry.Length - 1) + "g";
+            // A malformed/truncated list can legally decode to an empty final
+            // entry.  Keep it as-is instead of slicing at -1.
+            if (lastEntry.Length > 0)
+                listEntries[lastIndex] = lastEntry.Substring(0, lastEntry.Length - 1) + "g";
             return listEntries;
         }
 

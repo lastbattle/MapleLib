@@ -36,6 +36,11 @@ namespace MapleLib.WzLib
         internal bool wz_withEncryptVersionHeader = true;  // KMS update after Q4 2021, ver 1.2.357 does not contain any wz enc header information
 
         internal byte[] WzIv;
+        // Retained after a successful parse because lazy WzImage instances
+        // read directly from the directory's shared stream.  On a failed
+        // parse this reader is disposed immediately so file handles do not
+        // leak.
+        private WzBinaryReader reader;
         #endregion
 
         /// <summary>
@@ -106,10 +111,13 @@ namespace MapleLib.WzLib
         {
             _isUnloaded = true; // flag first
 
-            if (wzDir?.reader != null)
+            WzBinaryReader ownedReader = reader ?? wzDir?.reader;
+            reader = null;
+            if (ownedReader != null)
             {
-                wzDir.reader.Close();
-                wzDir.reader = null;
+                ownedReader.Dispose();
+                if (wzDir != null && ReferenceEquals(wzDir.reader, ownedReader))
+                    wzDir.reader = null;
             }
             Header = null;
             path = null;
@@ -218,22 +226,54 @@ namespace MapleLib.WzLib
                 Helpers.ErrorLogger.Log(Helpers.ErrorLevel.Critical, "[Error] Path is null");
                 return WzFileParseStatus.Path_Is_Null;
             }
+
+            // Release a reader retained by an earlier successful parse before
+            // opening a replacement stream.  The directory tree is left intact
+            // until the replacement parse succeeds.
+            if (this.reader != null)
+            {
+                WzBinaryReader previousReader = this.reader;
+                this.reader = null;
+                previousReader.Dispose();
+                if (wzDir != null && ReferenceEquals(wzDir.reader, previousReader))
+                    wzDir.reader = null;
+            }
+
             WzBinaryReader reader = new WzBinaryReader(File.Open(this.path, FileMode.Open, FileAccess.Read, FileShare.Read), WzIv);
+            bool retainReader = false;
+            try
+            {
 
             this.Header = new WzHeader();
             this.Header.Ident = reader.ReadString(4);
             this.Header.FSize = reader.ReadUInt64();
             this.Header.FStart = reader.ReadUInt32();
-            this.Header.Copyright = reader.ReadString((int)(this.Header.FStart - 17U));
 
+            long fileLength = reader.BaseStream.Length;
+            if (this.Header.FStart < 17 || (ulong)this.Header.FStart > (ulong)fileLength)
+                throw new InvalidDataException("WZ header FStart is outside the file.");
+
+            long copyrightLength = (long)this.Header.FStart - 17L;
+            if (copyrightLength > int.MaxValue)
+                throw new InvalidDataException("WZ header copyright is too large.");
+
+            this.Header.Copyright = reader.ReadString((int)copyrightLength);
+
+            if (reader.BaseStream.Position >= fileLength)
+                throw new InvalidDataException("WZ file is missing its header terminator.");
             byte unk1 = reader.ReadByte();
-            byte[] unk2 = reader.ReadBytes((int)(this.Header.FStart - (ulong)reader.BaseStream.Position));
+            long headerPadding = (long)this.Header.FStart - reader.BaseStream.Position;
+            if (headerPadding < 0 || headerPadding > int.MaxValue)
+                throw new InvalidDataException("WZ header padding is invalid.");
+            byte[] unk2 = reader.ReadBytes((int)headerPadding);
             reader.Header = this.Header;
 
             Check64BitClient(reader);  // update b64BitClient flag
 
             // the value of wzVersionHeader is less important. It is used for reading/writing from/to WzFile Header, and calculating the versionHash.
             // it can be any number if the client is 64-bit. Assigning 777 is just for convenience when calculating the versionHash.
+            if (this.wz_withEncryptVersionHeader && reader.BaseStream.Length - this.Header.FStart < sizeof(ushort))
+                throw new InvalidDataException("WZ file is missing its version header.");
             this.wzVersionHeader = this.wz_withEncryptVersionHeader ? reader.ReadUInt16() : wzVersionHeader64bit_start;
 
             Debug.WriteLine("----------------------------------------");
@@ -252,6 +292,8 @@ namespace MapleLib.WzLib
                     {
                         if (TryDecodeWithWZVersionNumber(reader, wzVersionHeader, maplestoryVerToDecode, lazyParse))
                         {
+                            this.reader = reader;
+                            retainReader = true;
                             return WzFileParseStatus.Success;
                         }
                     }
@@ -269,6 +311,8 @@ namespace MapleLib.WzLib
 
                     if (TryDecodeWithWZVersionNumber(reader, wzVersionHeader, j, lazyParse))
                     {
+                        this.reader = reader;
+                        retainReader = true;
                         return WzFileParseStatus.Success;
                     }
                 }
@@ -284,7 +328,23 @@ namespace MapleLib.WzLib
                 directory.ParseDirectory();
                 this.wzDir = directory;
             }
+            this.reader = reader;
+            retainReader = true;
             return WzFileParseStatus.Success;
+            }
+            catch (EndOfStreamException ex)
+            {
+                throw new InvalidDataException("WZ file is truncated.", ex);
+            }
+            catch (ArgumentOutOfRangeException ex)
+            {
+                throw new InvalidDataException("WZ file contains an invalid offset or length.", ex);
+            }
+            finally
+            {
+                if (!retainReader)
+                    reader.Dispose();
+            }
         }
 
         /// <summary>

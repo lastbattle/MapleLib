@@ -55,31 +55,42 @@ namespace MapleLib.WzLib.Serializer
         public WzImage WzImageFromIMGFile(string inPath, byte[] iv, string name, out bool successfullyParsedImage)
         {
             FileStream stream = File.OpenRead(inPath);
+            if (stream.Length > int.MaxValue)
+            {
+                stream.Dispose();
+                throw new InvalidDataException("IMG files larger than 2 GiB are not supported.");
+            }
+
             WzBinaryReader wzReader = new WzBinaryReader(stream, iv);
 
             WzImage img = new WzImage(name, wzReader)
             {
-                BlockSize = (int)stream.Length
+                BlockSize = checked((int)stream.Length)
             };
-            byte[] bytes = new byte[stream.Length];
-            stream.ReadExactly(bytes);
-            stream.Position = 0;
-            img.CalculateAndSetImageChecksum(bytes);
-            img.Offset = 0;
-
-            if (freeResources)
+            try
             {
-                img.ParseEverything = true;
+                img.CalculateAndSetImageChecksum(stream);
+                img.Offset = 0;
 
-                successfullyParsedImage = img.ParseImage(true);
-                img.Changed = true;
-                wzReader.Close();
+                if (freeResources)
+                {
+                    img.ParseEverything = true;
+
+                    successfullyParsedImage = img.ParseImage(true);
+                    img.Changed = true;
+                    wzReader.Close();
+                }
+                else
+                {
+                    successfullyParsedImage = true;
+                }
+                return img;
             }
-            else
+            catch
             {
-                successfullyParsedImage = true;
+                img.Dispose();
+                throw;
             }
-            return img;
         }
     }
 

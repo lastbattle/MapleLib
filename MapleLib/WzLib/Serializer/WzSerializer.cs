@@ -137,7 +137,7 @@ namespace MapleLib.WzLib.Serializer
             else if (prop is WzUOLProperty)
             {
                 WzUOLProperty property11 = (WzUOLProperty)prop;
-                tw.Write(depth + "<uol name=\"" + property11.Name + "\" value=\"" + XmlUtil.SanitizeText(property11.Value) + "\"/>" + lineBreak);
+                tw.Write(depth + "<uol name=\"" + XmlUtil.SanitizeText(property11.Name) + "\" value=\"" + XmlUtil.SanitizeText(property11.Value) + "\"/>" + lineBreak);
             }
             else if (prop is WzVectorProperty)
             {

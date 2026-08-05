@@ -1,10 +1,17 @@
 ﻿using System.Drawing.Imaging;
 using Microsoft.Xna.Framework.Graphics;
 
+using System;
+
 namespace MapleLib.WzLib.WzProperties
 {
     public static class WzPngFormatExtensions
     {
+        // Keep decoded image allocations bounded before they reach a byte array
+        // or GDI+ bitmap. Real WZ canvases are well below this limit.
+        internal const int MaxDecodedSize = 256 * 1024 * 1024;
+        internal const int MaxDimension = 32768;
+
         /// <summary>
         /// Gets the pixel format for the WZ PNG format
         /// </summary>
@@ -55,19 +62,38 @@ namespace MapleLib.WzLib.WzProperties
         /// </summary>
         public static int GetDecodedSize(this WzPngFormat format, int width, int height)
         {
-            return format switch
+            if (width <= 0 || height <= 0)
+                throw new System.IO.InvalidDataException("PNG dimensions must be positive.");
+            if (width > MaxDimension || height > MaxDimension)
+                throw new System.IO.InvalidDataException("PNG dimensions exceed the supported limit.");
+
+            long decodedSize;
+            try
             {
-                WzPngFormat.Format1 => width * height * 2,
-                WzPngFormat.Format2 => width * height * 4,
-                WzPngFormat.Format3 => ((width + 3) / 4) * ((height + 3) / 4) * 16,
-                WzPngFormat.Format257 => width * height * 2,
-                WzPngFormat.Format513 => width * height * 2,
-                WzPngFormat.Format517 => width * height / 128,
-                WzPngFormat.Format1026 => ((width + 3) / 4) * ((height + 3) / 4) * 16,
-                WzPngFormat.Format2050 => ((width + 3) / 4) * ((height + 3) / 4) * 16,
-                WzPngFormat.Format4098 => ((width + 3) / 4) * ((height + 3) / 4) * 16,
-                _ => width * height * 4
-            };
+                long pixels = checked((long)width * height);
+                decodedSize = format switch
+                {
+                    WzPngFormat.Format1 => checked(pixels * 2),
+                    WzPngFormat.Format2 => checked(pixels * 4),
+                    WzPngFormat.Format3 => checked(((width + 3L) / 4) * ((height + 3L) / 4) * 16),
+                    WzPngFormat.Format257 => checked(pixels * 2),
+                    WzPngFormat.Format513 => checked(pixels * 2),
+                    WzPngFormat.Format517 => pixels / 128,
+                    WzPngFormat.Format1026 => checked(((width + 3L) / 4) * ((height + 3L) / 4) * 16),
+                    WzPngFormat.Format2050 => checked(((width + 3L) / 4) * ((height + 3L) / 4) * 16),
+                    WzPngFormat.Format4098 => checked(((width + 3L) / 4) * ((height + 3L) / 4) * 16),
+                    _ => checked(pixels * 4)
+                };
+            }
+            catch (OverflowException ex)
+            {
+                throw new System.IO.InvalidDataException("PNG decoded size is too large.", ex);
+            }
+
+            if (decodedSize < 0 || decodedSize > MaxDecodedSize || decodedSize > int.MaxValue)
+                throw new System.IO.InvalidDataException("PNG decoded size exceeds the supported limit.");
+
+            return (int)decodedSize;
         }
     }
 }

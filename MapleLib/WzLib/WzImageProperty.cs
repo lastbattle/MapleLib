@@ -17,6 +17,10 @@ namespace MapleLib.WzLib
     /// </summary>
     public abstract class WzImageProperty : WzObject
     {
+        private const int MaxPropertyCount = 100_000;
+        private const int MaxPropertyNestingDepth = 128;
+        private const int MaxLuaPropertyLength = 64 * 1024 * 1024;
+
         #region Virtual\Abstrcat Members
         public virtual WzPropertyCollection WzProperties { get { return null; } }
 
@@ -114,6 +118,24 @@ namespace MapleLib.WzLib
             // 28 71 4F EF 1B 65 F9 1F A7 48 8D 11 73 E7 F0 27 55 09 DD 3C 07 32 D7 38 21 57 84 70 C1 79 9A 3F 49 F7 79 03 41 F4 9D B9 1B 5F CF 26 80 3D EC 25 5F 9C 
             // [compressed int] [bytes]
             int length = reader.ReadCompressedInt();
+            long remaining = reader.Available();
+            if (parentImg.BlockSize > 0)
+            {
+                long imageEnd;
+                try
+                {
+                    imageEnd = checked(parentImg.Offset + parentImg.BlockSize);
+                }
+                catch (OverflowException ex)
+                {
+                    throw new InvalidDataException("WZ image block size is invalid.", ex);
+                }
+                remaining = Math.Min(remaining, imageEnd - reader.BaseStream.Position);
+            }
+
+            if (length < 0 || length > MaxLuaPropertyLength || remaining < 0 || length > remaining)
+                throw new InvalidDataException($"Invalid Lua property length: {length}.");
+
             byte[] rawEncBytes = reader.ReadBytes(length);
 
             WzLuaProperty lua = new WzLuaProperty("Script", rawEncBytes) { Parent = parent };
@@ -122,7 +144,27 @@ namespace MapleLib.WzLib
 
         internal static WzPropertyCollection ParsePropertyList(long offset, WzBinaryReader reader, WzObject parent, WzImage parentImg)
         {
+            long imageEnd = reader.BaseStream.Length;
+            if (parentImg.BlockSize > 0)
+            {
+                try
+                {
+                    imageEnd = checked(parentImg.Offset + parentImg.BlockSize);
+                }
+                catch (OverflowException ex)
+                {
+                    throw new InvalidDataException("WZ image block size is invalid.", ex);
+                }
+            }
+
+            return ParsePropertyList(offset, reader, parent, parentImg, 0, imageEnd);
+        }
+
+        private static WzPropertyCollection ParsePropertyList(long offset, WzBinaryReader reader, WzObject parent, WzImage parentImg, int depth, long endOfBlock)
+        {
+            ValidateNestingDepth(depth);
             int entryCount = reader.ReadCompressedInt();
+            ValidateEntryCount(entryCount, reader, "property");
             WzPropertyCollection properties = new WzPropertyCollection(parent);
             properties.Capacity = entryCount;
             for (int i = 0; i < entryCount; i++)
@@ -159,8 +201,12 @@ namespace MapleLib.WzLib
                         properties.Add(new WzStringProperty(name, reader.ReadStringBlock(offset)) { Parent = parent });
                         break;
                     case 9:
-                        long eob = reader.ReadUInt32() + reader.BaseStream.Position;
-                        WzImageProperty exProp = ParseExtendedProp(reader, offset, eob, name, parent, parentImg);
+                        uint blockLength = reader.ReadUInt32();
+                        if (blockLength > reader.Available())
+                            throw new InvalidDataException($"Extended property block exceeds the containing stream: {blockLength} bytes.");
+
+                        long eob = reader.BaseStream.Position + blockLength;
+                        WzImageProperty exProp = ParseExtendedProp(reader, offset, eob, name, parent, parentImg, depth);
                         properties.Add(exProp);
                         if (reader.BaseStream.Position != eob)
                         {
@@ -176,14 +222,20 @@ namespace MapleLib.WzLib
 
         internal static WzExtended ParseExtendedProp(WzBinaryReader reader, long offset, long endOfBlock, string name, WzObject parent, WzImage imgParent)
         {
+            return ParseExtendedProp(reader, offset, endOfBlock, name, parent, imgParent, 0);
+        }
+
+        private static WzExtended ParseExtendedProp(WzBinaryReader reader, long offset, long endOfBlock, string name, WzObject parent, WzImage imgParent, int depth)
+        {
+            ValidateNestingDepth(depth);
             switch (reader.ReadByte())
             {
                 case 0x01:
                 case WzImage.WzImageHeaderByte_WithOffset:
-                    return ExtractMore(reader, offset, endOfBlock, name, reader.ReadStringAtOffset(offset + reader.ReadInt32()), parent, imgParent);
+                    return ExtractMore(reader, offset, endOfBlock, name, reader.ReadStringAtOffset(offset + reader.ReadInt32()), parent, imgParent, depth);
                 case 0x00:
                 case WzImage.WzImageHeaderByte_WithoutOffset:
-                    return ExtractMore(reader, offset, endOfBlock, name, "", parent, imgParent);
+                    return ExtractMore(reader, offset, endOfBlock, name, "", parent, imgParent, depth);
                 default:
                     throw new System.Exception("Invalid byte read at ParseExtendedProp");
             }
@@ -191,6 +243,12 @@ namespace MapleLib.WzLib
 
         internal static WzExtended ExtractMore(WzBinaryReader reader, long offset, long eob, string name, string iname, WzObject parent, WzImage imgParent)
         {
+            return ExtractMore(reader, offset, eob, name, iname, parent, imgParent, 0);
+        }
+
+        private static WzExtended ExtractMore(WzBinaryReader reader, long offset, long eob, string name, string iname, WzObject parent, WzImage imgParent, int depth)
+        {
+            ValidateNestingDepth(depth);
             if (iname == "")
             {
                 iname = reader.ReadString();
@@ -201,7 +259,7 @@ namespace MapleLib.WzLib
                     {
                         WzSubProperty subProp = new WzSubProperty(name) { Parent = parent };
                         reader.BaseStream.Position += 2; // Reserved?
-                        subProp.AddProperties(WzImageProperty.ParsePropertyList(offset, reader, subProp, imgParent));
+                        subProp.AddProperties(ParsePropertyList(offset, reader, subProp, imgParent, depth + 1, eob));
                         return subProp;
                     }
                 case "Canvas":
@@ -211,7 +269,7 @@ namespace MapleLib.WzLib
                         if (reader.ReadByte() == 1)
                         {
                             reader.BaseStream.Position += 2;
-                            canvasProp.AddProperties(WzImageProperty.ParsePropertyList(offset, reader, canvasProp, imgParent));
+                            canvasProp.AddProperties(ParsePropertyList(offset, reader, canvasProp, imgParent, depth + 1, eob));
                         }
                         canvasProp.PngProperty = new WzPngProperty(reader, imgParent.ParseEverything) { Parent = canvasProp };
                         return canvasProp;
@@ -227,10 +285,11 @@ namespace MapleLib.WzLib
                     {
                         WzConvexProperty convexProp = new WzConvexProperty(name) { Parent = parent };
                         int convexEntryCount = reader.ReadCompressedInt();
+                        ValidateEntryCount(convexEntryCount, reader, "convex");
                         convexProp.WzProperties.Capacity = convexEntryCount;
                         for (int i = 0; i < convexEntryCount; i++)
                         {
-                            convexProp.AddProperty(ParseExtendedProp(reader, offset, 0, name, convexProp, imgParent));
+                            convexProp.AddProperty(ParseExtendedProp(reader, offset, eob, name, convexProp, imgParent, depth + 1));
                         }
                         return convexProp;
                     }
@@ -268,7 +327,7 @@ namespace MapleLib.WzLib
                             if (reader.ReadByte() == 1)
                             {
                                 reader.BaseStream.Position += 2; // Reserved?
-                                rawDataProp.AddProperties(ParsePropertyList(offset, reader, rawDataProp, imgParent));
+                                rawDataProp.AddProperties(ParsePropertyList(offset, reader, rawDataProp, imgParent, depth + 1, eob));
                             }
                         }
 
@@ -285,7 +344,7 @@ namespace MapleLib.WzLib
                         if (reader.ReadByte() == 1)
                         {
                             reader.BaseStream.Position += 2;
-                            videoProperty.AddProperties(WzImageProperty.ParsePropertyList(offset, reader, videoProperty, imgParent));
+                            videoProperty.AddProperties(ParsePropertyList(offset, reader, videoProperty, imgParent, depth + 1, eob));
                         }
                         videoProperty.Parse(imgParent.ParseEverything); // TODO:  be able to display this Canvas#Video in HaRepacker
                         return videoProperty;
@@ -293,6 +352,22 @@ namespace MapleLib.WzLib
                 default:
                     throw new Exception("Unknown iname: " + iname);
             }
+        }
+
+        private static void ValidateEntryCount(int entryCount, WzBinaryReader reader, string collectionName)
+        {
+            // Every encoded entry consumes at least two bytes. The hard cap also
+            // prevents a very large, otherwise format-plausible file from forcing
+            // a disproportionate collection allocation before entries are parsed.
+            long remaining = reader.Available();
+            if (entryCount < 0 || entryCount > MaxPropertyCount || remaining < 0 || entryCount > remaining / 2)
+                throw new InvalidDataException($"Invalid {collectionName} entry count: {entryCount}.");
+        }
+
+        private static void ValidateNestingDepth(int depth)
+        {
+            if (depth > MaxPropertyNestingDepth)
+                throw new InvalidDataException($"WZ property nesting exceeds the supported depth of {MaxPropertyNestingDepth}.");
         }
 
         internal static void WriteExtendedValue(WzBinaryWriter writer, WzExtended property)
@@ -319,9 +394,13 @@ namespace MapleLib.WzLib
         public WzImageProperty GetLinkedWzImageProperty()
         {
             WzImageProperty thisWzImage = this;
-            while ((thisWzImage is WzUOLProperty))
+            HashSet<WzImageProperty> visited = new HashSet<WzImageProperty>();
+            while (thisWzImage is WzUOLProperty uol)
             {
-                if ((thisWzImage as WzUOLProperty).LinkValue is WzImageProperty newWzImage)
+                if (!visited.Add(thisWzImage))
+                    throw new InvalidDataException("Cyclic UOL link detected.");
+
+                if (uol.LinkValue is WzImageProperty newWzImage)
                     thisWzImage = newWzImage;
                 else // broken link
                     return this;

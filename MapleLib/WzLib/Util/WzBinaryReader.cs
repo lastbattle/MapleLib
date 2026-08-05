@@ -67,14 +67,30 @@ namespace MapleLib.WzLib.Util
         public string ReadStringAtOffset(long Offset, bool readByte)
         {
             long CurrentOffset = BaseStream.Position;
-            BaseStream.Position = Offset - startOffset;
-            if (readByte)
+            try
             {
-                ReadByte();
+                long relativeOffset;
+                try
+                {
+                    relativeOffset = checked(Offset - startOffset);
+                }
+                catch (OverflowException ex)
+                {
+                    throw new InvalidDataException("WZ string offset is outside the stream.", ex);
+                }
+
+                if (relativeOffset < 0 || relativeOffset >= BaseStream.Length)
+                    throw new InvalidDataException("WZ string offset is outside the stream.");
+
+                BaseStream.Position = relativeOffset;
+                if (readByte)
+                    ReadByte();
+                return ReadString();
             }
-            string ReturnString = ReadString();
-            BaseStream.Position = CurrentOffset;
-            return ReturnString;
+            finally
+            {
+                BaseStream.Position = CurrentOffset;
+            }
         }
 
         /// <summary>
@@ -93,8 +109,23 @@ namespace MapleLib.WzLib.Util
             else // ASCII
                 length = smallLength == sbyte.MinValue ? ReadInt32() : -smallLength;
 
-            if (length <= 0)
+            if (length < 0)
+                throw new InvalidDataException("WZ string has a negative length.");
+
+            if (length == 0)
                 return string.Empty;
+
+            long payloadLength;
+            try
+            {
+                payloadLength = checked((long)length * (smallLength > 0 ? sizeof(ushort) : sizeof(byte)));
+            }
+            catch (OverflowException ex)
+            {
+                throw new InvalidDataException("WZ string length is too large.", ex);
+            }
+
+            EnsureAvailable(payloadLength, "WZ string");
 
             if (smallLength > 0) // Unicode
                 return DecodeUnicode(length);
@@ -198,6 +229,10 @@ namespace MapleLib.WzLib.Util
         /// <param name="filePath">Length of bytes to read</param>
         public string ReadString(int length)
         {
+            if (length < 0)
+                throw new InvalidDataException("WZ string has a negative length.");
+            EnsureAvailable(length, "WZ header string");
+
             byte[]? pooledArray = null;
             try
             {
@@ -217,6 +252,22 @@ namespace MapleLib.WzLib.Util
             }
         }
 
+        private void EnsureAvailable(long byteCount, string valueDescription)
+        {
+            long remaining = BaseStream.Length - BaseStream.Position;
+            if (byteCount < 0 || remaining < 0)
+                throw new InvalidDataException($"{valueDescription} exceeds the remaining stream data.");
+
+            if (byteCount > remaining)
+            {
+                // Small stack-bounded reads retain BinaryReader's historical
+                // EndOfStreamException behavior; larger attacker-controlled
+                // lengths must be rejected before renting/allocating memory.
+                if (byteCount > MemoryLimits.STACKALLOC_SIZE_LIMIT_L1)
+                    throw new InvalidDataException($"{valueDescription} exceeds the remaining stream data.");
+            }
+        }
+
         public string ReadNullTerminatedString()
         {
             const int initialBufferSize = 256;
@@ -232,14 +283,27 @@ namespace MapleLib.WzLib.Util
                     if (position == buffer.Length)
                     {
                         // Need to expand to array pool
+                        int nextLength;
+                        try
+                        {
+                            nextLength = checked(buffer.Length * 2);
+                        }
+                        catch (OverflowException ex)
+                        {
+                            throw new InvalidDataException("Null-terminated string is too large.", ex);
+                        }
+
+                        if (nextLength <= position || nextLength > int.MaxValue)
+                            throw new InvalidDataException("Null-terminated string is too large.");
+
                         if (pooledArray == null)
                         {
-                            pooledArray = s_bytePool.Rent(buffer.Length * 2);
+                            pooledArray = s_bytePool.Rent(nextLength);
                             buffer.CopyTo(pooledArray);
                         }
                         else
                         {
-                            var newArray = s_bytePool.Rent(pooledArray.Length * 2);
+                            var newArray = s_bytePool.Rent(nextLength);
                             pooledArray.AsSpan(0, position).CopyTo(newArray);
                             s_bytePool.Return(pooledArray);
                             pooledArray = newArray;
@@ -310,6 +374,18 @@ namespace MapleLib.WzLib.Util
         /// <returns></returns>
         public string DecryptString(ReadOnlySpan<char> stringToDecrypt)
         {
+            int keyLength;
+            try
+            {
+                keyLength = checked(stringToDecrypt.Length * sizeof(ushort));
+            }
+            catch (OverflowException ex)
+            {
+                throw new InvalidDataException("Encrypted string is too large.", ex);
+            }
+
+            WzKey.EnsureKeySize(keyLength);
+
             char[]? pooledArray = null;
             try
             {
@@ -341,6 +417,8 @@ namespace MapleLib.WzLib.Util
 
         public string DecryptNonUnicodeString(ReadOnlySpan<char> stringToDecrypt)
         {
+            WzKey.EnsureKeySize(stringToDecrypt.Length);
+
             char[]? pooledArray = null;
             try
             {
@@ -392,7 +470,7 @@ namespace MapleLib.WzLib.Util
             if (start < 0 || start >= BaseStream.Length)
                 throw new ArgumentOutOfRangeException(nameof(start));
 
-            if (length <= 0 || start + length > BaseStream.Length)
+            if (length <= 0 || length > BaseStream.Length - start)
                 throw new ArgumentOutOfRangeException(nameof(length));
 
             byte[] buffer = new byte[length];

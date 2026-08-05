@@ -38,6 +38,7 @@ namespace MapleLib.WzLib
         private int checksum;
         internal long offset = 0;
         internal WzBinaryReader reader; // could be a WzBinaryReader or a WzBinaryConcurrentReader
+        private readonly bool ownsReader;
         internal byte[] WzIv;
         internal WzPropertyCollection properties;
         internal WzObject parent;
@@ -80,6 +81,7 @@ namespace MapleLib.WzLib
             this.name = name;
             this.WzIv = WzTool.GetIvByMapleVersion(mapleVersion);
             this.reader = new WzBinaryReader(dataStream, WzIv);
+            this.ownsReader = true;
 
             this.properties = new WzPropertyCollection(this);
         }
@@ -87,6 +89,7 @@ namespace MapleLib.WzLib
         {
             this.name = name;
             this.reader = reader;
+            this.ownsReader = true;
             this.blockStart = (int)reader.BaseStream.Position;
             this.checksum = 0;
 
@@ -104,6 +107,7 @@ namespace MapleLib.WzLib
         {
             this.name = name;
             this.reader = reader;
+            this.ownsReader = false;
             this.blockStart = (int)reader.BaseStream.Position;
             this.checksum = checksum;
 
@@ -122,12 +126,11 @@ namespace MapleLib.WzLib
                 properties.Clear();
                 properties = null;
             }
-            if (reader != null)
+            if (ownsReader && reader != null)
             {
-                reader.Close();
                 reader.Dispose();
-                reader = null;
             }
+            reader = null;
         }
         #endregion
 
@@ -372,6 +375,31 @@ namespace MapleLib.WzLib
             foreach (byte b in bytes)
             {
                 this.checksum += b;
+            }
+        }
+
+        internal void CalculateAndSetImageChecksum(Stream stream)
+        {
+            ArgumentNullException.ThrowIfNull(stream);
+            if (!stream.CanRead || !stream.CanSeek)
+                throw new ArgumentException("Checksum calculation requires a readable, seekable stream.", nameof(stream));
+
+            long originalPosition = stream.Position;
+            byte[] buffer = new byte[64 * 1024];
+            try
+            {
+                stream.Position = 0;
+                this.checksum = 0;
+                int bytesRead;
+                while ((bytesRead = stream.Read(buffer, 0, buffer.Length)) > 0)
+                {
+                    for (int i = 0; i < bytesRead; i++)
+                        this.checksum += buffer[i];
+                }
+            }
+            finally
+            {
+                stream.Position = originalPosition;
             }
         }
 

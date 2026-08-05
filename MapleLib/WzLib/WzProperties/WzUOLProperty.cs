@@ -5,6 +5,7 @@ using System.IO;
 using System.Collections.Generic;
 using MapleLib.WzLib.Util;
 using System.Drawing;
+using System;
 
 namespace MapleLib.WzLib.WzProperties
 {
@@ -64,7 +65,7 @@ namespace MapleLib.WzLib.WzProperties
 		{
 			get
 			{
-               return LinkValue is WzImageProperty ? ((WzImageProperty)LinkValue).WzProperties : null;
+				return ResolveLinkValue() is WzImageProperty property ? property.WzProperties : null;
 			}
 		}
 
@@ -74,13 +75,15 @@ namespace MapleLib.WzLib.WzProperties
 			get
 			{
 
-                return LinkValue is WzImageProperty ? ((WzImageProperty)LinkValue)[name] : LinkValue is WzImage ? ((WzImage)LinkValue)[name] : null;
+                WzObject target = ResolveLinkValue();
+                return target is WzImageProperty property ? property[name] : target is WzImage image ? image[name] : null;
 			}
 		}
 
 		public override WzImageProperty GetFromPath(string path)
 		{
-            return LinkValue is WzImageProperty ? ((WzImageProperty)LinkValue).GetFromPath(path) : LinkValue is WzImage ? ((WzImage)LinkValue).GetFromPath(path) : null;
+			WzObject target = ResolveLinkValue();
+			return target is WzImageProperty property ? property.GetFromPath(path) : target is WzImage image ? image.GetFromPath(path) : null;
 		}
 #endif
 
@@ -157,6 +160,22 @@ namespace MapleLib.WzLib.WzProperties
                 return linkVal;
             }
         }
+
+        private WzObject ResolveLinkValue()
+        {
+            WzObject current = this;
+            HashSet<WzObject> visited = new HashSet<WzObject>();
+            while (current is WzUOLProperty uol)
+            {
+                if (!visited.Add(current))
+                    throw new InvalidDataException("Cyclic UOL link detected.");
+
+                current = uol.LinkValue;
+                if (current == null)
+                    return null;
+            }
+            return current;
+        }
 #endif
 
         /// <summary>
@@ -189,47 +208,47 @@ namespace MapleLib.WzLib.WzProperties
 #if UOLRES
         public override int GetInt()
         {
-            return LinkValue.GetInt();
+            return (ResolveLinkValue() ?? throw new InvalidDataException("UOL link target could not be resolved.")).GetInt();
         }
 
         public override short GetShort()
         {
-            return LinkValue.GetShort();
+            return (ResolveLinkValue() ?? throw new InvalidDataException("UOL link target could not be resolved.")).GetShort();
         }
 
         public override long GetLong()
         {
-            return LinkValue.GetLong();
+            return (ResolveLinkValue() ?? throw new InvalidDataException("UOL link target could not be resolved.")).GetLong();
         }
 
         public override float GetFloat()
         {
-            return LinkValue.GetFloat();
+            return (ResolveLinkValue() ?? throw new InvalidDataException("UOL link target could not be resolved.")).GetFloat();
         }
 
         public override double GetDouble()
         {
-            return LinkValue.GetDouble();
+            return (ResolveLinkValue() ?? throw new InvalidDataException("UOL link target could not be resolved.")).GetDouble();
         }
 
         public override string GetString()
         {
-            return LinkValue.GetString();
+            return (ResolveLinkValue() ?? throw new InvalidDataException("UOL link target could not be resolved.")).GetString();
         }
 
         public override Point GetPoint()
         {
-            return LinkValue.GetPoint();
+            return (ResolveLinkValue() ?? throw new InvalidDataException("UOL link target could not be resolved.")).GetPoint();
         }
 
         public override Bitmap GetBitmap()
         {
-            return LinkValue.GetBitmap();
+            return (ResolveLinkValue() ?? throw new InvalidDataException("UOL link target could not be resolved.")).GetBitmap();
         }
 
         public override byte[] GetBytes()
         {
-            return LinkValue.GetBytes();
+            return (ResolveLinkValue() ?? throw new InvalidDataException("UOL link target could not be resolved.")).GetBytes();
         }
 #else
         public override string GetString()

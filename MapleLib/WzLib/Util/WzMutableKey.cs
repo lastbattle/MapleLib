@@ -33,19 +33,48 @@ namespace MapleLib.WzLib.Util
         {
             get
             {
-                EnsureKeySize(index + 1);
+                if (index < 0)
+                    throw new ArgumentOutOfRangeException(nameof(index));
+
+                int requiredSize;
+                try
+                {
+                    requiredSize = checked(index + 1);
+                }
+                catch (OverflowException ex)
+                {
+                    throw new InvalidDataException("WZ key index is too large.", ex);
+                }
+
+                EnsureKeySize(requiredSize);
                 return _keys![index];
             }
         }
 
         public void EnsureKeySize(int size)
         {
+            if (size < 0)
+                throw new ArgumentOutOfRangeException(nameof(size));
+
             if (_keys != null && _keys.Length >= size)
             {
                 return;
             }
 
-            size = (int)Math.Ceiling(1.0 * size / BatchSize) * BatchSize;
+            int batchCount;
+            try
+            {
+                batchCount = checked((size + BatchSize - 1) / BatchSize);
+            }
+            catch (OverflowException ex)
+            {
+                throw new InvalidDataException("WZ key stream is too large.", ex);
+            }
+
+            if (batchCount > int.MaxValue / BatchSize)
+                throw new InvalidDataException("WZ key stream is too large.");
+
+            size = batchCount * BatchSize;
             byte[] newKeys = new byte[size];
 
             if (BitConverter.ToInt32(this._iv, 0) == 0)
