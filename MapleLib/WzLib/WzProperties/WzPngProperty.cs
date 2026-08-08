@@ -788,7 +788,12 @@ namespace MapleLib.WzLib.WzProperties
                     {
                         // https://learn.microsoft.com/en-us/dotnet/api/System.IO.Compression.DeflateStream.Read?view=net-8.0#system-io-compression-deflatestream-read(system-byte()-system-int32-system-int32)
                         // https://learn.microsoft.com/en-us/dotnet/core/compatibility/core-libraries/6.0/partial-byte-reads-in-streams
-                        ReadExactlyAndValidateEnd(zlib, decBuf);
+                        // Some client IMG payloads declare the decoded buffer
+                        // size smaller than the bytes emitted by the stream.
+                        // Keep the exact-size check for the standalone helper
+                        // and encrypted blocks, but consume only the declared
+                        // image buffer for the native decoder path.
+                        ReadExactlyAndValidateEnd(zlib, decBuf, validateEnd: false);
                         return decBuf;
                     }
                 }
@@ -800,7 +805,7 @@ namespace MapleLib.WzLib.WzProperties
             return header == 0x9C78 || header == 0xDA78 || header == 0x0178 || header == 0x5E78;
         }
 
-        private static void ReadExactlyAndValidateEnd(Stream stream, byte[] buffer)
+        private static void ReadExactlyAndValidateEnd(Stream stream, byte[] buffer, bool validateEnd = true)
         {
             int totalRead = 0;
             while (totalRead < buffer.Length)
@@ -811,7 +816,7 @@ namespace MapleLib.WzLib.WzProperties
                 totalRead += bytesRead;
             }
 
-            if (stream.ReadByte() != -1)
+            if (validateEnd && stream.ReadByte() != -1)
                 throw new InvalidDataException("PNG decompressed data exceeds the expected size.");
         }
 
