@@ -30,6 +30,7 @@ namespace MapleLib.WzLib.Serializer
                 Directory.CreateDirectory(baseDir);
             }
 
+            bool success = true;
             foreach (string wzpath in wzFilesToDump)
             {
                 if (WzTool.IsListFile(wzpath))
@@ -37,19 +38,33 @@ namespace MapleLib.WzLib.Serializer
                     //Warning.Error(string.Format(HaRepacker.Properties.Resources.MainListWzDetected, wzpath));
                     continue;
                 }
-                using (WzFile f = new WzFile(wzpath, version)) {
+                try
+                {
+                    using (WzFile f = new WzFile(wzpath, version))
+                    {
+                        WzFileParseStatus parseStatus = f.ParseWzFile();
+                        if (parseStatus != WzFileParseStatus.Success)
+                        {
+                            success = false;
+                            continue;
+                        }
 
-                    WzFileParseStatus parseStatus = f.ParseWzFile();
+                        serializer.SerializeFile(f, Path.Combine(baseDir, f.Name));
 
-                    serializer.SerializeFile(f, Path.Combine(baseDir, f.Name));
-
-                    // Update progress bar
-                    progressCallback?.Invoke(1);
+                        // Update progress bar
+                        progressCallback?.Invoke(1);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    success = false;
+                    Helpers.ErrorLogger.Log(Helpers.ErrorLevel.IncorrectStructure,
+                        $"Failed to extract WZ file '{wzpath}': {ex.Message}");
                 }
             }
             MapleLib.Helpers.ErrorLogger.SaveToFile(WZ_EXTRACT_ERROR_FILE);
 
-            return true;
+            return success;
         }
 
         /// <summary>

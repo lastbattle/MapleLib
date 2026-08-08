@@ -1,4 +1,5 @@
 using System;
+using MapleLib.Helpers;
 
 namespace MapleLib.PacketLib
 {
@@ -43,32 +44,7 @@ namespace MapleLib.PacketLib
 		/// <returns>Byte array representation of the string</returns>
 		public static byte[] GetBytes(string hexString)
 		{
-			string newString = string.Empty;
-			char c;
-			// remove all none A-F, 0-9, characters
-			for (int i = 0; i < hexString.Length; i++)
-			{
-				c = hexString[i];
-				if (IsHexDigit(c))
-					newString += c;
-			}
-			// if odd number of characters, discard last character
-			if (newString.Length % 2 != 0)
-			{
-				newString = newString.Substring(0, newString.Length - 1);
-			}
-
-			int byteLength = newString.Length / 2;
-			byte[] bytes = new byte[byteLength];
-			string hex;
-			int j = 0;
-			for (int i = 0; i < bytes.Length; i++)
-			{
-				hex = new string(new Char[] { newString[j], newString[j + 1] });
-				bytes[i] = HexToByte(hex);
-				j += 2;
-			}
-			return bytes;
+			return ByteUtils.HexToBytes(hexString);
 		}
 
 		/// <summary>
@@ -78,6 +54,7 @@ namespace MapleLib.PacketLib
 		/// <returns>The byte array as an ASCII string</returns>
         public static string ToStringFromAscii(byte[] bytes)
         {
+            ArgumentNullException.ThrowIfNull(bytes);
             char[] ret = new char[bytes.Length];
             for (int x = 0; x < bytes.Length; x++)
             {

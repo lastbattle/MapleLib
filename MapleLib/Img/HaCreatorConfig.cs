@@ -138,6 +138,7 @@ namespace MapleLib.Img
             {
                 if (File.Exists(configPath))
                 {
+                    MemoryLimits.EnsureFileSize(configPath, MemoryLimits.MAX_METADATA_JSON_BYTES, "IMG configuration");
                     string json = File.ReadAllText(configPath);
                     return JsonSerializer.Deserialize(json, MapleJsonContext.Default.HaCreatorConfig) ?? new HaCreatorConfig();
                 }

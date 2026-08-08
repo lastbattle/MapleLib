@@ -38,7 +38,26 @@ namespace MapleLib.WzLib.Serializer
         /// <param name="path"></param>
         public static string EscapeInvalidFilePathNames(string path)
         {
-            return regex_invalidPath.Replace(path, "");
+            ArgumentNullException.ThrowIfNull(path);
+
+            string escaped = regex_invalidPath.Replace(path, "").TrimEnd(' ', '.');
+            if (escaped.Length == 0)
+                return "_";
+
+            string deviceName = escaped.Split('.')[0];
+            if (deviceName.Equals("CON", StringComparison.OrdinalIgnoreCase) ||
+                deviceName.Equals("PRN", StringComparison.OrdinalIgnoreCase) ||
+                deviceName.Equals("AUX", StringComparison.OrdinalIgnoreCase) ||
+                deviceName.Equals("NUL", StringComparison.OrdinalIgnoreCase) ||
+                (deviceName.Length == 4 &&
+                 (deviceName.StartsWith("COM", StringComparison.OrdinalIgnoreCase) ||
+                  deviceName.StartsWith("LPT", StringComparison.OrdinalIgnoreCase)) &&
+                 deviceName[3] is >= '1' and <= '9'))
+            {
+                escaped = "_" + escaped;
+            }
+
+            return escaped;
         }
     }
 }

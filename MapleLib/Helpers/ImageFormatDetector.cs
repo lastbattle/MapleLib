@@ -41,17 +41,14 @@ namespace MapleLib.Helpers
         /// </summary>
         public static SurfaceFormat DetermineTextureFormat(byte[] argbData, int width, int height)
         {
-            if (argbData == null || argbData.Length == 0)
-                throw new ArgumentException("Invalid argbData");
-
-            if (argbData.Length != width * height * 4)
-                throw new ArgumentException("Data length does not match dimensions");
+            ValidateDimensionsAndData(argbData, width, height);
 
             var (uniqueRgbColors, uniqueAlphaValues, hasAlpha, hasPartialAlpha, maxAlpha, avgAlphaGradient, alphaVariance, isGrayscale) =
                 AnalyzeImageData(argbData, width, height);
-            bool isSmallImage = width * height < 256 * 256; // Favor 16-bit formats for small images
+            bool isSmallImage = (long)width * height < 256 * 256; // Favor 16-bit formats for small images
             // Don't suggest DXT formats when UsePreBigBangImageFormats is true (pre-Big Bang compatibility)
-            bool isDxtCandidate = !UsePreBigBangImageFormats && IsDxtCompressionCandidate(width, height);
+            bool usePreBigBangImageFormats = UsePreBigBangImageFormats;
+            bool isDxtCandidate = !usePreBigBangImageFormats && IsDxtCompressionCandidate(width, height);
 
             // Grayscale images with alpha can use DXT3 (Format3) for efficient compression
             // This is commonly used for black/white thumbnails in MapleStory
@@ -108,6 +105,7 @@ namespace MapleLib.Helpers
         public static (int uniqueRgbColors, int uniqueAlphaValues, bool hasAlpha, bool hasPartialAlpha, byte maxAlpha,
             double avgAlphaGradient, double alphaVariance, bool isGrayscale) AnalyzeImageData(byte[] argbData, int width, int height)
         {
+            ValidateDimensionsAndData(argbData, width, height);
             bool hasAlpha = false;
             bool hasPartialAlpha = false;
             byte maxAlpha = 0;
@@ -179,7 +177,19 @@ namespace MapleLib.Helpers
         /// </summary>
         public static bool IsDxtCompressionCandidate(int width, int height)
         {
-            return width % 4 == 0 && height % 4 == 0 && width >= 4 && height >= 4 && (width * height) >= 64 * 64;
+            return width % 4 == 0 && height % 4 == 0 && width >= 4 && height >= 4 && (long)width * height >= 64 * 64;
+        }
+
+        private static void ValidateDimensionsAndData(byte[] argbData, int width, int height)
+        {
+            if (argbData == null)
+                throw new ArgumentNullException(nameof(argbData));
+            if (width <= 0 || height <= 0)
+                throw new ArgumentOutOfRangeException(nameof(width), "Image dimensions must be positive.");
+
+            long expectedLength = (long)width * height * 4;
+            if (expectedLength != argbData.Length)
+                throw new ArgumentException("Data length does not match dimensions.", nameof(argbData));
         }
     }
 }

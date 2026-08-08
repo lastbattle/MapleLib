@@ -173,13 +173,19 @@ namespace MapleLib.WzLib.Serializer
 
         private void WriteString(string s, BinaryWriter bw)
         {
+            if (s == null)
+                throw new InvalidDataException("NX strings cannot be null.");
+            int encodedLength = Encoding.UTF8.GetByteCount(s);
+            if (encodedLength > ushort.MaxValue)
+                throw new InvalidDataException("NX UTF-8 string exceeds the 16-bit length field.");
+
             bool flag = s.Any(new Func<char, bool>(char.IsControl));
             if (flag)
             {
                 Console.WriteLine("Warning; control character in string. Perhaps toggle /wzn?");
             }
             byte[] toWrite = Encoding.UTF8.GetBytes(s);
-            bw.Write((ushort)toWrite.Length);
+            bw.Write((ushort)encodedLength);
             bw.Write(toWrite);
         }
 
@@ -258,7 +264,10 @@ namespace MapleLib.WzLib.Serializer
             ds.AddNode(node);
             bw.Write(ds.AddString(node.Name));
             bw.Write(nextChildID);
-            bw.Write((ushort)GetChildCount(node));
+            int childCount = GetChildCount(node);
+            if (childCount > ushort.MaxValue)
+                throw new InvalidDataException("NX node child count exceeds the 16-bit field.");
+            bw.Write((ushort)childCount);
 
             ushort type;
 
@@ -387,6 +396,11 @@ namespace MapleLib.WzLib.Serializer
 
             public uint AddString(string str)
             {
+                // A newly-created WzFile has an unnamed root directory.  NX
+                // already reserves string index 0 for the empty string, so
+                // represent that valid root name without passing null to the
+                // dictionary comparer.
+                str ??= string.Empty;
                 if (Strings.ContainsKey(str))
                     return Strings[str];
                 uint ret = (uint)Strings.Count;

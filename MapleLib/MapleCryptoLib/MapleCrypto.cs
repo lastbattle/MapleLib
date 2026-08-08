@@ -24,8 +24,8 @@ namespace MapleLib.MapleCryptoLib
 		/// </summary>
 		public byte[] IV
 		{
-			get { return _IV; }
-			set { _IV = value; }
+			get { return (byte[])_IV.Clone(); }
+			set { _IV = ValidateAndCloneIV(value); }
 		}
 		#endregion
 
@@ -37,7 +37,7 @@ namespace MapleLib.MapleCryptoLib
 		/// <param name="mapleVersion">Version of MapleStory</param>
 		public MapleCrypto(byte[] IV, short mapleVersion)
 		{
-			this._IV = IV;
+			this._IV = ValidateAndCloneIV(IV);
 			this._mapleVersion = mapleVersion;
 		}
 
@@ -66,6 +66,12 @@ namespace MapleLib.MapleCryptoLib
 		/// <returns>A new IV</returns>
 		public static byte[] GetNewIV(byte[] oldIv)
 		{
+			ArgumentNullException.ThrowIfNull(oldIv);
+			if (oldIv.Length < 4)
+			{
+				throw new ArgumentException("The IV must contain at least four bytes.", nameof(oldIv));
+			}
+
 			//byte[] start = CryptoConstants.bDefaultAESKeyValue;
 			byte[] start = new byte[4] { 0xf2, 0x53, 0x50, 0xc6 };//TODO: ADD GLOBAL VAR BACK
 			for (int i = 0; i < 4; i++)
@@ -83,6 +89,12 @@ namespace MapleLib.MapleCryptoLib
 		/// <returns>The shuffled bytes</returns>
 		public static byte[] Shuffle(byte inputByte, byte[] start)
 		{
+			ArgumentNullException.ThrowIfNull(start);
+			if (start.Length < 4)
+			{
+				throw new ArgumentException("The shuffle state must contain at least four bytes.", nameof(start));
+			}
+
 			byte a = start[1];
 			byte b = a;
 			uint c, d;
@@ -123,6 +135,7 @@ namespace MapleLib.MapleCryptoLib
 		/// <returns>The packet header</returns>
 		public byte[] GetHeaderToClient(int size)
 		{
+			ValidatePacketSize(size);
 			byte[] header = new byte[4];
 			int a = _IV[3] * 0x100 + _IV[2];
 			a ^= -(_mapleVersion + 1);
@@ -141,8 +154,9 @@ namespace MapleLib.MapleCryptoLib
 		/// <returns>The packet header</returns>
 		public byte[] GetHeaderToServer(int size)
 		{
+			ValidatePacketSize(size);
 			byte[] header = new byte[4];
-			int a = IV[3] * 0x100 + IV[2];
+			int a = _IV[3] * 0x100 + _IV[2];
 			a = a ^ (_mapleVersion);
 			int b = a ^ size;
 			header[0] = Convert.ToByte(a % 0x100);
@@ -169,7 +183,7 @@ namespace MapleLib.MapleCryptoLib
 		/// <returns>The length of the packet</returns>
 		public static int GetPacketLength(byte[] packetHeader)
 		{
-			if (packetHeader.Length < 4)
+			if (packetHeader is null || packetHeader.Length < 4)
 			{
 				return -1;
 			}
@@ -185,6 +199,11 @@ namespace MapleLib.MapleCryptoLib
 		/// <returns>The packet is valid</returns>
 		public bool CheckPacketToServer(byte[] packet)
 		{
+			if (packet is null || packet.Length < 2)
+			{
+				return false;
+			}
+
 			int a = packet[0] ^ _IV[2];
 			int b = _mapleVersion;
 			int c = packet[1] ^ _IV[3];
@@ -201,6 +220,25 @@ namespace MapleLib.MapleCryptoLib
 		/// <returns>The multiplied bytes</returns>
 		public static byte[] MultiplyBytes(byte[] input, int count, int mult)
 		{
+			ArgumentNullException.ThrowIfNull(input);
+			if ((uint)count > (uint)input.Length)
+			{
+				throw new ArgumentOutOfRangeException(nameof(count), count,
+					"The pattern count must be between zero and the input length.");
+			}
+
+			if (mult < 0)
+			{
+				throw new ArgumentOutOfRangeException(nameof(mult), mult,
+					"The repeat count cannot be negative.");
+			}
+
+			if ((long)count * mult > int.MaxValue)
+			{
+				throw new ArgumentOutOfRangeException(nameof(mult), mult,
+					"The repeated output is too large.");
+			}
+
 			byte[] ret = new byte[count * mult];
 			if (ret.Length == 0)
 			{
@@ -219,6 +257,26 @@ namespace MapleLib.MapleCryptoLib
         {
             return MultiplyBytes(input, count, mult);
         }
+
+		private static byte[] ValidateAndCloneIV(byte[] value)
+		{
+			ArgumentNullException.ThrowIfNull(value);
+			if (value.Length < 4)
+			{
+				throw new ArgumentException("The IV must contain at least four bytes.", nameof(value));
+			}
+
+			return (byte[])value.Clone();
+		}
+
+		private static void ValidatePacketSize(int size)
+		{
+			if ((uint)size > ushort.MaxValue)
+			{
+				throw new ArgumentOutOfRangeException(nameof(size), size,
+					"The packet size must fit in a four-byte MapleStory header.");
+			}
+		}
         #endregion
 
     }

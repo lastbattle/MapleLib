@@ -1,4 +1,5 @@
 using System;
+using System.IO;
 using System.Net.Sockets;
 using MapleLib.MapleCryptoLib;
 
@@ -26,6 +27,7 @@ namespace MapleLib.PacketLib
 		/// The Sent packet crypto manager
 		/// </summary>
 		private MapleCrypto _SIV;
+		private readonly object _sendLock = new object();
 
         /// <summary>
         /// Method to handle packets received
@@ -64,8 +66,16 @@ namespace MapleLib.PacketLib
 		/// </summary>
 		public MapleCrypto SIV
 		{
-			get { return _SIV; }
-			set { _SIV = value; }
+			get
+			{
+				lock (_sendLock)
+					return _SIV;
+			}
+			set
+			{
+				lock (_sendLock)
+					_SIV = value;
+			}
 		}
 
 		/// <summary>
@@ -87,6 +97,7 @@ namespace MapleLib.PacketLib
 
 		public Session(Socket socket, SessionType type)
 		{
+			ArgumentNullException.ThrowIfNull(socket);
 			_socket = socket;
 			_type = type;
 		}
@@ -155,7 +166,8 @@ namespace MapleLib.PacketLib
 							if (socketInfo.NoEncryption)
 							{
 								PacketReader headerReader = new PacketReader(socketInfo.DataBuffer);
-								short packetHeader = headerReader.ReadShort();
+								int packetHeader = headerReader.ReadUShort();
+								ValidatePacketLength(packetHeader);
 								socketInfo.State = SocketInfo.StateEnum.Content;
 								socketInfo.DataBuffer = new byte[packetHeader];
 								socketInfo.Index = 0;
@@ -166,11 +178,12 @@ namespace MapleLib.PacketLib
 								PacketReader headerReader = new PacketReader(socketInfo.DataBuffer);
 								byte[] packetHeaderB = headerReader.ToArray();
 								int packetHeader = headerReader.ReadInt();
-								short packetLength = (short)MapleCrypto.GetPacketLength(packetHeader);
-								if (_type == SessionType.SERVER_TO_CLIENT && !_RIV.CheckPacketToServer(BitConverter.GetBytes(packetHeader)))
+								int packetLength = MapleCrypto.GetPacketLength(packetHeader);
+								ValidatePacketLength(packetLength);
+								if (_type == SessionType.SERVER_TO_CLIENT && _RIV != null && !_RIV.CheckPacketToServer(packetHeaderB))
 								{
 									Helpers.ErrorLogger.Log(Helpers.ErrorLevel.Critical, "[Error] Packet check failed. Disconnecting client.");
-									//this.Socket.Close();
+									throw new InvalidDataException("Packet header validation failed.");
 								}
 								socketInfo.State = SocketInfo.StateEnum.Content;
 								socketInfo.DataBuffer = new byte[packetLength];
@@ -186,14 +199,19 @@ namespace MapleLib.PacketLib
 								PacketReader reader = new PacketReader(data);
 								short version = reader.ReadShort();
 								string unknown = reader.ReadMapleString();
-								_SIV = new MapleCrypto(reader.ReadBytes(4), version);
-								_RIV = new MapleCrypto(reader.ReadBytes(4), version);
+								byte[] sendIv = reader.ReadBytes(4);
+								byte[] receiveIv = reader.ReadBytes(4);
+								lock (_sendLock)
+								{
+									_SIV = new MapleCrypto(sendIv, version);
+									_RIV = new MapleCrypto(receiveIv, version);
+								}
 								byte serverType = reader.ReadByte();
 								if (_type == SessionType.CLIENT_TO_SERVER)
 								{
-									OnInitPacketReceived(version, serverType);
+									OnInitPacketReceived?.Invoke(version, serverType);
 								}
-								OnPacketReceived(new PacketReader(data), true);
+								OnPacketReceived?.Invoke(new PacketReader(data), true);
 								WaitForData();
 							}
 							else
@@ -234,8 +252,14 @@ namespace MapleLib.PacketLib
 
         public void SendInitialPacket(int pVersion, string pPatchLoc, byte[] pRIV, byte[] pSIV, byte pServerType)
         {
-            PacketWriter writer = new PacketWriter();
-            writer.WriteShort(pPatchLoc == "" ? 0x0D : 0x0E);
+            if (pVersion < short.MinValue || pVersion > short.MaxValue)
+                throw new ArgumentOutOfRangeException(nameof(pVersion));
+            ArgumentNullException.ThrowIfNull(pPatchLoc);
+            ValidateIv(pRIV, nameof(pRIV));
+            ValidateIv(pSIV, nameof(pSIV));
+
+            using PacketWriter writer = new PacketWriter();
+            writer.WriteShort(pPatchLoc.Length == 0 ? 0x0D : 0x0E);
             writer.WriteShort(pVersion);
             writer.WriteMapleString(pPatchLoc);
             writer.WriteBytes(pRIV);
@@ -250,6 +274,7 @@ namespace MapleLib.PacketLib
 		/// <param name="packet">The PacketWrtier object to be sent.</param>
 		public void SendPacket(PacketWriter packet)
 		{
+			ArgumentNullException.ThrowIfNull(packet);
 			SendPacket(packet.ToArray());
 		}
 
@@ -259,16 +284,26 @@ namespace MapleLib.PacketLib
 		/// <param name="input">The byte array to be sent.</param>
 		public void SendPacket(byte[] input)
 		{
-			byte[] cryptData = input;
-			byte[] sendData = new byte[cryptData.Length + 4];
-			byte[] header = _type == SessionType.SERVER_TO_CLIENT ? _SIV.GetHeaderToClient(cryptData.Length) : _SIV.GetHeaderToServer(cryptData.Length);
+			ArgumentNullException.ThrowIfNull(input);
+			if (input.Length > ushort.MaxValue)
+				throw new ArgumentOutOfRangeException(nameof(input), "Maple packet payload cannot exceed the 16-bit header length.");
 
-			MapleCustomEncryption.Encrypt(cryptData);
-			_SIV.Crypt(cryptData);
+			lock (_sendLock)
+			{
+				if (_SIV == null)
+					throw new InvalidOperationException("The send cipher has not been initialized.");
 
-			System.Buffer.BlockCopy(header, 0, sendData, 0, 4);
-			System.Buffer.BlockCopy(cryptData, 0, sendData, 4, cryptData.Length);
-			SendRawPacket(sendData);
+				byte[] cryptData = (byte[])input.Clone();
+				byte[] sendData = new byte[checked(cryptData.Length + 4)];
+				byte[] header = _type == SessionType.SERVER_TO_CLIENT ? _SIV.GetHeaderToClient(cryptData.Length) : _SIV.GetHeaderToServer(cryptData.Length);
+
+				MapleCustomEncryption.Encrypt(cryptData);
+				_SIV.Crypt(cryptData);
+
+				System.Buffer.BlockCopy(header, 0, sendData, 0, 4);
+				System.Buffer.BlockCopy(cryptData, 0, sendData, 4, cryptData.Length);
+				SendRawPacket(sendData);
+			}
 		}
 
         /// <summary>
@@ -286,8 +321,31 @@ namespace MapleLib.PacketLib
 		/// <param name="buffer">The buffer to be sent.</param>
 		public void SendRawPacket(byte[] buffer)
 		{
-			//_socket.BeginSend(buffer, 0, buffer.Length, SocketFlags.None, ar => _socket.EndSend(ar), null);//async
-			_socket.Send(buffer);//sync
+			ArgumentNullException.ThrowIfNull(buffer);
+			lock (_sendLock)
+			{
+				int sent = 0;
+				while (sent < buffer.Length)
+				{
+					int current = _socket.Send(buffer, sent, buffer.Length - sent, SocketFlags.None);
+					if (current <= 0)
+						throw new IOException("The socket closed before the complete packet was sent.");
+					sent += current;
+				}
+			}
+		}
+
+		private static void ValidateIv(byte[] iv, string parameterName)
+		{
+			ArgumentNullException.ThrowIfNull(iv, parameterName);
+			if (iv.Length != 4)
+				throw new ArgumentException("Maple handshake IVs must contain exactly four bytes.", parameterName);
+		}
+
+		private static void ValidatePacketLength(int length)
+		{
+			if (length <= 0 || length > MemoryLimits.MAX_PACKET_BYTES)
+				throw new InvalidDataException($"Invalid packet body length: {length}.");
 		}
 
 	}

@@ -30,6 +30,13 @@ public class MapleCryptoTests
         Assert.Equal(expected, actual);
     }
 
+    [Fact]
+    public void CustomEncryption_RejectsNullInput()
+    {
+        Assert.Throws<ArgumentNullException>(() => MapleCustomEncryption.Encrypt(null!));
+        Assert.Throws<ArgumentNullException>(() => MapleCustomEncryption.Decrypt(null!));
+    }
+
     [Theory]
     [InlineData(0)]
     [InlineData(1)]
@@ -74,9 +81,69 @@ public class MapleCryptoTests
         byte[] actual = (byte[])source.Clone();
 
         MapleAESEncryption.AesCrypt(Iv, actual, 17);
+        Assert.Equal(source.AsSpan(17).ToArray(), actual.AsSpan(17).ToArray());
         MapleAESEncryption.AesCrypt(Iv, actual, 17);
 
         Assert.Equal(source, actual);
+    }
+
+    [Fact]
+    public void AesEncryption_RejectsInvalidArgumentsBeforeMutatingData()
+    {
+        byte[] original = CreatePayload(32);
+        byte[] data = (byte[])original.Clone();
+
+        Assert.Throws<ArgumentOutOfRangeException>(() => MapleAESEncryption.AesCrypt(Iv, data, -1));
+        Assert.Equal(original, data);
+
+        Assert.Throws<ArgumentOutOfRangeException>(() => MapleAESEncryption.AesCrypt(Iv, data, data.Length + 1));
+        Assert.Equal(original, data);
+
+        Assert.Throws<ArgumentException>(() => MapleAESEncryption.AesCrypt(new byte[3], data, data.Length));
+        Assert.Equal(original, data);
+
+        Assert.Throws<ArgumentException>(() => MapleAESEncryption.AesCrypt(Iv, data, data.Length, new byte[31]));
+        Assert.Equal(original, data);
+    }
+
+    [Fact]
+    public void MapleCrypto_ClonesIvOnConstructionAssignmentAndRead()
+    {
+        byte[] source = (byte[])Iv.Clone();
+        var crypto = new MapleCrypto(source, 95);
+
+        source[0] ^= 0xFF;
+        Assert.Equal(Iv, crypto.IV);
+
+        byte[] read = crypto.IV;
+        read[1] ^= 0xFF;
+        Assert.Equal(Iv, crypto.IV);
+
+        byte[] replacement = [1, 2, 3, 4];
+        crypto.IV = replacement;
+        replacement[0] = 0xFF;
+        Assert.Equal(new byte[] { 1, 2, 3, 4 }, crypto.IV);
+    }
+
+    [Fact]
+    public void MapleCrypto_RejectsInvalidHeadersAndIvInputs()
+    {
+        Assert.Throws<ArgumentNullException>(() => new MapleCrypto(null!, 95));
+        Assert.Throws<ArgumentException>(() => new MapleCrypto([1, 2, 3], 95));
+        Assert.Throws<ArgumentNullException>(() => MapleCrypto.GetNewIV(null!));
+        Assert.Throws<ArgumentException>(() => MapleCrypto.GetNewIV([1, 2, 3]));
+        Assert.Throws<ArgumentNullException>(() => MapleCrypto.Shuffle(0, null!));
+        Assert.Throws<ArgumentException>(() => MapleCrypto.Shuffle(0, [1, 2, 3]));
+
+        var crypto = new MapleCrypto((byte[])Iv.Clone(), 95);
+        Assert.Throws<ArgumentOutOfRangeException>(() => crypto.GetHeaderToClient(-1));
+        Assert.Throws<ArgumentOutOfRangeException>(() => crypto.GetHeaderToClient(ushort.MaxValue + 1));
+        Assert.Throws<ArgumentOutOfRangeException>(() => crypto.GetHeaderToServer(-1));
+        Assert.Throws<ArgumentOutOfRangeException>(() => crypto.GetHeaderToServer(ushort.MaxValue + 1));
+        Assert.Equal(-1, MapleCrypto.GetPacketLength((byte[])null!));
+        Assert.Equal(-1, MapleCrypto.GetPacketLength([1, 2, 3]));
+        Assert.False(crypto.CheckPacketToServer(null!));
+        Assert.False(crypto.CheckPacketToServer([1]));
     }
 
     [Fact]
@@ -105,6 +172,22 @@ public class MapleCryptoTests
     }
 
     [Fact]
+    public void MultiplyBytes_RejectsInvalidCountsAndOverflow()
+    {
+        byte[] input = [1, 2, 3];
+
+        Assert.Throws<ArgumentNullException>(() => MapleCrypto.MultiplyBytes(null!, 0, 0));
+        Assert.Throws<ArgumentOutOfRangeException>(() => MapleCrypto.MultiplyBytes(input, -1, 1));
+        Assert.Throws<ArgumentOutOfRangeException>(() => MapleCrypto.MultiplyBytes(input, input.Length + 1, 1));
+        Assert.Throws<ArgumentOutOfRangeException>(() => MapleCrypto.MultiplyBytes(input, 1, -1));
+        byte[] largeInput = new byte[1_500_000];
+        Assert.Throws<ArgumentOutOfRangeException>(() => MapleCrypto.MultiplyBytes(largeInput, largeInput.Length, 2_000));
+        Assert.Throws<ArgumentOutOfRangeException>(() => MapleCrypto.MultiplyBytes_SIMD(input, -1, 1));
+
+        Assert.Empty(MapleCrypto.MultiplyBytes(input, 0, int.MaxValue));
+    }
+
+    [Fact]
     public void TrimmedUserKey_UsesEverySixteenthByte()
     {
         byte[] source = Enumerable.Range(0, 128).Select(static value => (byte)value).ToArray();
@@ -115,6 +198,14 @@ public class MapleCryptoTests
         {
             Assert.Equal(i % 4 == 0 ? source[i * 4] : 0, trimmed[i]);
         }
+    }
+
+    [Fact]
+    public void TrimmedUserKey_RejectsShortInputBeforeIndexing()
+    {
+        byte[] shortKey = new byte[112];
+
+        Assert.Throws<ArgumentException>(() => MapleCryptoConstants.GetTrimmedUserKey(ref shortKey));
     }
 
     private static byte[] CreatePayload(int size)

@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Runtime.CompilerServices;
 using System.Text;
@@ -10,6 +11,8 @@ namespace MapleLib.Helpers
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static bool CompareBytearrays(byte[] a, byte[] b)
         {
+            ArgumentNullException.ThrowIfNull(a);
+            ArgumentNullException.ThrowIfNull(b);
             return a.Length == b.Length && a.SequenceEqual(b);
         }
 
@@ -27,39 +30,70 @@ namespace MapleLib.Helpers
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static byte[] HexToBytes(string pValue)
         {
-            // FIRST. Use StringBuilder.
-            StringBuilder builder = new StringBuilder();
-            // SECOND... USE STRINGBUILDER!... and LINQ.
-            foreach (char c in pValue.Where(IsHexDigit).Select(Char.ToUpper))
+            ArgumentNullException.ThrowIfNull(pValue);
+            if (pValue.Length == 0)
             {
-                builder.Append(c);
+                return Array.Empty<byte>();
             }
 
-            // THIRD. If you have an odd number of characters, something is very wrong.
-            string hexString = builder.ToString();
-            if (hexString.Length % 2 == 1)
+            // Keep the accepted wire notation intentionally small: optional 0x
+            // prefixes, whitespace, and conventional byte separators. Any other
+            // character is rejected instead of silently disappearing.
+            List<char> digits = new(pValue.Length);
+            bool atTokenStart = true;
+            bool sawHexDigit = false;
+            for (int i = 0; i < pValue.Length; i++)
             {
-                //throw new InvalidOperationException("There is an odd number of hexadecimal digits in this string.");
-                // I will just add a zero to the end, who cares (0 padding)
-                //      Log.WriteLine(LogLevel.Debug, "Hexstring had an odd number of hexadecimal digits.");
-                hexString += '0';
+                char c = pValue[i];
+                if (char.IsWhiteSpace(c) || c is '-' or ':' or ',')
+                {
+                    atTokenStart = true;
+                    continue;
+                }
+
+                if (atTokenStart && c == '0' && i + 1 < pValue.Length &&
+                    (pValue[i + 1] == 'x' || pValue[i + 1] == 'X'))
+                {
+                    i++;
+                    atTokenStart = false;
+                    continue;
+                }
+
+                if (!IsHexDigit(c))
+                {
+                    throw new FormatException($"Invalid hexadecimal character '{c}'.");
+                }
+
+                digits.Add(char.ToUpperInvariant(c));
+                atTokenStart = false;
+                sawHexDigit = true;
             }
 
-            byte[] bytes = new byte[hexString.Length / 2];
-            Random rand = new Random();
-            // FOURTH. Use the for-loop like a pro :D
+            if (!sawHexDigit || digits.Count % 2 != 0)
+            {
+                throw new FormatException("The hexadecimal string must contain an even number of digits.");
+            }
+
+            byte[] bytes = new byte[digits.Count / 2];
             for (int i = 0, j = 0; i < bytes.Length; i++, j += 2)
             {
-                string byteString = String.Concat(hexString[j], hexString[j + 1]);
-                if (byteString == "**")
+                char high = digits[j];
+                char low = digits[j + 1];
+                if (high == '*' || low == '*')
                 {
-                    bytes[i] = (byte)rand.Next(0, byte.MaxValue);
+                    if (high != '*' || low != '*')
+                    {
+                        throw new FormatException("A wildcard byte must be written as '**'.");
+                    }
+
+                    bytes[i] = (byte)Random.Shared.Next(0, byte.MaxValue + 1);
                 }
                 else
                 {
-                    bytes[i] = HexToByte(byteString);
+                    bytes[i] = HexToByte(new string(new[] { high, low }));
                 }
             }
+
             return bytes;
         }
 
@@ -71,6 +105,7 @@ namespace MapleLib.Helpers
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static string BytesToHex(byte[] bytes, string header = "")
         {
+            ArgumentNullException.ThrowIfNull(bytes);
             StringBuilder builder = new StringBuilder(header);
             foreach (byte c in bytes)
             {

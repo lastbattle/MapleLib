@@ -50,7 +50,7 @@ namespace MapleLib.WzLib.MSFile
         public void UpdateHeader(int hash, int entryCount, long headerStartPosition, long entryStartPosition, long dataStartPosition)
         {
             this.Hash = hash;
-            this.EntryCount = _entryCount;
+            this.EntryCount = entryCount;
             this.HeaderStartPosition = headerStartPosition;
             this.EntryStartPosition = entryStartPosition;
             this.DataStartPosition = dataStartPosition;

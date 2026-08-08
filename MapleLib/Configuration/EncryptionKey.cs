@@ -7,6 +7,7 @@ using System.Collections.Generic;
 using System.ComponentModel;
 using System.Runtime.CompilerServices;
 using System.Text.Json.Serialization;
+using MapleLib.Helpers;
 
 namespace MapleLib.Configuration
 {
@@ -16,6 +17,7 @@ namespace MapleLib.Configuration
         private string _iv = "00 00 00 00";
         private string _aesUserKey = "";
         private WzMutableKey _wzKey;
+        private readonly object _keyLock = new();
 
         [JsonPropertyName("Name")]
         public string Name {
@@ -31,10 +33,16 @@ namespace MapleLib.Configuration
         public string Iv {
             get => _iv;
             set {
-                if (value.Length != (4 * 3 - 1)) throw new Exception("IV must be 4 bytes");
+                ArgumentNullException.ThrowIfNull(value);
+                byte[] parsed = ByteUtils.HexToBytes(value);
+                if (parsed.Length != 4)
+                    throw new ArgumentException("IV must contain exactly 4 bytes.", nameof(value));
                 if (string.Equals(_iv, value, StringComparison.Ordinal)) return;
-                _iv = value;
-                _wzKey = null; // force re-generate
+                lock (_keyLock)
+                {
+                    _iv = value;
+                    _wzKey = null; // force re-generate
+                }
             }
         }
 
@@ -42,10 +50,16 @@ namespace MapleLib.Configuration
         public string AesUserKey {
             get => _aesUserKey;
             set {
-                if (value.Length != (32 * 3 - 1)) throw new Exception("AES User Key must be 32 bytes");
+                ArgumentNullException.ThrowIfNull(value);
+                byte[] parsed = ByteUtils.HexToBytes(value);
+                if (parsed.Length != 32)
+                    throw new ArgumentException("AES user key must contain exactly 32 bytes.", nameof(value));
                 if (string.Equals(_aesUserKey, value, StringComparison.Ordinal)) return;
-                _aesUserKey = value;
-                _wzKey = null; // force re-generate 
+                lock (_keyLock)
+                {
+                    _aesUserKey = value;
+                    _wzKey = null; // force re-generate
+                }
             }
         }
 
@@ -54,22 +68,30 @@ namespace MapleLib.Configuration
         {
             get
             {
-                if (_wzKey != null)
-                    return _wzKey;
-                var iv = _iv.Split(' ').Select(x => Convert.ToByte(x, 16)).ToArray();
-                var bytes = _aesUserKey.Split(' ').Select(x => Convert.ToByte(x, 16)).ToArray();
-
-                var aesUserKey = new byte[MapleCryptoConstants.MAPLESTORY_USERKEY_DEFAULT.Length];
-                for (int i = 0; i < aesUserKey.Length; i += 4)
+                lock (_keyLock)
                 {
-                    aesUserKey[i] = bytes[i / 4];
-                    aesUserKey[i + 1] = 0;
-                    aesUserKey[i + 2] = 0;
-                    aesUserKey[i + 3] = 0;
-                }
+                    if (_wzKey != null)
+                        return _wzKey;
 
-                _wzKey = WzKeyGenerator.GenerateWzKey(iv, aesUserKey);
-                return _wzKey;
+                    byte[] iv = ByteUtils.HexToBytes(_iv);
+                    byte[] bytes;
+                    if (string.IsNullOrWhiteSpace(_aesUserKey))
+                    {
+                        byte[] defaultKey = MapleCryptoConstants.MAPLESTORY_USERKEY_DEFAULT;
+                        bytes = MapleCryptoConstants.GetTrimmedUserKey(ref defaultKey);
+                    }
+                    else
+                    {
+                        bytes = ByteUtils.HexToBytes(_aesUserKey);
+                    }
+
+                    var aesUserKey = new byte[MapleCryptoConstants.MAPLESTORY_USERKEY_DEFAULT.Length];
+                    for (int i = 0; i < aesUserKey.Length; i += 4)
+                        aesUserKey[i] = bytes[i / 4];
+
+                    _wzKey = WzKeyGenerator.GenerateWzKey(iv, aesUserKey);
+                    return _wzKey;
+                }
             }
         }
 

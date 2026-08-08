@@ -227,20 +227,35 @@ namespace MapleLib.WzLib
                 return WzFileParseStatus.Path_Is_Null;
             }
 
-            // Release a reader retained by an earlier successful parse before
-            // opening a replacement stream.  The directory tree is left intact
-            // until the replacement parse succeeds.
-            if (this.reader != null)
-            {
-                WzBinaryReader previousReader = this.reader;
-                this.reader = null;
-                previousReader.Dispose();
-                if (wzDir != null && ReferenceEquals(wzDir.reader, previousReader))
-                    wzDir.reader = null;
-            }
+            // Keep the previous parse alive while reading a replacement stream.  A
+            // malformed reparse must not leave the currently exposed directory
+            // pointing at a reader that was already disposed.  All parser state is
+            // restored below unless the replacement parse is accepted.
+            WzBinaryReader previousReader = this.reader;
+            WzDirectory previousDirectory = this.wzDir;
+            WzHeader previousHeader = this.Header;
+            uint previousVersionHash = this.versionHash;
+            short previousPatchVersion = this.mapleStoryPatchVersion;
+            MapleStoryLocalisation previousLocale = this.mapleLocaleVersion;
+            ushort previousVersionHeader = this.wzVersionHeader;
+            bool previousHasEncryptVersionHeader = this.wz_withEncryptVersionHeader;
 
             WzBinaryReader reader = new WzBinaryReader(File.Open(this.path, FileMode.Open, FileAccess.Read, FileShare.Read), WzIv);
             bool retainReader = false;
+            void CommitReader()
+            {
+                this.reader = reader;
+                retainReader = true;
+
+                if (previousReader != null && !ReferenceEquals(previousReader, reader))
+                {
+                    previousReader.Dispose();
+                    if (previousDirectory != null && ReferenceEquals(previousDirectory.reader, previousReader))
+                        previousDirectory.reader = null;
+                }
+                if (previousDirectory != null && !ReferenceEquals(previousDirectory, this.wzDir))
+                    previousDirectory.Dispose();
+            }
             try
             {
 
@@ -292,8 +307,7 @@ namespace MapleLib.WzLib
                     {
                         if (TryDecodeWithWZVersionNumber(reader, wzVersionHeader, maplestoryVerToDecode, lazyParse))
                         {
-                            this.reader = reader;
-                            retainReader = true;
+                            CommitReader();
                             return WzFileParseStatus.Success;
                         }
                     }
@@ -311,8 +325,7 @@ namespace MapleLib.WzLib
 
                     if (TryDecodeWithWZVersionNumber(reader, wzVersionHeader, j, lazyParse))
                     {
-                        this.reader = reader;
-                        retainReader = true;
+                        CommitReader();
                         return WzFileParseStatus.Success;
                     }
                 }
@@ -328,8 +341,7 @@ namespace MapleLib.WzLib
                 directory.ParseDirectory();
                 this.wzDir = directory;
             }
-            this.reader = reader;
-            retainReader = true;
+            CommitReader();
             return WzFileParseStatus.Success;
             }
             catch (EndOfStreamException ex)
@@ -343,7 +355,20 @@ namespace MapleLib.WzLib
             finally
             {
                 if (!retainReader)
+                {
                     reader.Dispose();
+
+                    // Restore the last known-good state.  This covers both
+                    // exceptions and non-throwing version-detection failures.
+                    this.reader = previousReader;
+                    this.wzDir = previousDirectory;
+                    this.Header = previousHeader;
+                    this.versionHash = previousVersionHash;
+                    this.mapleStoryPatchVersion = previousPatchVersion;
+                    this.mapleLocaleVersion = previousLocale;
+                    this.wzVersionHeader = previousVersionHeader;
+                    this.wz_withEncryptVersionHeader = previousHasEncryptVersionHeader;
+                }
             }
         }
 
@@ -406,7 +431,8 @@ namespace MapleLib.WzLib
 
             reader.Hash = this.versionHash;
             long fallbackOffsetPosition = reader.BaseStream.Position; // save position to rollback to, if should parsing fail from here
-            WzDirectory testDirectory;
+            WzDirectory testDirectory = null;
+            bool keepTestDirectory = false;
             try
             {
                 testDirectory = new WzDirectory(reader, this.name, this.versionHash, this.WzIv, this);
@@ -417,11 +443,11 @@ namespace MapleLib.WzLib
                 Debug.WriteLine(exp.ToString());
 
                 reader.BaseStream.Position = fallbackOffsetPosition;
+                testDirectory?.Dispose();
                 return false;
             }
 
-            // test the image and see if its correct by parsing it 
-            //bool bCloseTestDirectory = true;
+            // Test the image and see if its correct by parsing it.
             try
             {
                 WzImage testImage = testDirectory.WzImages.FirstOrDefault();
@@ -439,10 +465,8 @@ namespace MapleLib.WzLib
                             case 0x73:
                             case 0x1b:
                                 {
-                                    WzDirectory directory = new WzDirectory(reader, this.name, this.versionHash, this.WzIv, this);
-
-                                    directory.ParseDirectory(lazyParse);
                                     this.wzDir = testDirectory;
+                                    keepTestDirectory = true;
 
                                     Debug.WriteLine("[WzFile] Accepted version {0} (hash={1}) for {2}, checkByte=0x{3:X2}",
                                         mapleStoryPatchVersion, versionHash, Name, checkByte);
@@ -481,7 +505,7 @@ namespace MapleLib.WzLib
                     else
                     {
                         this.wzDir = testDirectory;
-                        //bCloseTestDirectory = false;
+                        keepTestDirectory = true;
 
                         return true;
                     }
@@ -489,8 +513,8 @@ namespace MapleLib.WzLib
             }
             finally
             {
-           //     if (bCloseTestDirectory)
-           //         testDirectory.Dispose();
+                if (!keepTestDirectory)
+                    testDirectory?.Dispose();
             }
         }
 

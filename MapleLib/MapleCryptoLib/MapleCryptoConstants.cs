@@ -79,6 +79,12 @@ namespace MapleLib.MapleCryptoLib
 		/// </summary>
 		public static byte[] GetTrimmedUserKey(ref byte[] UserKey)
 		{
+			ArgumentNullException.ThrowIfNull(UserKey);
+			if (UserKey.Length < 113)
+			{
+				throw new ArgumentException("The MapleStory user key must contain at least 113 bytes.", nameof(UserKey));
+			}
+
 			byte[] key = new byte[32];
 			key[0] = UserKey[0];
 			key[4] = UserKey[16];
@@ -94,6 +100,10 @@ namespace MapleLib.MapleCryptoLib
 		internal static byte[] GetTrimmedWzUserKey()
 		{
 			byte[] userKey = UserKey_WzLib;
+			if (userKey == null || userKey.Length < 113)
+			{
+				throw new InvalidOperationException("The configured WZ user key is missing or too short.");
+			}
 			byte[] cached = Volatile.Read(ref _trimmedWzUserKey);
 			if (cached[0] == userKey[0] && cached[4] == userKey[16] &&
 				cached[8] == userKey[32] && cached[12] == userKey[48] &&

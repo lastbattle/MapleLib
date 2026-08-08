@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 
 namespace MapleLib.WzLib.Util
@@ -14,28 +15,30 @@ namespace MapleLib.WzLib.Util
     {
         public PartialStream(Stream baseStream, long offset, long length, bool leaveOpen = false)
         {
-            if (baseStream == null)
-            {
-                throw new ArgumentNullException("baseStream", "BaseStream cannot be null.");
-            }
+            ArgumentNullException.ThrowIfNull(baseStream);
             if (offset < 0)
             {
-                throw new ArgumentOutOfRangeException("offset", "Offset cannot be negative.");
+                throw new ArgumentOutOfRangeException(nameof(offset), "Offset cannot be negative.");
             }
             if (length < 0)
             {
-                throw new ArgumentOutOfRangeException("offset", "Length cannot be negative.");
+                throw new ArgumentOutOfRangeException(nameof(length), "Length cannot be negative.");
             }
+            if (length > long.MaxValue - offset)
+                throw new ArgumentOutOfRangeException(nameof(length), "Offset plus length exceeds the stream address range.");
             this.baseStream = baseStream;
             this.offset = offset;
             this.length = length;
+            this.end = offset + length;
             this.leaveOpen = leaveOpen;
         }
 
         private Stream baseStream;
         private long offset;
         private long length;
+        private long end;
         private bool leaveOpen;
+        private bool disposed;
 
         public Stream BaseStream
         {
@@ -44,27 +47,32 @@ namespace MapleLib.WzLib.Util
 
         public override bool CanRead
         {
-            get { return baseStream.CanRead; }
+            get { return !disposed && baseStream.CanRead; }
         }
 
         public override bool CanSeek
         {
-            get { return baseStream.CanSeek; }
+            get { return !disposed && baseStream.CanSeek; }
         }
 
         public override bool CanWrite
         {
-            get { return baseStream.CanWrite; }
+            get { return !disposed && baseStream.CanWrite; }
         }
 
         public override void Flush()
         {
+            ThrowIfDisposed();
             baseStream.Flush();
         }
 
         public override long Length
         {
-            get { return this.length; }
+            get
+            {
+                ThrowIfDisposed();
+                return this.length;
+            }
         }
 
         public virtual long Offset
@@ -76,44 +84,81 @@ namespace MapleLib.WzLib.Util
         {
             get
             {
-                return baseStream.Position - this.offset;
+                ThrowIfDisposed();
+                long absolute = baseStream.Position;
+                if (absolute < offset || absolute > end)
+                    throw new IOException("Base stream position is outside the partial stream range.");
+                return absolute - offset;
             }
             set
             {
-                baseStream.Position = value + this.offset;
+                ThrowIfDisposed();
+                ValidateLogicalPosition(value);
+                baseStream.Position = checked(value + this.offset);
             }
         }
 
         public override int Read(byte[] buffer, int offset, int count)
         {
+            ThrowIfDisposed();
+            ValidateBufferArgs(buffer, offset, count);
             long curPos = this.Position;
-            if (curPos < 0)
-                return 0;
-            long maxCount = this.length - curPos;
-            if (maxCount < 0)
-                return 0;
-            return baseStream.Read(buffer, offset, (int)Math.Min(count, maxCount));
+            int boundedCount = (int)Math.Min((long)count, this.length - curPos);
+            return boundedCount == 0 ? 0 : baseStream.Read(buffer, offset, boundedCount);
+        }
+
+        public override int Read(Span<byte> buffer)
+        {
+            ThrowIfDisposed();
+            long curPos = this.Position;
+            int boundedCount = (int)Math.Min((long)buffer.Length, this.length - curPos);
+            return boundedCount == 0 ? 0 : baseStream.Read(buffer[..boundedCount]);
+        }
+
+        public override ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default)
+        {
+            ThrowIfDisposed();
+            long curPos = this.Position;
+            int boundedCount = (int)Math.Min((long)buffer.Length, this.length - curPos);
+            return boundedCount == 0
+                ? ValueTask.FromResult(0)
+                : baseStream.ReadAsync(buffer[..boundedCount], cancellationToken);
+        }
+
+        public override Task<int> ReadAsync(byte[] buffer, int offset, int count, CancellationToken cancellationToken)
+        {
+            ThrowIfDisposed();
+            ValidateBufferArgs(buffer, offset, count);
+            long curPos = this.Position;
+            int boundedCount = (int)Math.Min((long)count, this.length - curPos);
+            return boundedCount == 0
+                ? Task.FromResult(0)
+                : baseStream.ReadAsync(buffer, offset, boundedCount, cancellationToken);
         }
 
         public override long Seek(long offset, SeekOrigin origin)
         {
-            switch (origin)
+            ThrowIfDisposed();
+            long logicalPosition;
+            try
             {
-                case SeekOrigin.Begin:
-                    offset += this.offset;
-                    break;
-                case SeekOrigin.Current:
-                    offset += this.Position;
-                    break;
-                case SeekOrigin.End:
-                    offset += this.offset + this.length;
-                    break;
-                default:
-                    throw new ArgumentException("Unknown SeekOrigin.", "origin");
+                logicalPosition = origin switch
+                {
+                    SeekOrigin.Begin => offset,
+                    SeekOrigin.Current => checked(this.Position + offset),
+                    SeekOrigin.End => checked(this.length + offset),
+                    _ => throw new ArgumentOutOfRangeException(nameof(origin))
+                };
             }
-            if (offset < this.offset)
-                throw new IOException("Attempt to seek front of the stream.");
-            return baseStream.Seek(offset, SeekOrigin.Begin) - this.offset;
+            catch (OverflowException ex)
+            {
+                throw new IOException("Attempt to seek outside the stream range.", ex);
+            }
+
+            if (logicalPosition < 0 || logicalPosition > this.length)
+                throw new IOException("Attempt to seek outside the partial stream range.");
+            long absolutePosition = checked(this.offset + logicalPosition);
+            return baseStream.Seek(absolutePosition, SeekOrigin.Begin) - this.offset;
         }
 
         public override void SetLength(long value)
@@ -123,20 +168,47 @@ namespace MapleLib.WzLib.Util
 
         public override void Write(byte[] buffer, int offset, int count)
         {
-            if (this.Position + count > this.length)
-                throw new IOException("Cannot write out of bound.");
+            ThrowIfDisposed();
+            ValidateBufferArgs(buffer, offset, count);
+            EnsureWithinRange(count);
             baseStream.Write(buffer, offset, count);
+        }
+
+        public override void Write(ReadOnlySpan<byte> buffer)
+        {
+            ThrowIfDisposed();
+            EnsureWithinRange(buffer.Length);
+            baseStream.Write(buffer);
+        }
+
+        public override ValueTask WriteAsync(ReadOnlyMemory<byte> buffer, CancellationToken cancellationToken = default)
+        {
+            ThrowIfDisposed();
+            EnsureWithinRange(buffer.Length);
+            return baseStream.WriteAsync(buffer, cancellationToken);
+        }
+
+        public override Task WriteAsync(byte[] buffer, int offset, int count, CancellationToken cancellationToken)
+        {
+            ThrowIfDisposed();
+            ValidateBufferArgs(buffer, offset, count);
+            EnsureWithinRange(count);
+            return baseStream.WriteAsync(buffer, offset, count, cancellationToken);
         }
 
         public override void Close()
         {
             this.Dispose(true);
+            GC.SuppressFinalize(this);
         }
 
         protected override void Dispose(bool disposing)
         {
             if (disposing)
             {
+                if (disposed)
+                    return;
+                disposed = true;
                 if (!this.leaveOpen)
                 {
                     baseStream.Dispose();
@@ -146,32 +218,38 @@ namespace MapleLib.WzLib.Util
 
         public override IAsyncResult BeginRead(byte[] buffer, int offset, int count, AsyncCallback callback, object state)
         {
-            if (this.Position < 0)
-                throw new IOException("Cannot read out of bound.");
-            return baseStream.BeginRead(buffer, offset, count, callback, state);
+            ThrowIfDisposed();
+            ValidateBufferArgs(buffer, offset, count);
+            long curPos = this.Position;
+            int boundedCount = (int)Math.Min((long)count, this.length - curPos);
+            return baseStream.BeginRead(buffer, offset, boundedCount, callback, state);
         }
 
         public override IAsyncResult BeginWrite(byte[] buffer, int offset, int count, AsyncCallback callback, object state)
         {
-            if (this.Position + count > this.length)
-                throw new IOException("Cannot write out of bound.");
+            ThrowIfDisposed();
+            ValidateBufferArgs(buffer, offset, count);
+            EnsureWithinRange(count);
             return baseStream.BeginWrite(buffer, offset, count, callback, state);
         }
 
         public override int EndRead(IAsyncResult asyncResult)
         {
-            return base.EndRead(asyncResult);
+            ThrowIfDisposed();
+            return baseStream.EndRead(asyncResult);
         }
 
         public override void EndWrite(IAsyncResult asyncResult)
         {
+            ThrowIfDisposed();
             baseStream.EndWrite(asyncResult);
         }
 
         public override int ReadByte()
         {
+            ThrowIfDisposed();
             long curPos = this.Position;
-            if (curPos >= 0 && curPos < this.length)
+            if (curPos < this.length)
                 return baseStream.ReadByte();
             else
                 return -1;
@@ -179,15 +257,16 @@ namespace MapleLib.WzLib.Util
 
         public override void WriteByte(byte value)
         {
-            if (this.Position >= 0 && this.Position < this.length)
-                baseStream.WriteByte(value);
+            ThrowIfDisposed();
+            EnsureWithinRange(1);
+            baseStream.WriteByte(value);
         }
 
         public override bool CanTimeout
         {
             get
             {
-                return baseStream.CanTimeout;
+                return !disposed && baseStream.CanTimeout;
             }
         }
 
@@ -195,10 +274,12 @@ namespace MapleLib.WzLib.Util
         {
             get
             {
+                ThrowIfDisposed();
                 return baseStream.ReadTimeout;
             }
             set
             {
+                ThrowIfDisposed();
                 baseStream.ReadTimeout = value;
             }
         }
@@ -207,12 +288,40 @@ namespace MapleLib.WzLib.Util
         {
             get
             {
+                ThrowIfDisposed();
                 return baseStream.WriteTimeout;
             }
             set
             {
+                ThrowIfDisposed();
                 baseStream.WriteTimeout = value;
             }
+        }
+
+        private void ThrowIfDisposed()
+        {
+            if (disposed)
+                throw new ObjectDisposedException(nameof(PartialStream));
+        }
+
+        private void ValidateLogicalPosition(long value)
+        {
+            if (value < 0 || value > length)
+                throw new ArgumentOutOfRangeException(nameof(value), "Position is outside the partial stream range.");
+        }
+
+        private void EnsureWithinRange(int count)
+        {
+            long current = Position;
+            if (count < 0 || (long)count > length - current)
+                throw new IOException("Cannot access outside the partial stream range.");
+        }
+
+        private static void ValidateBufferArgs(byte[] buffer, int offset, int count)
+        {
+            ArgumentNullException.ThrowIfNull(buffer);
+            if ((uint)offset > (uint)buffer.Length || (uint)count > (uint)(buffer.Length - offset))
+                throw new ArgumentOutOfRangeException();
         }
     }
 }

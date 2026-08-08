@@ -56,6 +56,10 @@ namespace MapleLib.WzLib.MSFile
         {
             if (Data == null)
                 throw new InvalidOperationException("Data must be set before recalculation.");
+            if (Data.Length > int.MaxValue - WzMsConstants.PageAlignmentMask)
+                throw new InvalidDataException("Entry data is too large to align safely.");
+            if (_entryKey != null && _entryKey.Length != WzMsConstants.EntryKeySize)
+                throw new InvalidDataException("Entry key has an invalid length.");
             _size = Data.Length;
             _sizeAligned = (_size + WzMsConstants.PageAlignmentMask) & ~WzMsConstants.PageAlignmentMask;
             _flags = flags;

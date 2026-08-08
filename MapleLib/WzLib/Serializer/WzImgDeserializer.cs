@@ -24,24 +24,43 @@ namespace MapleLib.WzLib.Serializer
         public WzImage WzImageFromIMGBytes(byte[] bytes, WzMapleVersion version, string name, bool freeResources)
         {
             byte[] iv = WzTool.GetIvByMapleVersion(version);
-            MemoryStream stream = new MemoryStream(bytes);
-            WzBinaryReader wzReader = new WzBinaryReader(stream, iv);
-            WzImage img = new WzImage(name, wzReader)
+            MemoryStream stream = null;
+            WzBinaryReader wzReader = null;
+            WzImage img = null;
+            try
             {
-                BlockSize = bytes.Length
-            };
-            img.CalculateAndSetImageChecksum(bytes);
+                stream = new MemoryStream(bytes);
+                wzReader = new WzBinaryReader(stream, iv);
+                img = new WzImage(name, wzReader)
+                {
+                    BlockSize = bytes.Length
+                };
 
-            img.Offset = 0;
-            if (freeResources)
-            {
-                img.ParseEverything = true;
-                img.ParseImage(true);
+                img.CalculateAndSetImageChecksum(bytes);
 
-                img.Changed = true;
-                wzReader.Close();
+                img.Offset = 0;
+                if (freeResources)
+                {
+                    img.ParseEverything = true;
+                    img.ParseImage(true);
+
+                    img.Changed = true;
+                    wzReader.Close();
+                }
+                return img;
             }
-            return img;
+            catch
+            {
+                // The image owns the reader once constructed.  Before that
+                // point, close whichever lower-level resource was acquired.
+                if (img != null)
+                    img.Dispose();
+                else if (wzReader != null)
+                    wzReader.Dispose();
+                else
+                    stream?.Dispose();
+                throw;
+            }
         }
 
         /// <summary>
@@ -54,21 +73,21 @@ namespace MapleLib.WzLib.Serializer
         /// <returns></returns>
         public WzImage WzImageFromIMGFile(string inPath, byte[] iv, string name, out bool successfullyParsedImage)
         {
-            FileStream stream = File.OpenRead(inPath);
-            if (stream.Length > int.MaxValue)
-            {
-                stream.Dispose();
-                throw new InvalidDataException("IMG files larger than 2 GiB are not supported.");
-            }
-
-            WzBinaryReader wzReader = new WzBinaryReader(stream, iv);
-
-            WzImage img = new WzImage(name, wzReader)
-            {
-                BlockSize = checked((int)stream.Length)
-            };
+            FileStream stream = null;
+            WzBinaryReader wzReader = null;
+            WzImage img = null;
             try
             {
+                stream = File.OpenRead(inPath);
+                if (stream.Length > int.MaxValue)
+                    throw new InvalidDataException("IMG files larger than 2 GiB are not supported.");
+
+                wzReader = new WzBinaryReader(stream, iv);
+                img = new WzImage(name, wzReader)
+                {
+                    BlockSize = checked((int)stream.Length)
+                };
+
                 img.CalculateAndSetImageChecksum(stream);
                 img.Offset = 0;
 
@@ -88,7 +107,15 @@ namespace MapleLib.WzLib.Serializer
             }
             catch
             {
-                img.Dispose();
+                if (img != null)
+                    img.Dispose();
+                else
+                {
+                    if (wzReader != null)
+                        wzReader.Dispose();
+                    else
+                        stream?.Dispose();
+                }
                 throw;
             }
         }

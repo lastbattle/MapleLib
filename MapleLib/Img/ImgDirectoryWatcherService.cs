@@ -98,16 +98,18 @@ namespace MapleLib.Img
     public class ImgDirectoryWatcherService : IDisposable
     {
         #region Fields
-        private readonly ConcurrentDictionary<string, FileSystemWatcher> _watchers = new();
-        private readonly ConcurrentDictionary<string, ImgFileState> _fileStates = new();
-        private readonly ConcurrentDictionary<string, Timer> _debounceTimers = new();
+        private readonly ConcurrentDictionary<string, FileSystemWatcher> _watchers = new(StringComparer.OrdinalIgnoreCase);
+        private readonly ConcurrentDictionary<string, ImgFileState> _fileStates = new(StringComparer.OrdinalIgnoreCase);
+        private readonly ConcurrentDictionary<string, Timer> _debounceTimers = new(StringComparer.OrdinalIgnoreCase);
         private readonly HashSet<string> _ignorePaths = new();
         private readonly HashSet<string> _ignoreDirectories = new();
         private readonly object _ignorePathsLock = new();
+        private readonly object _watchersLock = new();
+        private readonly object _debounceLock = new();
         private readonly int _debounceMs;
         private readonly bool _trackContentHash;
         private readonly bool _recordInitialState;
-        private bool _disposed;
+        private volatile bool _disposed;
         #endregion
 
         #region Events
@@ -149,7 +151,7 @@ namespace MapleLib.Img
             bool trackContentHash = true,
             bool recordInitialState = true)
         {
-            _debounceMs = debounceMs;
+            _debounceMs = Math.Max(0, debounceMs);
             _trackContentHash = trackContentHash;
             _recordInitialState = recordInitialState;
         }
@@ -168,40 +170,49 @@ namespace MapleLib.Img
             if (string.IsNullOrEmpty(directoryPath) || !Directory.Exists(directoryPath))
                 return;
 
-            string normalizedPath = Path.GetFullPath(directoryPath).TrimEnd(Path.DirectorySeparatorChar);
-
-            if (_watchers.ContainsKey(normalizedPath))
-                return;
-
-            try
+            string normalizedPath = NormalizeDirectoryPath(directoryPath);
+            FileSystemWatcher watcher = null;
+            lock (_watchersLock)
             {
-                var watcher = new FileSystemWatcher(normalizedPath)
+                if (_disposed)
+                    throw new ObjectDisposedException(nameof(ImgDirectoryWatcherService));
+
+                if (_watchers.ContainsKey(normalizedPath))
+                    return;
+
+                try
                 {
-                    NotifyFilter = NotifyFilters.LastWrite | NotifyFilters.FileName | NotifyFilters.Size,
-                    Filter = "*.img",
-                    IncludeSubdirectories = true,
-                    EnableRaisingEvents = true
-                };
+                    watcher = new FileSystemWatcher(normalizedPath)
+                    {
+                        NotifyFilter = NotifyFilters.LastWrite | NotifyFilters.FileName | NotifyFilters.Size,
+                        Filter = "*.img",
+                        IncludeSubdirectories = true,
+                        EnableRaisingEvents = false
+                    };
 
-                watcher.Changed += OnFileChanged;
-                watcher.Created += OnFileCreated;
-                watcher.Deleted += OnFileDeleted;
-                watcher.Renamed += OnFileRenamed;
-                watcher.Error += OnWatcherError;
+                    watcher.Changed += OnFileChanged;
+                    watcher.Created += OnFileCreated;
+                    watcher.Deleted += OnFileDeleted;
+                    watcher.Renamed += OnFileRenamed;
+                    watcher.Error += OnWatcherError;
 
-                _watchers[normalizedPath] = watcher;
-
-                // Large extracted versions can contain tens of thousands of files and many gigabytes of data.
-                // Callers that only need live FileSystemWatcher events can skip this recursive snapshot and
-                // record state lazily when a file is opened or changed.
-                if (_recordInitialState)
+                    _watchers[normalizedPath] = watcher;
+                    watcher.EnableRaisingEvents = true;
+                }
+                catch (Exception ex)
                 {
-                    RecordDirectoryState(normalizedPath);
+                    watcher?.Dispose();
+                    watcher = null;
+                    System.Diagnostics.Debug.WriteLine($"Failed to create watcher for {directoryPath}: {ex.Message}");
                 }
             }
-            catch (Exception ex)
+
+            // Large extracted versions can contain tens of thousands of files and many gigabytes of data.
+            // Callers that only need live FileSystemWatcher events can skip this recursive snapshot and
+            // record state lazily when a file is opened or changed.
+            if (watcher != null && _recordInitialState)
             {
-                System.Diagnostics.Debug.WriteLine($"Failed to create watcher for {directoryPath}: {ex.Message}");
+                RecordDirectoryState(normalizedPath);
             }
         }
 
@@ -214,16 +225,23 @@ namespace MapleLib.Img
             if (string.IsNullOrEmpty(directoryPath))
                 return;
 
-            string normalizedPath = Path.GetFullPath(directoryPath).TrimEnd(Path.DirectorySeparatorChar);
+            string normalizedPath = NormalizeDirectoryPath(directoryPath);
 
-            if (_watchers.TryRemove(normalizedPath, out var watcher))
+            FileSystemWatcher watcher = null;
+            lock (_watchersLock)
+            {
+                _watchers.TryRemove(normalizedPath, out watcher);
+            }
+            if (watcher != null)
             {
                 watcher.EnableRaisingEvents = false;
                 watcher.Dispose();
             }
 
             // Clean up file states for this directory
-            var keysToRemove = _fileStates.Keys.Where(k => k.StartsWith(normalizedPath, StringComparison.OrdinalIgnoreCase)).ToList();
+            var keysToRemove = _fileStates.Keys
+                .Where(k => IsPathWithinDirectory(k, normalizedPath))
+                .ToList();
             foreach (var key in keysToRemove)
             {
                 _fileStates.TryRemove(key, out _);
@@ -253,10 +271,11 @@ namespace MapleLib.Img
 
             try
             {
-                var fileInfo = new FileInfo(filePath);
+                string fullPath = Path.GetFullPath(filePath);
+                var fileInfo = new FileInfo(fullPath);
                 var state = new ImgFileState
                 {
-                    FilePath = filePath,
+                    FilePath = fullPath,
                     FileSize = fileInfo.Length,
                     LastWriteTime = fileInfo.LastWriteTimeUtc,
                     RecordedAt = DateTime.UtcNow
@@ -264,10 +283,10 @@ namespace MapleLib.Img
 
                 if (_trackContentHash)
                 {
-                    state.ContentHash = ComputeFileHash(filePath);
+                    state.ContentHash = ComputeFileHash(fullPath);
                 }
 
-                _fileStates[filePath] = state;
+                _fileStates[fullPath] = state;
             }
             catch (Exception ex)
             {
@@ -283,7 +302,7 @@ namespace MapleLib.Img
         {
             if (!string.IsNullOrEmpty(filePath))
             {
-                _fileStates.TryRemove(filePath, out _);
+                _fileStates.TryRemove(Path.GetFullPath(filePath), out _);
             }
         }
 
@@ -339,7 +358,7 @@ namespace MapleLib.Img
 
             lock (_ignorePathsLock)
             {
-                _ignoreDirectories.Add(Path.GetFullPath(directoryPath).TrimEnd(Path.DirectorySeparatorChar));
+                _ignoreDirectories.Add(NormalizeDirectoryPath(directoryPath));
             }
         }
 
@@ -354,7 +373,7 @@ namespace MapleLib.Img
 
             lock (_ignorePathsLock)
             {
-                _ignoreDirectories.Remove(Path.GetFullPath(directoryPath).TrimEnd(Path.DirectorySeparatorChar));
+                _ignoreDirectories.Remove(NormalizeDirectoryPath(directoryPath));
             }
         }
 
@@ -379,37 +398,47 @@ namespace MapleLib.Img
             if (string.IsNullOrEmpty(filePath))
                 return ImgChangeType.None;
 
-            if (!File.Exists(filePath))
-                return _fileStates.ContainsKey(filePath) ? ImgChangeType.Deleted : ImgChangeType.None;
+            string fullPath;
+            try
+            {
+                fullPath = Path.GetFullPath(filePath);
+            }
+            catch (ArgumentException)
+            {
+                return ImgChangeType.None;
+            }
 
-            if (!_fileStates.TryGetValue(filePath, out var recordedState))
+            if (!File.Exists(fullPath))
+                return _fileStates.ContainsKey(fullPath) ? ImgChangeType.Deleted : ImgChangeType.None;
+
+            if (!_fileStates.TryGetValue(fullPath, out var recordedState))
                 return ImgChangeType.Added;
 
             try
             {
-                var fileInfo = new FileInfo(filePath);
+                var fileInfo = new FileInfo(fullPath);
 
                 // Check size first (fast)
                 if (fileInfo.Length != recordedState.FileSize)
                     return ImgChangeType.SizeChanged;
 
                 // Check timestamp
-                if (fileInfo.LastWriteTimeUtc != recordedState.LastWriteTime)
+                if (_trackContentHash)
                 {
-                    // If tracking content hash, verify actual content change
-                    if (_trackContentHash)
-                    {
-                        string currentHash = ComputeFileHash(filePath);
-                        if (currentHash != recordedState.ContentHash)
-                            return ImgChangeType.ContentChanged;
-                    }
-                    else
+                    string currentHash = ComputeFileHash(fullPath);
+                    if (!string.IsNullOrEmpty(currentHash) &&
+                        !string.Equals(currentHash, recordedState.ContentHash, StringComparison.OrdinalIgnoreCase))
                     {
                         return ImgChangeType.ContentChanged;
                     }
+                    return fileInfo.LastWriteTimeUtc != recordedState.LastWriteTime
+                        ? ImgChangeType.ContentChanged
+                        : ImgChangeType.None;
                 }
 
-                return ImgChangeType.None;
+                return fileInfo.LastWriteTimeUtc != recordedState.LastWriteTime
+                    ? ImgChangeType.ContentChanged
+                    : ImgChangeType.None;
             }
             catch
             {
@@ -430,7 +459,7 @@ namespace MapleLib.Img
             if (string.IsNullOrEmpty(directoryPath))
                 return false;
 
-            string normalizedPath = Path.GetFullPath(directoryPath).TrimEnd(Path.DirectorySeparatorChar);
+            string normalizedPath = NormalizeDirectoryPath(directoryPath);
             return _watchers.ContainsKey(normalizedPath);
         }
         #endregion
@@ -482,10 +511,8 @@ namespace MapleLib.Img
 
                 // Check if file is in an ignored directory
                 foreach (var ignoredDir in _ignoreDirectories)
-                {
-                    if (fullPath.StartsWith(ignoredDir + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
+                    if (IsPathWithinDirectory(fullPath, ignoredDir))
                         return true;
-                }
 
                 return false;
             }
@@ -506,30 +533,86 @@ namespace MapleLib.Img
 
         private void ProcessChangeWithDebounce(string filePath, Action<string> processAction)
         {
-            // Cancel existing timer for this file
-            if (_debounceTimers.TryRemove(filePath, out var existingTimer))
+            Timer timer;
+            lock (_debounceLock)
             {
-                existingTimer.Dispose();
+                if (_disposed)
+                    return;
+
+                // Cancel existing timer for this file
+                if (_debounceTimers.TryRemove(filePath, out var existingTimer))
+                    existingTimer.Dispose();
+
+                // Create a disabled timer, publish it, then arm it below. This
+                // closes the zero-delay race where the callback could run
+                // before the dictionary assignment.
+                timer = null;
+                timer = new Timer(_ =>
+                {
+                    // A disposed timer may still have a callback queued. It must
+                    // not remove or execute in place of a newer timer for this
+                    // path, and callbacks racing with Dispose must be harmless.
+                    if (_disposed)
+                        return;
+
+                    var pair = new KeyValuePair<string, Timer>(filePath, timer);
+                    if (!((ICollection<KeyValuePair<string, Timer>>)_debounceTimers).Remove(pair))
+                        return;
+
+                    try
+                    {
+                        if (!_disposed)
+                            processAction(filePath);
+                    }
+                    finally
+                    {
+                        timer.Dispose();
+                    }
+                }, null, Timeout.Infinite, Timeout.Infinite);
+
+                _debounceTimers[filePath] = timer;
             }
 
-            // Create new debounce timer
-            var timer = new Timer(_ =>
+            try
             {
-                _debounceTimers.TryRemove(filePath, out Timer _);
-                processAction(filePath);
-            }, null, _debounceMs, Timeout.Infinite);
+                timer.Change(_debounceMs, Timeout.Infinite);
+            }
+            catch (ObjectDisposedException)
+            {
+                _debounceTimers.TryRemove(filePath, out _);
+            }
+        }
 
-            _debounceTimers[filePath] = timer;
+        private static string NormalizeDirectoryPath(string directoryPath)
+        {
+            string fullPath = Path.GetFullPath(directoryPath);
+            string root = Path.GetPathRoot(fullPath);
+            if (!string.IsNullOrEmpty(root) && fullPath.Length <= root.Length)
+                return fullPath;
+
+            return fullPath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        }
+
+        private static bool IsPathWithinDirectory(string filePath, string directoryPath)
+        {
+            if (string.Equals(filePath, directoryPath, StringComparison.OrdinalIgnoreCase))
+                return true;
+
+            string separator = Path.EndsInDirectorySeparator(directoryPath)
+                ? string.Empty
+                : Path.DirectorySeparatorChar.ToString();
+            return filePath.StartsWith(directoryPath + separator, StringComparison.OrdinalIgnoreCase);
         }
         #endregion
 
         #region Event Handlers
         private void OnFileChanged(object sender, FileSystemEventArgs e)
         {
-            if (_disposed || IsPathIgnored(e.FullPath))
+            string fullPath = Path.GetFullPath(e.FullPath);
+            if (_disposed || IsPathIgnored(fullPath))
                 return;
 
-            ProcessChangeWithDebounce(e.FullPath, path =>
+            ProcessChangeWithDebounce(fullPath, path =>
             {
                 // Wait for file write to complete
                 int retries = 0;
@@ -549,10 +632,11 @@ namespace MapleLib.Img
 
         private void OnFileCreated(object sender, FileSystemEventArgs e)
         {
-            if (_disposed || IsPathIgnored(e.FullPath))
+            string fullPath = Path.GetFullPath(e.FullPath);
+            if (_disposed || IsPathIgnored(fullPath))
                 return;
 
-            ProcessChangeWithDebounce(e.FullPath, path =>
+            ProcessChangeWithDebounce(fullPath, path =>
             {
                 // Wait for file write to complete
                 int retries = 0;
@@ -569,28 +653,34 @@ namespace MapleLib.Img
 
         private void OnFileDeleted(object sender, FileSystemEventArgs e)
         {
-            if (_disposed || IsPathIgnored(e.FullPath))
+            string fullPath = Path.GetFullPath(e.FullPath);
+            if (_disposed || IsPathIgnored(fullPath))
                 return;
+
+            if (_debounceTimers.TryRemove(fullPath, out var pendingTimer))
+                pendingTimer.Dispose();
 
             // No debounce for deletes - process immediately. A file may not have a cached state when the
             // watcher uses lazy state tracking, but the FileSystemWatcher event is still authoritative.
-            _fileStates.TryRemove(e.FullPath, out _);
-            ImgFileDeleted?.Invoke(this, new ImgFileModifiedEventArgs(e.FullPath, ImgChangeType.Deleted));
+            _fileStates.TryRemove(fullPath, out _);
+            ImgFileDeleted?.Invoke(this, new ImgFileModifiedEventArgs(fullPath, ImgChangeType.Deleted));
         }
 
         private void OnFileRenamed(object sender, RenamedEventArgs e)
         {
-            if (_disposed || IsPathIgnored(e.FullPath) || IsPathIgnored(e.OldFullPath))
+            string fullPath = Path.GetFullPath(e.FullPath);
+            string oldFullPath = Path.GetFullPath(e.OldFullPath);
+            if (_disposed || IsPathIgnored(fullPath) || IsPathIgnored(oldFullPath))
                 return;
 
             // Update file state tracking
-            if (_fileStates.TryRemove(e.OldFullPath, out var oldState))
+            if (_fileStates.TryRemove(oldFullPath, out var oldState))
             {
-                oldState.FilePath = e.FullPath;
-                _fileStates[e.FullPath] = oldState;
+                oldState.FilePath = fullPath;
+                _fileStates[fullPath] = oldState;
             }
 
-            ImgFileRenamed?.Invoke(this, new ImgFileModifiedEventArgs(e.FullPath, ImgChangeType.Renamed, e.OldFullPath));
+            ImgFileRenamed?.Invoke(this, new ImgFileModifiedEventArgs(fullPath, ImgChangeType.Renamed, oldFullPath));
         }
 
         private void OnWatcherError(object sender, ErrorEventArgs e)
@@ -620,25 +710,31 @@ namespace MapleLib.Img
         #region IDisposable
         public void Dispose()
         {
-            if (_disposed)
-                return;
+            List<FileSystemWatcher> watchers;
+            lock (_watchersLock)
+            {
+                if (_disposed)
+                    return;
 
-            _disposed = true;
+                _disposed = true;
+                watchers = _watchers.Values.ToList();
+                _watchers.Clear();
+            }
 
             // Dispose all debounce timers
-            foreach (var timer in _debounceTimers.Values)
+            lock (_debounceLock)
             {
-                timer.Dispose();
+                foreach (var timer in _debounceTimers.Values)
+                    timer.Dispose();
+                _debounceTimers.Clear();
             }
-            _debounceTimers.Clear();
 
             // Dispose all watchers
-            foreach (var watcher in _watchers.Values)
+            foreach (var watcher in watchers)
             {
                 watcher.EnableRaisingEvents = false;
                 watcher.Dispose();
             }
-            _watchers.Clear();
 
             _fileStates.Clear();
 

@@ -717,14 +717,31 @@ namespace MapleLib {
                 return null;
             WzFile wzf = new WzFile(filePath, encVersion);
 
-            WzFileParseStatus parseStatus = wzf.ParseWzFile();
+            WzFileParseStatus parseStatus;
+            try
+            {
+                parseStatus = wzf.ParseWzFile();
+            }
+            catch
+            {
+                wzf.Dispose();
+                throw;
+            }
             if (parseStatus != WzFileParseStatus.Success)
             {
+                wzf.Dispose();
                 throw new Exception("Error parsing " + baseName + ".wz (" + parseStatus.GetErrorDescription() + ")");
             }
 
-            LoadWzFile(baseName, wzf);
-            return wzf;
+            try
+            {
+                return LoadWzFile(baseName, wzf);
+            }
+            catch
+            {
+                wzf.Dispose();
+                throw;
+            }
         }
 
         /// <summary>
@@ -738,13 +755,17 @@ namespace MapleLib {
         {
             string fileName_ = GetWzKey(baseName);
 
-            if (_wzFilesUpdated.ContainsKey(wzf)) // some safety check
-                throw new Exception(string.Format("Wz {0} at the path {1} has already been loaded, and cannot be loaded again. Remove it from memory first.", fileName_, wzf.FilePath));
-
             // write lock to begin adding to the dictionary
             _readWriteLock.EnterWriteLock();
             try
             {
+                if (_wzFiles.ContainsKey(fileName_) || _wzFilesUpdated.ContainsKey(wzf))
+                {
+                    throw new InvalidOperationException(string.Format(
+                        "Wz {0} at the path {1} has already been loaded. Remove it from memory first.",
+                        fileName_, wzf.FilePath));
+                }
+
                 _wzFiles[fileName_] = wzf;
                 _wzFilesUpdated[wzf] = false;
                 _wzDirs[fileName_] = new WzMainDirectory(wzf);
@@ -808,9 +829,19 @@ namespace MapleLib {
             string filePath = GetWzFilePath(baseName);
             WzFile wzf = new WzFile(filePath, encVersion);
 
-            WzFileParseStatus parseStatus = wzf.ParseWzFile();
+            WzFileParseStatus parseStatus;
+            try
+            {
+                parseStatus = wzf.ParseWzFile();
+            }
+            catch
+            {
+                wzf.Dispose();
+                throw;
+            }
             if (parseStatus != WzFileParseStatus.Success) {
                 MessageBox.Show("Error parsing " + baseName + ".wz (" + parseStatus.GetErrorDescription() + ")");
+                wzf.Dispose();
                 return false;
             }
 
@@ -853,7 +884,15 @@ namespace MapleLib {
             FileStream fs = File.Open(filePath, FileMode.Open, FileAccess.Read, FileShare.Read); // dont close this file stream until it is unloaded from memory
 
             WzImage img = new WzImage(Path.GetFileName(filePath), fs, encVersion);
-            img.ParseImage(true);
+            try
+            {
+                img.ParseImage(true);
+            }
+            catch
+            {
+                img.Dispose();
+                throw;
+            }
 
             // write lock to begin adding to the dictionary
             _readWriteLock.EnterWriteLock();
@@ -983,8 +1022,19 @@ namespace MapleLib {
                 foreach (WzFile wzf in _wzFiles.Values) {
                     wzf.Dispose();
                 }
+                foreach (WzImage image in _wzImages.Values)
+                {
+                    image.Dispose();
+                }
+                foreach (WzMsFile msFile in _msFiles.Values)
+                {
+                    msFile.Dispose();
+                }
                 _wzFiles.Clear();
                 _wzFilesUpdated.Clear();
+                _wzImages.Clear();
+                _wzImagesUpdated.Clear();
+                _msFiles.Clear();
                 _updatedWzImages.Clear();
                 _wzDirs.Clear();
                 _wzCanvasSectionLoaded.Clear();

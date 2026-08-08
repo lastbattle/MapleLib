@@ -69,15 +69,10 @@ namespace MapleLib.WzLib.Util
             long CurrentOffset = BaseStream.Position;
             try
             {
-                long relativeOffset;
-                try
-                {
-                    relativeOffset = checked(Offset - startOffset);
-                }
-                catch (OverflowException ex)
-                {
-                    throw new InvalidDataException("WZ string offset is outside the stream.", ex);
-                }
+                if ((startOffset > 0 && Offset < long.MinValue + startOffset) ||
+                    (startOffset < 0 && Offset > long.MaxValue + startOffset))
+                    throw new InvalidDataException("WZ string offset is outside the stream.");
+                long relativeOffset = Offset - startOffset;
 
                 if (relativeOffset < 0 || relativeOffset >= BaseStream.Length)
                     throw new InvalidDataException("WZ string offset is outside the stream.");
@@ -115,15 +110,11 @@ namespace MapleLib.WzLib.Util
             if (length == 0)
                 return string.Empty;
 
-            long payloadLength;
-            try
-            {
-                payloadLength = checked((long)length * (smallLength > 0 ? sizeof(ushort) : sizeof(byte)));
-            }
-            catch (OverflowException ex)
-            {
-                throw new InvalidDataException("WZ string length is too large.", ex);
-            }
+            int bytesPerCharacter = smallLength > 0 ? sizeof(ushort) : sizeof(byte);
+            if (length > MemoryLimits.MAX_WZ_STRING_BYTES / bytesPerCharacter)
+                throw new InvalidDataException("WZ string length exceeds the supported limit.");
+
+            long payloadLength = (long)length * bytesPerCharacter;
 
             EnsureAvailable(payloadLength, "WZ string");
 
@@ -231,6 +222,8 @@ namespace MapleLib.WzLib.Util
         {
             if (length < 0)
                 throw new InvalidDataException("WZ string has a negative length.");
+            if (length > MemoryLimits.MAX_WZ_HEADER_BYTES)
+                throw new InvalidDataException("WZ header string exceeds the supported limit.");
             EnsureAvailable(length, "WZ header string");
 
             byte[]? pooledArray = null;
@@ -280,21 +273,18 @@ namespace MapleLib.WzLib.Util
 
                 while ((b = ReadByte()) != 0)
                 {
+                    if (position >= MemoryLimits.MAX_NULL_TERMINATED_STRING_BYTES)
+                        throw new InvalidDataException("Null-terminated string exceeds the supported limit.");
+
                     if (position == buffer.Length)
                     {
                         // Need to expand to array pool
-                        int nextLength;
-                        try
-                        {
-                            nextLength = checked(buffer.Length * 2);
-                        }
-                        catch (OverflowException ex)
-                        {
-                            throw new InvalidDataException("Null-terminated string is too large.", ex);
-                        }
-
-                        if (nextLength <= position || nextLength > int.MaxValue)
+                        if (buffer.Length >= MemoryLimits.MAX_NULL_TERMINATED_STRING_BYTES)
                             throw new InvalidDataException("Null-terminated string is too large.");
+
+                        int nextLength = Math.Min(
+                            buffer.Length * 2,
+                            MemoryLimits.MAX_NULL_TERMINATED_STRING_BYTES);
 
                         if (pooledArray == null)
                         {
@@ -374,15 +364,10 @@ namespace MapleLib.WzLib.Util
         /// <returns></returns>
         public string DecryptString(ReadOnlySpan<char> stringToDecrypt)
         {
-            int keyLength;
-            try
-            {
-                keyLength = checked(stringToDecrypt.Length * sizeof(ushort));
-            }
-            catch (OverflowException ex)
-            {
-                throw new InvalidDataException("Encrypted string is too large.", ex);
-            }
+            if (stringToDecrypt.Length > MemoryLimits.MAX_WZ_STRING_BYTES / sizeof(ushort))
+                throw new InvalidDataException("Encrypted string exceeds the supported limit.");
+
+            int keyLength = stringToDecrypt.Length * sizeof(ushort);
 
             WzKey.EnsureKeySize(keyLength);
 
@@ -417,6 +402,9 @@ namespace MapleLib.WzLib.Util
 
         public string DecryptNonUnicodeString(ReadOnlySpan<char> stringToDecrypt)
         {
+            if (stringToDecrypt.Length > MemoryLimits.MAX_WZ_STRING_BYTES)
+                throw new InvalidDataException("Encrypted string exceeds the supported limit.");
+
             WzKey.EnsureKeySize(stringToDecrypt.Length);
 
             char[]? pooledArray = null;
@@ -450,9 +438,17 @@ namespace MapleLib.WzLib.Util
         public string ReadStringBlock(long offset) => ReadByte() switch
         {
             0 or WzImage.WzImageHeaderByte_WithoutOffset => ReadString(),
-            1 or WzImage.WzImageHeaderByte_WithOffset => ReadStringAtOffset(offset + ReadInt32()),
+            1 or WzImage.WzImageHeaderByte_WithOffset => ReadStringAtOffset(AddOffset(offset, ReadInt32())),
             _ => string.Empty
         };
+
+        internal static long AddOffset(long baseOffset, int relativeOffset)
+        {
+            if ((relativeOffset > 0 && baseOffset > long.MaxValue - relativeOffset) ||
+                (relativeOffset < 0 && baseOffset < long.MinValue - relativeOffset))
+                throw new InvalidDataException("WZ string offset is outside the supported range.");
+            return baseOffset + relativeOffset;
+        }
 
         #endregion
 

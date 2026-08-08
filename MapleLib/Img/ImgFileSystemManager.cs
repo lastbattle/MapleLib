@@ -128,8 +128,19 @@ namespace MapleLib.Img
             string manifestPath = Path.Combine(_versionPath, MANIFEST_FILENAME);
             if (File.Exists(manifestPath))
             {
-                string json = File.ReadAllText(manifestPath);
-                _versionInfo = JsonSerializer.Deserialize(json, MapleJsonContext.Default.VersionInfo);
+                try
+                {
+                    MemoryLimits.EnsureFileSize(manifestPath, MemoryLimits.MAX_METADATA_JSON_BYTES, "IMG version manifest");
+                    string json = File.ReadAllText(manifestPath);
+                    _versionInfo = JsonSerializer.Deserialize(json, MapleJsonContext.Default.VersionInfo)
+                        ?? throw new InvalidDataException("Version manifest is null.");
+                }
+                catch (JsonException ex)
+                {
+                    throw new InvalidDataException($"Version manifest is malformed: {manifestPath}", ex);
+                }
+                _versionInfo.Categories ??= new Dictionary<string, CategoryInfo>(StringComparer.OrdinalIgnoreCase);
+                _versionInfo.Features ??= new VersionFeatures();
                 _versionInfo.DirectoryPath = _versionPath;
             }
             else
@@ -481,14 +492,14 @@ namespace MapleLib.Img
             if (HaCreatorPaths.IsBackupsDirectoryName(category))
                 return null;
 
-            string categoryLower = category.ToLower();
+            string categoryPath = GetContainedCategoryPath(category);
+            string categoryLower = category.ToLowerInvariant();
 
             if (_directoryCache.TryGetValue(categoryLower, out var cached))
             {
                 return cached;
             }
 
-            string categoryPath = Path.Combine(_versionPath, category);
             if (!Directory.Exists(categoryPath))
             {
                 return null;
@@ -561,7 +572,7 @@ namespace MapleLib.Img
         /// </summary>
         public IEnumerable<string> GetSubdirectories(string category)
         {
-            string categoryPath = Path.Combine(_versionPath, category);
+            string categoryPath = GetContainedCategoryPath(category);
             if (!Directory.Exists(categoryPath))
             {
                 return Enumerable.Empty<string>();
@@ -705,16 +716,50 @@ namespace MapleLib.Img
             return fullPath;
         }
 
+        private string GetContainedCategoryPath(string category)
+        {
+            if (string.IsNullOrWhiteSpace(category))
+                throw new ArgumentException("Category is required.", nameof(category));
+
+            string root = Path.GetFullPath(_versionPath);
+            string fullPath = Path.GetFullPath(Path.Combine(root, category));
+            string rootWithSeparator = Path.EndsInDirectorySeparator(root)
+                ? root
+                : root + Path.DirectorySeparatorChar;
+            if (!fullPath.StartsWith(rootWithSeparator, StringComparison.OrdinalIgnoreCase))
+                throw new InvalidOperationException($"Category path escapes the version directory: {fullPath}");
+            return fullPath;
+        }
+
+        private static bool IsSafeIndexedImagePath(string categoryPath, string relativePath)
+        {
+            if (string.IsNullOrWhiteSpace(relativePath) ||
+                !relativePath.EndsWith(".img", StringComparison.OrdinalIgnoreCase))
+                return false;
+
+            string root = Path.GetFullPath(categoryPath);
+            string fullPath = Path.GetFullPath(Path.Combine(root, relativePath));
+            string rootWithSeparator = Path.EndsInDirectorySeparator(root)
+                ? root
+                : root + Path.DirectorySeparatorChar;
+            return fullPath.StartsWith(rootWithSeparator, StringComparison.OrdinalIgnoreCase) &&
+                !HaCreatorPaths.ContainsBackupsDirectory(fullPath);
+        }
+
         /// <summary>
         /// Gets the cache key from a full file path
         /// </summary>
         private string GetCacheKeyFromPath(string filePath)
         {
             // Extract category and relative path from full path
-            if (!filePath.StartsWith(_versionPath, StringComparison.OrdinalIgnoreCase))
+            string root = Path.GetFullPath(_versionPath);
+            string rootWithSeparator = Path.EndsInDirectorySeparator(root)
+                ? root
+                : root + Path.DirectorySeparatorChar;
+            if (!filePath.StartsWith(rootWithSeparator, StringComparison.OrdinalIgnoreCase))
                 return null;
 
-            string relative = filePath.Substring(_versionPath.Length).TrimStart(Path.DirectorySeparatorChar);
+            string relative = filePath.Substring(rootWithSeparator.Length);
             string[] parts = relative.Split(Path.DirectorySeparatorChar, 2);
             if (parts.Length < 2)
                 return null;
@@ -982,7 +1027,7 @@ namespace MapleLib.Img
         /// </summary>
         public void GenerateCategoryIndex(string category)
         {
-            string categoryPath = Path.Combine(_versionPath, category);
+            string categoryPath = GetContainedCategoryPath(category);
             if (!Directory.Exists(categoryPath))
                 return;
 
@@ -1002,9 +1047,9 @@ namespace MapleLib.Img
             // Use index if valid and not stale
             if (index != null && !index.IsStale(categoryPath))
             {
-                return index.AllImagePaths
-                    .Where(path => !HaCreatorPaths.ContainsBackupsDirectory(Path.Combine(categoryPath, path)))
-                    .ToList();
+                var indexedPaths = index.AllImagePaths.ToList();
+                if (indexedPaths.All(path => IsSafeIndexedImagePath(categoryPath, path)))
+                    return indexedPaths;
             }
 
             // Fall back to directory scan
@@ -1318,7 +1363,7 @@ namespace MapleLib.Img
         {
             if (category != null)
             {
-                string categoryPath = Path.Combine(_versionPath, category);
+                string categoryPath = GetContainedCategoryPath(category);
                 if (Directory.Exists(categoryPath))
                 {
                     var imageFiles = new List<string>();

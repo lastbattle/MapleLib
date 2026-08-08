@@ -189,6 +189,100 @@ namespace MapleLib.Img
             return Path.GetFullPath(Path.Combine(Path.GetDirectoryName(filePath) ?? string.Empty, luaFileName));
         }
 
+        /// <summary>
+        /// Resolves a caller/manifest supplied path below a trusted root.  A
+        /// category or case-map entry must never be able to address a sibling
+        /// directory via rooted or ".." segments.
+        /// </summary>
+        private static bool TryGetContainedPath(string rootPath, string relativePath, out string fullPath)
+        {
+            fullPath = null;
+            if (string.IsNullOrWhiteSpace(rootPath) || string.IsNullOrWhiteSpace(relativePath) ||
+                Path.IsPathRooted(relativePath))
+            {
+                return false;
+            }
+
+            try
+            {
+                string rootFullPath = Path.GetFullPath(rootPath);
+                string candidate = Path.GetFullPath(Path.Combine(rootFullPath, relativePath));
+                string rootPrefix = rootFullPath.EndsWith(Path.DirectorySeparatorChar.ToString(), StringComparison.Ordinal) ||
+                                    rootFullPath.EndsWith(Path.AltDirectorySeparatorChar.ToString(), StringComparison.Ordinal)
+                    ? rootFullPath
+                    : rootFullPath + Path.DirectorySeparatorChar;
+
+                if (!candidate.StartsWith(rootPrefix, StringComparison.OrdinalIgnoreCase))
+                {
+                    return false;
+                }
+
+                if (ContainsReparsePointBelowRoot(rootFullPath, relativePath))
+                {
+                    return false;
+                }
+
+                fullPath = candidate;
+                return true;
+            }
+            catch (ArgumentException)
+            {
+                return false;
+            }
+            catch (IOException)
+            {
+                return false;
+            }
+            catch (UnauthorizedAccessException)
+            {
+                return false;
+            }
+        }
+
+        private static bool ContainsReparsePointBelowRoot(string rootPath, string relativePath)
+        {
+            string currentPath = rootPath;
+            string[] segments = relativePath.Split(
+                new[] { Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar },
+                StringSplitOptions.RemoveEmptyEntries);
+
+            foreach (string segment in segments)
+            {
+                if (segment == ".")
+                    continue;
+                if (segment == "..")
+                    return true;
+
+                currentPath = Path.Combine(currentPath, segment);
+                if (!Directory.Exists(currentPath) && !File.Exists(currentPath))
+                    break;
+
+                try
+                {
+                    if ((File.GetAttributes(currentPath) & FileAttributes.ReparsePoint) != 0)
+                        return true;
+                }
+                catch (FileNotFoundException)
+                {
+                    break;
+                }
+                catch (DirectoryNotFoundException)
+                {
+                    break;
+                }
+                catch (IOException)
+                {
+                    return true;
+                }
+                catch (UnauthorizedAccessException)
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
         private static string GetWzImageNameFromFileName(string fileName)
         {
             return IsLegacyLuaBinaryFile(fileName)
@@ -228,6 +322,8 @@ namespace MapleLib.Img
 
             try
             {
+                cancellationToken.ThrowIfCancellationRequested();
+
                 // Load version info from manifest
                 VersionInfo versionInfo = LoadVersionInfo(versionPath);
                 if (versionInfo == null)
@@ -288,7 +384,11 @@ namespace MapleLib.Img
                     OnCategoryCompleted(category, categoryResult);
                 }
 
-                result.Success = true;
+                // A top-level pack is successful only when every category
+                // that was attempted completed successfully.  Previously a
+                // failed category was recorded and then overwritten by this
+                // unconditional success assignment.
+                result.Success = result.CategoriesPacked.Values.All(categoryResult => categoryResult != null && categoryResult.Success);
                 result.EndTime = DateTime.Now;
 
                 progressData.CurrentPhase = "Complete";
@@ -298,6 +398,7 @@ namespace MapleLib.Img
             {
                 result.Success = false;
                 result.ErrorMessage = "Packing was cancelled";
+                result.EndTime = DateTime.Now;
                 progressData.IsCancelled = true;
                 progress?.Report(progressData);
             }
@@ -305,6 +406,7 @@ namespace MapleLib.Img
             {
                 result.Success = false;
                 result.ErrorMessage = ex.Message;
+                result.EndTime = DateTime.Now;
                 progressData.Errors.Add(ex.Message);
                 progress?.Report(progressData);
                 OnErrorOccurred(ex);
@@ -342,6 +444,8 @@ namespace MapleLib.Img
                 StartTime = DateTime.Now
             };
 
+            cancellationToken.ThrowIfCancellationRequested();
+
             if (HaCreatorPaths.IsBackupsDirectoryName(category))
             {
                 result.Success = false;
@@ -350,7 +454,14 @@ namespace MapleLib.Img
                 return result;
             }
 
-            string categoryPath = Path.Combine(versionPath, category);
+            if (!TryGetContainedPath(versionPath, category, out string categoryPath))
+            {
+                result.Success = false;
+                result.Errors.Add($"Category path escapes version root: {category}");
+                result.EndTime = DateTime.Now;
+                return result;
+            }
+
             if (!Directory.Exists(categoryPath))
             {
                 result.Success = false;
@@ -392,6 +503,7 @@ namespace MapleLib.Img
                     {
                         try
                         {
+                            MemoryLimits.EnsureFileSize(listJsonPath, MemoryLimits.MAX_METADATA_JSON_BYTES, "List.json");
                             string jsonContent = File.ReadAllText(listJsonPath);
 
                             // Check if this is our JSON format (extracted List.wz)
@@ -668,6 +780,13 @@ namespace MapleLib.Img
 
                 result.Success = true;
             }
+            catch (OperationCanceledException)
+            {
+                result.Success = false;
+                result.Errors.Add("Packing was cancelled");
+                Debug.WriteLine($"Packing category {category} was cancelled.");
+                throw;
+            }
             catch (Exception ex)
             {
                 result.Success = false;
@@ -718,6 +837,8 @@ namespace MapleLib.Img
 
             try
             {
+                cancellationToken.ThrowIfCancellationRequested();
+
                 // Load version info
                 VersionInfo versionInfo = LoadVersionInfo(versionPath);
                 result.VersionInfo = versionInfo;
@@ -742,8 +863,7 @@ namespace MapleLib.Img
                 // Count images for selected categories
                 foreach (var category in categoriesToPack)
                 {
-                    string categoryPath = Path.Combine(versionPath, category);
-                    if (Directory.Exists(categoryPath))
+                    if (TryGetContainedPath(versionPath, category, out string categoryPath) && Directory.Exists(categoryPath))
                     {
                         progressData.TotalFiles += EnumeratePackableImageFiles(
                             categoryPath,
@@ -782,18 +902,20 @@ namespace MapleLib.Img
                     OnCategoryCompleted(category, categoryResult);
                 }
 
-                result.Success = true;
+                result.Success = result.CategoriesPacked.Values.All(categoryResult => categoryResult != null && categoryResult.Success);
                 result.EndTime = DateTime.Now;
             }
             catch (OperationCanceledException)
             {
                 result.Success = false;
                 result.ErrorMessage = "Packing was cancelled";
+                result.EndTime = DateTime.Now;
             }
             catch (Exception ex)
             {
                 result.Success = false;
                 result.ErrorMessage = ex.Message;
+                result.EndTime = DateTime.Now;
                 OnErrorOccurred(ex);
             }
 
@@ -835,6 +957,8 @@ namespace MapleLib.Img
 
             try
             {
+                cancellationToken.ThrowIfCancellationRequested();
+
                 // Load version info
                 VersionInfo versionInfo = LoadVersionInfo(versionPath);
                 result.VersionInfo = versionInfo;
@@ -867,8 +991,7 @@ namespace MapleLib.Img
                 // Count total images for progress
                 foreach (var category in categoriesList)
                 {
-                    string categoryPath = Path.Combine(versionPath, category);
-                    if (Directory.Exists(categoryPath))
+                    if (TryGetContainedPath(versionPath, category, out string categoryPath) && Directory.Exists(categoryPath))
                     {
                         progressData.TotalFiles += EnumeratePackableImageFiles(
                             categoryPath,
@@ -896,7 +1019,21 @@ namespace MapleLib.Img
                         {
                             cancellationToken.ThrowIfCancellationRequested();
 
-                            string categoryPath = Path.Combine(versionPath, category);
+                            if (!TryGetContainedPath(versionPath, category, out string categoryPath))
+                            {
+                                var invalidCategoryResult = new CategoryPackingResult
+                                {
+                                    CategoryName = category,
+                                    Success = false,
+                                    StartTime = DateTime.Now,
+                                    EndTime = DateTime.Now
+                                };
+                                invalidCategoryResult.Errors.Add($"Category path escapes version root: {category}");
+                                result.CategoriesPacked[category] = invalidCategoryResult;
+                                OnCategoryCompleted(category, invalidCategoryResult);
+                                continue;
+                            }
+
                             if (!Directory.Exists(categoryPath))
                             {
                                 continue;
@@ -1019,7 +1156,7 @@ namespace MapleLib.Img
                     }
                 }
 
-                result.Success = true;
+                result.Success = result.CategoriesPacked.Values.All(categoryResult => categoryResult != null && categoryResult.Success);
                 result.EndTime = DateTime.Now;
 
                 progressData.CurrentPhase = "Complete";
@@ -1029,11 +1166,13 @@ namespace MapleLib.Img
             {
                 result.Success = false;
                 result.ErrorMessage = "Packing was cancelled";
+                result.EndTime = DateTime.Now;
             }
             catch (Exception ex)
             {
                 result.Success = false;
                 result.ErrorMessage = ex.Message;
+                result.EndTime = DateTime.Now;
                 OnErrorOccurred(ex);
             }
 
@@ -1070,6 +1209,7 @@ namespace MapleLib.Img
                     return result;
                 }
 
+                MemoryLimits.EnsureFileSize(listJsonPath, MemoryLimits.MAX_METADATA_JSON_BYTES, "List.json");
                 string jsonContent = File.ReadAllText(listJsonPath);
 
                 // Check if this is our JSON format
@@ -1144,6 +1284,7 @@ namespace MapleLib.Img
 
             try
             {
+                MemoryLimits.EnsureFileSize(manifestPath, MemoryLimits.MAX_METADATA_JSON_BYTES, "IMG version manifest");
                 string json = File.ReadAllText(manifestPath);
                 return JsonSerializer.Deserialize(json, MapleJsonContext.Default.VersionInfo);
             }
@@ -1267,6 +1408,7 @@ namespace MapleLib.Img
 
             try
             {
+                MemoryLimits.EnsureFileSize(mapPath, MemoryLimits.MAX_METADATA_JSON_BYTES, "IMG case map");
                 string json = File.ReadAllText(mapPath);
                 var caseMap = JsonSerializer.Deserialize(json, MapleJsonContext.Default.ImageCaseMapData);
                 if (caseMap?.Entries == null || caseMap.Entries.Count == 0)
@@ -1418,6 +1560,11 @@ namespace MapleLib.Img
 
         private static int ApplyImageCaseMapEntries(string categoryPath, IDictionary<string, string> entries)
         {
+            if (entries == null || entries.Count == 0)
+            {
+                return 0;
+            }
+
             int renamedCount = 0;
             var imgFiles = EnumeratePackableImageFiles(
                 categoryPath,
@@ -1458,9 +1605,15 @@ namespace MapleLib.Img
                     continue;
                 }
 
-                string canonicalPath = Path.Combine(
+                if (!TryGetContainedPath(
                     categoryPath,
-                    canonicalRelativePath.Replace('/', Path.DirectorySeparatorChar));
+                    canonicalRelativePath.Replace('/', Path.DirectorySeparatorChar),
+                    out string canonicalPath))
+                {
+                    // Ignore malformed metadata rather than allowing a case
+                    // fix-up to move a file outside the category directory.
+                    continue;
+                }
 
                 if (MoveFileUsingTemp(filePath, canonicalPath))
                 {
@@ -1691,6 +1844,7 @@ namespace MapleLib.Img
                 try
                 {
                     // Read the raw IMG file bytes
+                    EnsurePayloadSize(imgFilePath);
                     byte[] imgBytes = File.ReadAllBytes(imgFilePath);
 
                     // Create WzImage from the raw bytes
@@ -1981,7 +2135,11 @@ namespace MapleLib.Img
                     return result;
                 }
 
-                // Read the raw IMG file bytes
+                // Read the raw IMG file bytes only after bounding the
+                // attacker-controlled file length.  ReadAllBytes otherwise
+                // permits a sparse/huge IMG to exhaust the process before the
+                // WZ parser can apply its payload limits.
+                EnsurePayloadSize(imgFileInfo.FilePath);
                 byte[] imgBytes = File.ReadAllBytes(imgFileInfo.FilePath);
 
                 // Create WzImage from the raw bytes
@@ -2055,6 +2213,7 @@ namespace MapleLib.Img
 
         private static string ReadLuaText(string filePath)
         {
+            EnsurePayloadSize(filePath);
             byte[] bytes = File.ReadAllBytes(filePath);
 
             if (bytes.Length >= 2 && bytes[0] == 0xFF && bytes[1] == 0xFE)
@@ -2073,6 +2232,16 @@ namespace MapleLib.Img
             }
 
             return LuaTextEncoding.GetString(bytes);
+        }
+
+        private static void EnsurePayloadSize(string filePath)
+        {
+            long length = new FileInfo(filePath).Length;
+            if (length > MemoryLimits.MAX_WZ_PAYLOAD_BYTES)
+            {
+                throw new InvalidDataException(
+                    $"IMG payload is too large ({length} bytes; maximum is {MemoryLimits.MAX_WZ_PAYLOAD_BYTES}).");
+            }
         }
         #endregion
 

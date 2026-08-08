@@ -13,13 +13,14 @@ namespace MapleLib.PacketLib
 		/// The main reader tool
 		/// </summary>
 		private readonly BinaryReader _binReader;
+		private readonly Encoding _encoding;
 
 		/// <summary>
 		/// Amount of data left in the reader
 		/// </summary>
 		public short Length
 		{
-			get { return (short)_buffer.Length; }
+			get { return checked((short)_buffer.Length); }
 		}
 
 		public int Position
@@ -44,8 +45,10 @@ namespace MapleLib.PacketLib
 		/// <param name="arrayOfBytes">Starting byte array</param>
 		public PacketReader(byte[] arrayOfBytes)
 		{
+			ArgumentNullException.ThrowIfNull(arrayOfBytes);
 			_buffer = new MemoryStream(arrayOfBytes, false);
-			_binReader = new BinaryReader(_buffer, Encoding.ASCII);
+			_encoding = Encoding.ASCII;
+			_binReader = new BinaryReader(_buffer, _encoding);
 		}
 
 		public PacketReader(Stream stream)
@@ -60,14 +63,10 @@ namespace MapleLib.PacketLib
 
 		public PacketReader(Stream stream, Encoding encoding, bool leaveOpen)
 		{
-			_buffer = stream as MemoryStream ?? new MemoryStream();
-			if (stream is not MemoryStream && stream != null)
-			{
-				stream.CopyTo(_buffer);
-				_buffer.Position = 0;
-			}
-
-			_binReader = new BinaryReader(_buffer, encoding ?? Encoding.ASCII, leaveOpen);
+			ArgumentNullException.ThrowIfNull(stream);
+			_encoding = encoding ?? Encoding.ASCII;
+			_buffer = stream;
+			_binReader = new BinaryReader(_buffer, _encoding, leaveOpen);
 		}
 
 		/// <summary>
@@ -76,11 +75,15 @@ namespace MapleLib.PacketLib
 		/// <param name="length">The point of the packet to start reading from.</param>
 		public void Reset(int length)
 		{
+			if ((uint)length > (uint)_buffer.Length)
+				throw new ArgumentOutOfRangeException(nameof(length));
 			_buffer.Seek(length, SeekOrigin.Begin);
 		}
 
 		public void Skip(int length)
 		{
+			if (length < 0 || length > Remaining)
+				throw new ArgumentOutOfRangeException(nameof(length));
 			_buffer.Position += length;
 		}
 
@@ -206,7 +209,13 @@ namespace MapleLib.PacketLib
 		/// <returns>An ASCII string</returns>
 		public string ReadString(int length)
 		{
-			return Encoding.ASCII.GetString(ReadBytes(length));
+			if (length < 0)
+				throw new ArgumentOutOfRangeException(nameof(length));
+
+			byte[] bytes = ReadBytes(length);
+			if (bytes.Length != length)
+				throw new EndOfStreamException("The packet ended before the requested string length was read.");
+			return _encoding.GetString(bytes);
 		}
 
 		/// <summary>
@@ -215,7 +224,10 @@ namespace MapleLib.PacketLib
 		/// <returns>A maple string</returns>
 		public string ReadMapleString()
 		{
-			return ReadString(ReadShort());
+			short length = ReadShort();
+			if (length < 0)
+				throw new InvalidDataException("Maple string length cannot be negative.");
+			return ReadString(length);
 		}
 
 		public void Dispose()

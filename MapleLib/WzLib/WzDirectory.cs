@@ -250,15 +250,7 @@ namespace MapleLib.WzLib
 
                             // For 64-bit WZ files (no version header), the string offset needs +1 adjustment
                             int extraOffset = (wzFile != null && wzFile.Is64BitWzFile) ? 1 : 0;
-                            long stringPosition;
-                            try
-                            {
-                                stringPosition = checked((long)reader.Header.FStart + stringOffset + extraOffset);
-                            }
-                            catch (OverflowException ex)
-                            {
-                                throw new InvalidDataException("WZ directory string offset is invalid.", ex);
-                            }
+                            long stringPosition = (long)reader.Header.FStart + stringOffset + extraOffset;
 
                             if (stringPosition < 0 || stringPosition >= reader.BaseStream.Length)
                                 throw new InvalidDataException("WZ directory string offset is outside the stream.");
@@ -268,7 +260,8 @@ namespace MapleLib.WzLib
                             type = reader.ReadByte();
                             fname = reader.ReadString();
 
-                            Console.WriteLine("EntryCount: {0}, type: {1}, fname: {2}", entryCount, type, fname);
+                            if (type != (byte)WzDirectoryType.WzDirectory_3 && type != (byte)WzDirectoryType.WzImage_4)
+                                throw new InvalidDataException("WZ directory string entry has an invalid type.");
                             break;
                         }
                     case (byte) WzDirectoryType.WzDirectory_3:
@@ -293,6 +286,8 @@ namespace MapleLib.WzLib
                     throw new InvalidDataException("WZ directory entry has a negative block size.");
                 if (offset < 0 || offset > reader.BaseStream.Length)
                     throw new InvalidDataException("WZ directory entry offset is outside the stream.");
+                if (fsize > reader.BaseStream.Length - offset)
+                    throw new InvalidDataException("WZ directory entry block exceeds the containing stream.");
 
                 if (type == (byte) WzDirectoryType.WzDirectory_3)
                 {
@@ -597,6 +592,19 @@ namespace MapleLib.WzLib
         /// <param name="dir">The WzDirectory to add</param>
         public void AddDirectory(WzDirectory dir)
         {
+            ArgumentNullException.ThrowIfNull(dir);
+            if (ReferenceEquals(dir, this))
+                throw new InvalidOperationException("A directory cannot contain itself.");
+            for (WzDirectory ancestor = this; ancestor != null; ancestor = ancestor.Parent as WzDirectory)
+            {
+                if (ReferenceEquals(ancestor, dir))
+                    throw new InvalidOperationException("A directory cannot be added beneath one of its descendants.");
+            }
+            if (dir.Parent != null && !ReferenceEquals(dir.Parent, this))
+                throw new InvalidOperationException("The directory already belongs to another parent.");
+            if (subDirs.Contains(dir))
+                throw new InvalidOperationException("The directory is already present.");
+
             subDirs.Add(dir);
             dir.wzFile = wzFile;
             dir.Parent = this;
@@ -652,10 +660,13 @@ namespace MapleLib.WzLib
         /// <param name="image">The image to remove</param>
         public void RemoveImage(WzImage image)
         {
+            ArgumentNullException.ThrowIfNull(image);
             bool removed = images.Remove(image);
-            image.Parent = null;
             if (removed)
+            {
+                image.Parent = null;
                 RemoveFromIndex(image, images, imageIndex, ref nullImageIndex);
+            }
         }
         /// <summary>
         /// Removes a sub directory from the list
@@ -663,10 +674,13 @@ namespace MapleLib.WzLib
         /// <param name="name">The sub directory to remove</param>
         public void RemoveDirectory(WzDirectory dir)
         {
+            ArgumentNullException.ThrowIfNull(dir);
             bool removed = subDirs.Remove(dir);
-            dir.Parent = null;
             if (removed)
+            {
+                dir.Parent = null;
                 RemoveFromIndex(dir, subDirs, directoryIndex, ref nullDirectoryIndex);
+            }
         }
 
         private static T FindByName<T>(string name, List<T> items,
@@ -850,6 +864,7 @@ namespace MapleLib.WzLib
         public WzDirectory DeepClone()
         {
             WzDirectory result = (WzDirectory)MemberwiseClone();
+            result.parent = null;
             result.subDirs = new List<WzDirectory>(subDirs.Count);
             result.images = new List<WzImage>(images.Count);
             result.imageIndex = new Dictionary<string, NameIndexEntry<WzImage>>(

@@ -80,11 +80,11 @@ namespace MapleLib.WzLib.Serializer
 
                 foreach (WzDirectory subdir in directoryProperty.WzDirectories)
                 {
-                    ExportRecursion(subdir, outPath + subdir.Name + @"\");
+                    ExportRecursion(subdir, outPath);
                 }
                 foreach (WzImage subimg in directoryProperty.WzImages)
                 {
-                    ExportRecursion(subimg, outPath + subimg.Name + @"\");
+                    ExportRecursion(subimg, outPath);
                 }
             }
             else if (currObj is WzCanvasProperty canvasProperty)

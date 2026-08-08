@@ -47,7 +47,7 @@ namespace MapleLib.WzLib.WzProperties
         {
             int encodedLength = reader.ReadInt32();
             long payloadLength = (long)encodedLength - 1L;
-            if (payloadLength < 0 || payloadLength > int.MaxValue)
+            if (payloadLength < 0 || payloadLength > MemoryLimits.MAX_WZ_PAYLOAD_BYTES)
                 throw new InvalidDataException($"Invalid {description} length: {encodedLength}.");
 
             return (int)payloadLength;
@@ -60,21 +60,13 @@ namespace MapleLib.WzLib.WzProperties
             if (width > WzPngFormatExtensions.MaxDimension || height > WzPngFormatExtensions.MaxDimension)
                 throw new InvalidDataException("PNG dimensions exceed the supported limit.");
 
-            try
-            {
-                // GDI+ uses at least four bytes per pixel for the formats decoded
-                // by this class. Validate that allocation independently of the
-                // compressed format's decoded buffer size.
-                long bitmapBytes = checked((long)width * height * 4L);
-                if (bitmapBytes > WzPngFormatExtensions.MaxDecodedSize)
-                    throw new InvalidDataException("PNG bitmap size exceeds the supported limit.");
+            // GDI+ uses at least four bytes per pixel for the formats decoded
+            // by this class. The dimension cap makes this multiplication safe.
+            long bitmapBytes = (long)width * height * 4L;
+            if (bitmapBytes > WzPngFormatExtensions.MaxDecodedSize)
+                throw new InvalidDataException("PNG bitmap size exceeds the supported limit.");
 
-                _ = format.GetDecodedSize(width, height);
-            }
-            catch (OverflowException ex)
-            {
-                throw new InvalidDataException("PNG dimensions are too large.", ex);
-            }
+            _ = format.GetDecodedSize(width, height);
         }
         #endregion
 
@@ -310,15 +302,7 @@ namespace MapleLib.WzLib.WzProperties
             int format1 = reader.ReadCompressedInt();
             int format2 = reader.ReadCompressedInt();
             // Reconstruct the original format using bit shifting
-            long formatValue;
-            try
-            {
-                formatValue = checked((long)format1 + ((long)format2 << 8));
-            }
-            catch (OverflowException ex)
-            {
-                throw new InvalidDataException("PNG format value is invalid.", ex);
-            }
+            long formatValue = (long)format1 + ((long)format2 << 8);
 
             if (formatValue < int.MinValue || formatValue > int.MaxValue)
                 throw new InvalidDataException("PNG format value is invalid.");
@@ -448,7 +432,7 @@ namespace MapleLib.WzLib.WzProperties
                 using (MemoryStream decryptedStream = new MemoryStream(decryptedBytes, 2, decryptedLength - 2, writable: false))
                 using (DeflateStream deflate = new DeflateStream(decryptedStream, CompressionMode.Decompress))
                 {
-                    ReadFully(deflate, decompressed);
+                    ReadExactlyAndValidateEnd(deflate, decompressed);
                 }
 
                 using (MemoryStream outputStream = new MemoryStream(decompressed.Length))
@@ -504,14 +488,17 @@ namespace MapleLib.WzLib.WzProperties
 
         internal static byte[] Decompress(byte[] compressedBuffer, int decompressedSize)
         {
+            ArgumentNullException.ThrowIfNull(compressedBuffer);
             if (decompressedSize < 0 || decompressedSize > WzPngFormatExtensions.MaxDecodedSize)
                 throw new InvalidDataException("PNG decoded size exceeds the supported limit.");
+            if (compressedBuffer.Length < 2)
+                throw new InvalidDataException("PNG compressed data is missing its zlib header.");
 
             using (MemoryStream memStream = new MemoryStream(compressedBuffer, 2, compressedBuffer.Length - 2, writable: false))
             using (DeflateStream zip = new DeflateStream(memStream, CompressionMode.Decompress))
             {
                 byte[] buffer = new byte[decompressedSize];
-                ReadFully(zip, buffer);
+                ReadExactlyAndValidateEnd(zip, buffer);
                 return buffer;
             }
         }
@@ -801,13 +788,7 @@ namespace MapleLib.WzLib.WzProperties
                     {
                         // https://learn.microsoft.com/en-us/dotnet/api/System.IO.Compression.DeflateStream.Read?view=net-8.0#system-io-compression-deflatestream-read(system-byte()-system-int32-system-int32)
                         // https://learn.microsoft.com/en-us/dotnet/core/compatibility/core-libraries/6.0/partial-byte-reads-in-streams
-                        int totalRead = 0;
-                        while (totalRead < decBuf.Length)
-                        {
-                            int bytesRead = zlib.Read(decBuf, totalRead, decBuf.Length - totalRead);
-                            if (bytesRead == 0) break;
-                            totalRead += bytesRead;
-                        }
+                        ReadExactlyAndValidateEnd(zlib, decBuf);
                         return decBuf;
                     }
                 }
@@ -819,15 +800,19 @@ namespace MapleLib.WzLib.WzProperties
             return header == 0x9C78 || header == 0xDA78 || header == 0x0178 || header == 0x5E78;
         }
 
-        private static void ReadFully(Stream stream, byte[] buffer)
+        private static void ReadExactlyAndValidateEnd(Stream stream, byte[] buffer)
         {
             int totalRead = 0;
             while (totalRead < buffer.Length)
             {
                 int bytesRead = stream.Read(buffer, totalRead, buffer.Length - totalRead);
-                if (bytesRead == 0) break;
+                if (bytesRead == 0)
+                    throw new InvalidDataException("PNG decompressed data is truncated.");
                 totalRead += bytesRead;
             }
+
+            if (stream.ReadByte() != -1)
+                throw new InvalidDataException("PNG decompressed data exceeds the expected size.");
         }
 
         private static int DecryptListWzBlocks(byte[] source, WzMutableKey wzKey, byte[] destination)

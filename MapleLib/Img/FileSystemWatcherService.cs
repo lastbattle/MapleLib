@@ -112,9 +112,11 @@ namespace MapleLib.Img
         private readonly ConcurrentQueue<FileChangeInfo> _pendingChanges = new();
         private Timer _debounceTimer;
         private readonly int _debounceMs;
+        private readonly object _watcherLock = new();
         private readonly object _timerLock = new();
-        private bool _disposed;
-        private bool _isProcessing;
+        private long _timerVersion;
+        private int _disposed;
+        private int _isProcessing;
         #endregion
 
         #region Events
@@ -141,6 +143,9 @@ namespace MapleLib.Img
         /// <param name="debounceMs">Milliseconds to wait before processing changes (default 500ms)</param>
         public FileSystemWatcherService(int debounceMs = 500)
         {
+            if (debounceMs < 0)
+                throw new ArgumentOutOfRangeException(nameof(debounceMs));
+
             _debounceMs = debounceMs;
         }
         #endregion
@@ -154,60 +159,70 @@ namespace MapleLib.Img
         /// <param name="categoryName">Optional category name for Category watch type</param>
         public void WatchPath(string path, WatchType watchType, string categoryName = null)
         {
-            if (_disposed)
+            if (Volatile.Read(ref _disposed) != 0)
                 throw new ObjectDisposedException(nameof(FileSystemWatcherService));
 
             if (string.IsNullOrEmpty(path) || !Directory.Exists(path))
                 return;
 
+            if (!Enum.IsDefined(watchType))
+                throw new ArgumentOutOfRangeException(nameof(watchType));
+
             // Normalize path
-            string normalizedPath = Path.GetFullPath(path).TrimEnd(Path.DirectorySeparatorChar);
+            string normalizedPath = NormalizePath(path);
 
-            // Don't add duplicate watchers
-            if (_watchers.ContainsKey(normalizedPath))
-                return;
-
-            try
+            lock (_watcherLock)
             {
-                var watcher = new FileSystemWatcher(normalizedPath);
+                if (Volatile.Read(ref _disposed) != 0)
+                    throw new ObjectDisposedException(nameof(FileSystemWatcherService));
 
-                switch (watchType)
+                // Creating and publishing a watcher is one operation.  A
+                // ContainsKey/indexer sequence leaks duplicate live watchers
+                // when callers race to watch the same directory.
+                if (_watchers.ContainsKey(normalizedPath))
+                    return;
+
+                FileSystemWatcher watcher = null;
+                try
                 {
-                    case WatchType.Category:
-                        // Watch for .img files in this category and subdirectories
-                        watcher.Filter = "*.img";
-                        watcher.IncludeSubdirectories = true;
-                        watcher.NotifyFilter = NotifyFilters.FileName | NotifyFilters.LastWrite | NotifyFilters.CreationTime;
+                    watcher = CreateWatcher(normalizedPath);
 
-                        // Store category name
-                        _categoryPaths[normalizedPath] = categoryName ?? Path.GetFileName(normalizedPath);
-                        break;
+                    switch (watchType)
+                    {
+                        case WatchType.Category:
+                            watcher.Filter = "*.img";
+                            watcher.IncludeSubdirectories = true;
+                            watcher.NotifyFilter = NotifyFilters.FileName | NotifyFilters.LastWrite | NotifyFilters.CreationTime;
+                            _categoryPaths[normalizedPath] = categoryName ?? Path.GetFileName(normalizedPath);
+                            break;
 
-                    case WatchType.VersionRoot:
-                        // Watch for directory changes (new/deleted versions)
-                        watcher.Filter = "*";
-                        watcher.IncludeSubdirectories = false;
-                        watcher.NotifyFilter = NotifyFilters.DirectoryName;
-                        break;
+                        case WatchType.VersionRoot:
+                            watcher.Filter = "*";
+                            watcher.IncludeSubdirectories = false;
+                            watcher.NotifyFilter = NotifyFilters.DirectoryName;
+                            break;
+                    }
+
+                    watcher.Created += OnFileSystemEvent;
+                    watcher.Deleted += OnFileSystemEvent;
+                    watcher.Changed += OnFileSystemEvent;
+                    watcher.Renamed += OnFileSystemRenamed;
+                    watcher.Error += OnWatcherError;
+
+                    // Publish metadata before enabling events so an immediate
+                    // callback cannot observe a half-registered watcher.
+                    _watchers[normalizedPath] = watcher;
+                    _watchTypes[normalizedPath] = watchType;
+                    watcher.EnableRaisingEvents = true;
                 }
-
-                // Subscribe to events
-                watcher.Created += OnFileSystemEvent;
-                watcher.Deleted += OnFileSystemEvent;
-                watcher.Changed += OnFileSystemEvent;
-                watcher.Renamed += OnFileSystemRenamed;
-                watcher.Error += OnWatcherError;
-
-                // Enable the watcher
-                watcher.EnableRaisingEvents = true;
-
-                // Store watcher and its type
-                _watchers[normalizedPath] = watcher;
-                _watchTypes[normalizedPath] = watchType;
-            }
-            catch (Exception ex)
-            {
-                System.Diagnostics.Debug.WriteLine($"Failed to create watcher for {path}: {ex.Message}");
+                catch (Exception ex)
+                {
+                    _watchers.TryRemove(normalizedPath, out _);
+                    _watchTypes.TryRemove(normalizedPath, out _);
+                    _categoryPaths.TryRemove(normalizedPath, out _);
+                    watcher?.Dispose();
+                    System.Diagnostics.Debug.WriteLine($"Failed to create watcher for {path}: {ex.Message}");
+                }
             }
         }
 
@@ -220,16 +235,19 @@ namespace MapleLib.Img
             if (string.IsNullOrEmpty(path))
                 return;
 
-            string normalizedPath = Path.GetFullPath(path).TrimEnd(Path.DirectorySeparatorChar);
+            string normalizedPath = NormalizePath(path);
 
-            if (_watchers.TryRemove(normalizedPath, out var watcher))
+            lock (_watcherLock)
             {
-                watcher.EnableRaisingEvents = false;
-                watcher.Dispose();
-            }
+                if (_watchers.TryRemove(normalizedPath, out var watcher))
+                {
+                    watcher.EnableRaisingEvents = false;
+                    watcher.Dispose();
+                }
 
-            _watchTypes.TryRemove(normalizedPath, out _);
-            _categoryPaths.TryRemove(normalizedPath, out _);
+                _watchTypes.TryRemove(normalizedPath, out _);
+                _categoryPaths.TryRemove(normalizedPath, out _);
+            }
         }
 
         /// <summary>
@@ -256,15 +274,29 @@ namespace MapleLib.Img
             if (string.IsNullOrEmpty(path))
                 return false;
 
-            string normalizedPath = Path.GetFullPath(path).TrimEnd(Path.DirectorySeparatorChar);
+            string normalizedPath = NormalizePath(path);
             return _watchers.ContainsKey(normalizedPath);
+        }
+
+        private static string NormalizePath(string path)
+        {
+            return Path.TrimEndingDirectorySeparator(Path.GetFullPath(path));
+        }
+
+        /// <summary>
+        /// Creates the underlying watcher. The hook keeps resource-publication
+        /// behavior testable without changing normal construction.
+        /// </summary>
+        protected virtual FileSystemWatcher CreateWatcher(string path)
+        {
+            return new FileSystemWatcher(path);
         }
         #endregion
 
         #region Event Handlers
         private void OnFileSystemEvent(object sender, FileSystemEventArgs e)
         {
-            if (_disposed)
+            if (Volatile.Read(ref _disposed) != 0)
                 return;
 
             var watcher = sender as FileSystemWatcher;
@@ -302,7 +334,7 @@ namespace MapleLib.Img
 
         private void OnFileSystemRenamed(object sender, RenamedEventArgs e)
         {
-            if (_disposed)
+            if (Volatile.Read(ref _disposed) != 0)
                 return;
 
             var watcher = sender as FileSystemWatcher;
@@ -350,12 +382,11 @@ namespace MapleLib.Img
                 string path = watcher.Path;
                 if (_watchTypes.TryGetValue(path, out var watchType))
                 {
+                    // Capture metadata before UnwatchPath removes it.
+                    _categoryPaths.TryGetValue(path, out string category);
+
                     // Re-create the watcher
                     UnwatchPath(path);
-
-                    string category = null;
-                    _categoryPaths.TryGetValue(path, out category);
-
                     WatchPath(path, watchType, category);
                 }
             }
@@ -367,17 +398,28 @@ namespace MapleLib.Img
         {
             lock (_timerLock)
             {
+                if (Volatile.Read(ref _disposed) != 0)
+                    return;
+
                 _debounceTimer?.Dispose();
-                _debounceTimer = new Timer(ProcessPendingChanges, null, _debounceMs, Timeout.Infinite);
+                long version = ++_timerVersion;
+                var timer = new Timer(ProcessPendingChanges, version, Timeout.Infinite, Timeout.Infinite);
+                _debounceTimer = timer;
+                timer.Change(_debounceMs, Timeout.Infinite);
             }
         }
 
         private void ProcessPendingChanges(object state)
         {
-            if (_disposed || _isProcessing)
-                return;
+            long version = (long)state;
+            lock (_timerLock)
+            {
+                if (Volatile.Read(ref _disposed) != 0 || version != _timerVersion)
+                    return;
+            }
 
-            _isProcessing = true;
+            if (Interlocked.CompareExchange(ref _isProcessing, 1, 0) != 0)
+                return;
 
             try
             {
@@ -392,18 +434,25 @@ namespace MapleLib.Img
 
                 // Group by path and take the latest change for each
                 var uniqueChanges = changes
-                    .GroupBy(c => c.Path)
+                    .GroupBy(c => c.Path, StringComparer.OrdinalIgnoreCase)
                     .Select(g => g.OrderByDescending(c => c.Timestamp).First())
                     .ToList();
 
                 foreach (var change in uniqueChanges)
                 {
+                    if (Volatile.Read(ref _disposed) != 0)
+                        break;
                     RaiseAppropriateEvent(change);
                 }
             }
             finally
             {
-                _isProcessing = false;
+                Interlocked.Exchange(ref _isProcessing, 0);
+
+                // A newer callback can arrive after this callback drained the
+                // queue but while it still held the processing gate.
+                if (!_pendingChanges.IsEmpty && Volatile.Read(ref _disposed) == 0)
+                    ResetDebounceTimer();
             }
         }
 
@@ -444,26 +493,28 @@ namespace MapleLib.Img
         #region IDisposable
         public void Dispose()
         {
-            if (_disposed)
+            if (Interlocked.Exchange(ref _disposed, 1) != 0)
                 return;
-
-            _disposed = true;
 
             lock (_timerLock)
             {
+                _timerVersion++;
                 _debounceTimer?.Dispose();
                 _debounceTimer = null;
             }
 
-            foreach (var watcher in _watchers.Values)
+            lock (_watcherLock)
             {
-                watcher.EnableRaisingEvents = false;
-                watcher.Dispose();
-            }
+                foreach (var watcher in _watchers.Values)
+                {
+                    watcher.EnableRaisingEvents = false;
+                    watcher.Dispose();
+                }
 
-            _watchers.Clear();
-            _watchTypes.Clear();
-            _categoryPaths.Clear();
+                _watchers.Clear();
+                _watchTypes.Clear();
+                _categoryPaths.Clear();
+            }
 
             // Clear pending changes
             while (_pendingChanges.TryDequeue(out _)) { }

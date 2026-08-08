@@ -36,17 +36,10 @@ namespace MapleLib.WzLib.Util
                 if (index < 0)
                     throw new ArgumentOutOfRangeException(nameof(index));
 
-                int requiredSize;
-                try
-                {
-                    requiredSize = checked(index + 1);
-                }
-                catch (OverflowException ex)
-                {
-                    throw new InvalidDataException("WZ key index is too large.", ex);
-                }
+                if (index >= MemoryLimits.MAX_WZ_STRING_BYTES)
+                    throw new InvalidDataException("WZ key index exceeds the supported limit.");
 
-                EnsureKeySize(requiredSize);
+                EnsureKeySize(index + 1);
                 return _keys![index];
             }
         }
@@ -55,24 +48,15 @@ namespace MapleLib.WzLib.Util
         {
             if (size < 0)
                 throw new ArgumentOutOfRangeException(nameof(size));
+            if (size > MemoryLimits.MAX_WZ_STRING_BYTES)
+                throw new InvalidDataException("WZ key stream exceeds the supported limit.");
 
             if (_keys != null && _keys.Length >= size)
             {
                 return;
             }
 
-            int batchCount;
-            try
-            {
-                batchCount = checked((size + BatchSize - 1) / BatchSize);
-            }
-            catch (OverflowException ex)
-            {
-                throw new InvalidDataException("WZ key stream is too large.", ex);
-            }
-
-            if (batchCount > int.MaxValue / BatchSize)
-                throw new InvalidDataException("WZ key stream is too large.");
+            int batchCount = (size + BatchSize - 1) / BatchSize;
 
             size = batchCount * BatchSize;
             byte[] newKeys = new byte[size];

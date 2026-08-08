@@ -169,10 +169,7 @@ namespace UnitTest_WzFile
             int width = 4, height = 4;
             // Create raw BGRA4444 data: 2 bytes per pixel
             byte[] rawData = new byte[width * height * 2];
-            for (int i = 0; i < rawData.Length; i++)
-            {
-                rawData[i] = (byte)((i * 17) & 0xFF);
-            }
+            Array.Fill(rawData, (byte)0xFF);
 
             using var bmp = new Bitmap(width, height, PixelFormat.Format32bppArgb);
             BitmapData bmpData = bmp.LockBits(new Rectangle(0, 0, width, height), ImageLockMode.WriteOnly, PixelFormat.Format32bppArgb);
@@ -185,8 +182,7 @@ namespace UnitTest_WzFile
                 bmp.UnlockBits(bmpData);
             }
 
-            // Verify decompression occurred (output size is 4x input)
-            Assert.IsNotNull(bmp);
+            Assert.AreEqual(Color.White.ToArgb(), bmp.GetPixel(0, 0).ToArgb());
         }
 
         [TestMethod]
@@ -433,8 +429,10 @@ namespace UnitTest_WzFile
             PngUtility.DecompressImage_PixelDataForm517(rawData, width, height, bmp, bmpData);
             bmp.UnlockBits(bmpData);
 
-            // Verify the raw data was copied to the bitmap
-            Assert.IsNotNull(bmp);
+            Assert.IsGreaterThan(240, bmp.GetPixel(8, 8).R);
+            Assert.IsGreaterThan(240, bmp.GetPixel(24, 8).G);
+            Assert.IsGreaterThan(240, bmp.GetPixel(8, 24).B);
+            Assert.AreEqual(Color.White.ToArgb(), bmp.GetPixel(24, 24).ToArgb());
         }
 
         [TestMethod]
@@ -453,8 +451,10 @@ namespace UnitTest_WzFile
             PngUtility.DecompressImage_PixelDataForm517(rawData, width, height, bmp, bmpData);
             bmp.UnlockBits(bmpData);
 
-            // All pixels should have the same color (replicated from block)
-            Assert.IsNotNull(bmp);
+            Color expected = bmp.GetPixel(0, 0);
+            Assert.IsGreaterThan(240, expected.G);
+            Assert.IsGreaterThan(240, expected.B);
+            Assert.AreEqual(expected.ToArgb(), bmp.GetPixel(15, 15).ToArgb());
         }
         #endregion
 

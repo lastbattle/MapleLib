@@ -78,10 +78,20 @@ namespace MapleLib.WzLib
         }
         public WzImage(string name, Stream dataStream, WzMapleVersion mapleVersion)
         {
+            ArgumentNullException.ThrowIfNull(dataStream);
+            if (!dataStream.CanRead || !dataStream.CanSeek)
+                throw new ArgumentException("Standalone WZ images require a readable, seekable stream.", nameof(dataStream));
+            long remainingLength = dataStream.Length - dataStream.Position;
+            if (remainingLength < 0 || remainingLength > int.MaxValue)
+                throw new ArgumentOutOfRangeException(nameof(dataStream), "Standalone WZ image data is too large.");
+
             this.name = name;
             this.WzIv = WzTool.GetIvByMapleVersion(mapleVersion);
             this.reader = new WzBinaryReader(dataStream, WzIv);
             this.ownsReader = true;
+            this.offset = dataStream.Position;
+            this.blockStart = checked((int)dataStream.Position);
+            this.size = (int)remainingLength;
 
             this.properties = new WzPropertyCollection(this);
         }
@@ -423,51 +433,77 @@ namespace MapleLib.WzLib
                 }
             }
             
+            if (reader == null)
+                throw new InvalidOperationException("Cannot parse a WZ image without a backing reader.");
+
+            ValidateDataBounds();
+
             lock (reader) // for multi threaded XMLWZ export. 
             {
-                //long originalPos = reader.BaseStream.Position;
-                reader.BaseStream.Position = offset;
+                // Another caller may have completed parsing while this call was
+                // waiting for the shared-reader lock. Re-check the state inside
+                // the lock so properties are not appended twice.
+                if (!forceReadFromData && (Parsed || Changed))
+                    return true;
 
-                byte b = reader.ReadByte();
-                switch (b)
+                long originalPos = reader.BaseStream.Position;
+                try
                 {
-                    case 0x1: // .lua   
-                        {
-                            if (IsLuaWzImage)
+                    reader.BaseStream.Position = offset;
+
+                    byte b = reader.ReadByte();
+                    switch (b)
+                    {
+                        case 0x1: // .lua
                             {
-                                WzLuaProperty lua = WzImageProperty.ParseLuaProperty(offset, reader, this, this);
-                                properties.Add(lua);
-                                parsed = true; // test
-                                return true;
-                            }
-                            return false; // unhandled for now, if it isnt an .lua image
-                        }
-                    case WzImageHeaderByte_WithoutOffset:
-                        {
-                            string prop = reader.ReadString();
-                            ushort val = reader.ReadUInt16();
-                            if (prop != "Property" || val != 0)
-                            {
+                                if (IsLuaWzImage)
+                                {
+                                    WzLuaProperty lua = WzImageProperty.ParseLuaProperty(offset, reader, this, this);
+                                    properties.Add(lua);
+                                    parsed = true;
+                                    return true;
+                                }
                                 return false;
                             }
-                            break;
-                        }
-                    default:
-                        {
-                            // todo: log this or warn.
-                            string error = "[WzImage] New Wz image header found. b = " + b;
+                        case WzImageHeaderByte_WithoutOffset:
+                            {
+                                string prop = reader.ReadString();
+                                ushort val = reader.ReadUInt16();
+                                if (prop != "Property" || val != 0)
+                                    return false;
+                                break;
+                            }
+                        default:
+                            {
+                                string error = "[WzImage] New Wz image header found. b = " + b;
+                                Helpers.ErrorLogger.Log(Helpers.ErrorLevel.MissingFeature, error);
+                                Debug.WriteLine(error);
+                                return false;
+                            }
+                    }
+                    List<WzImageProperty> images = WzImageProperty.ParsePropertyList(offset, reader, this, this);
+                    properties.AddRange(images);
 
-                            Helpers.ErrorLogger.Log(Helpers.ErrorLevel.MissingFeature, error);
-                            Debug.WriteLine(error);
-                            return false;
-                        }
+                    parsed = true;
                 }
-                List<WzImageProperty> images = WzImageProperty.ParsePropertyList(offset, reader, this, this);
-                properties.AddRange(images);
-
-                parsed = true;
+                finally
+                {
+                    reader.BaseStream.Position = originalPos;
+                }
             }
             return true;
+        }
+
+        private void ValidateDataBounds()
+        {
+            if (!reader.BaseStream.CanSeek)
+                throw new InvalidDataException("WZ image parsing requires a seekable stream.");
+            if (offset < 0 || offset > reader.BaseStream.Length)
+                throw new InvalidDataException("WZ image offset is outside the containing stream.");
+            if (size < 0)
+                throw new InvalidDataException("WZ image block size is negative.");
+            if (size > 0 && size > reader.BaseStream.Length - offset)
+                throw new InvalidDataException("WZ image block exceeds the containing stream.");
         }
 
         /// <summary>
@@ -483,13 +519,27 @@ namespace MapleLib.WzLib
         {
             get
             {
-                byte[] blockData = null;
-                if (reader != null && size > 0)
+                if (reader == null || size <= 0)
+                    return null;
+                if (size > MemoryLimits.MAX_WZ_PAYLOAD_BYTES)
+                    throw new InvalidDataException("WZ image data block exceeds the supported allocation limit.");
+
+                ValidateDataBounds();
+                lock (reader)
                 {
-                    blockData = reader.ReadBytes(size);
-                    reader.BaseStream.Position = blockStart;
+                    long originalPosition = reader.BaseStream.Position;
+                    try
+                    {
+                        reader.BaseStream.Position = offset;
+                        byte[] blockData = new byte[size];
+                        reader.BaseStream.ReadExactly(blockData);
+                        return blockData;
+                    }
+                    finally
+                    {
+                        reader.BaseStream.Position = originalPosition;
+                    }
                 }
-                return blockData;
             }
         }
 

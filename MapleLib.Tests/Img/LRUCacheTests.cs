@@ -386,5 +386,45 @@ namespace MapleLib.Tests.Img
                 cache.Dispose();
             }
         }
+
+        [Fact]
+        public async Task GetOrAdd_ConcurrentMissesRunFactoryOnce()
+        {
+            _cache = new LRUCache<string, IntWrapper>(10);
+            int factoryCalls = 0;
+            var start = new Barrier(12);
+
+            Task<IntWrapper>[] tasks = Enumerable.Range(0, 12)
+                .Select(_ => Task.Run(() =>
+                {
+                    start.SignalAndWait();
+                    return _cache.GetOrAdd("shared", _ =>
+                    {
+                        Interlocked.Increment(ref factoryCalls);
+                        Thread.Sleep(20);
+                        return new IntWrapper(42);
+                    });
+                }))
+                .ToArray();
+
+            IntWrapper[] values = await Task.WhenAll(tasks);
+
+            Assert.Equal(1, Volatile.Read(ref factoryCalls));
+            Assert.All(values, value => Assert.Equal(42, value.Value));
+            Assert.Equal(1, _cache.Count);
+        }
+
+        [Fact]
+        public void SizeEstimatorRejectsNegativeAndSkipsOversizedValues()
+        {
+            using var negative = new LRUCache<string, IntWrapper>(100, _ => -1);
+            Assert.Throws<ArgumentOutOfRangeException>(() => negative.Add("bad", new IntWrapper(1)));
+
+            using var bounded = new LRUCache<string, IntWrapper>(10, _ => 11);
+            bounded.Add("too-large", new IntWrapper(1));
+
+            Assert.Equal(0, bounded.Count);
+            Assert.Equal(0, bounded.CurrentSizeBytes);
+        }
     }
 }

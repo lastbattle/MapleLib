@@ -42,14 +42,38 @@ namespace MapleLib.Img
         {
             get
             {
-                foreach (var img in Images)
-                    yield return img.RelativePath;
-
-                foreach (var subdir in Subdirectories)
+                foreach (var img in Images ?? [])
                 {
-                    foreach (var img in subdir.Images)
-                        yield return Path.Combine(subdir.Name, img.RelativePath);
+                    if (!string.IsNullOrWhiteSpace(img?.RelativePath))
+                        yield return img.RelativePath;
                 }
+
+                foreach (var subdir in Subdirectories ?? [])
+                {
+                    foreach (var path in EnumerateSubdirectoryPaths(subdir, string.Empty))
+                        yield return path;
+                }
+            }
+        }
+
+        private static IEnumerable<string> EnumerateSubdirectoryPaths(SubdirectoryEntry subdir, string prefix)
+        {
+            if (subdir == null || string.IsNullOrWhiteSpace(subdir.Name))
+                yield break;
+
+            string currentPrefix = string.IsNullOrEmpty(prefix)
+                ? subdir.Name
+                : Path.Combine(prefix, subdir.Name);
+            foreach (var image in subdir.Images ?? [])
+            {
+                if (!string.IsNullOrWhiteSpace(image?.RelativePath))
+                    yield return Path.Combine(currentPrefix, image.RelativePath);
+            }
+
+            foreach (var child in subdir.Subdirectories ?? [])
+            {
+                foreach (var path in EnumerateSubdirectoryPaths(child, currentPrefix))
+                    yield return path;
             }
         }
 
@@ -147,6 +171,7 @@ namespace MapleLib.Img
 
             try
             {
+                MemoryLimits.EnsureFileSize(indexPath, MemoryLimits.MAX_METADATA_JSON_BYTES, "IMG category index");
                 string json = File.ReadAllText(indexPath);
                 return JsonSerializer.Deserialize(json, MapleJsonContext.Default.CategoryIndex);
             }

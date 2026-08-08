@@ -57,6 +57,7 @@ namespace MapleLib.WzLib.MSFile
     public class WzMsFile : IDisposable
     {
         private const int Version2MinimumEntryBytes = sizeof(int) + (7 * sizeof(int)) + WzMsConstants.EntryKeySize;
+        private const int Version4MinimumEntryBytes = (sizeof(int) * 10) + WzMsConstants.EntryKeySize;
         private const int MaxEntryCount = 100_000;
         private const int MaxEntryNameLength = 1_048_576;
 
@@ -321,12 +322,13 @@ namespace MapleLib.WzLib.MSFile
 
             int headerHash = BinaryPrimitives.ReadInt32LittleEndian(headerBytes[..4]);
             int entryCount = BinaryPrimitives.ReadInt32LittleEndian(headerBytes[4..]);
-            if (entryCount < 0 || entryCount > this.BaseStream.Length / 32)
+            if (entryCount < 0 || entryCount > MaxEntryCount ||
+                entryCount > (this.BaseStream.Length - headerStartPos) / Version4MinimumEntryBytes)
                 throw new InvalidDataException($"Invalid version {WzMsConstants.Version4} entry count: {entryCount}");
 
             int padAmount = (fileNameCharSum * 3) % WzMsConstants.HeaderPadMod + 64;
             long entryStartPos = headerStartPos + 8 + padAmount;
-            if (entryStartPos >= this.BaseStream.Length)
+            if (entryStartPos < 0 || entryStartPos > this.BaseStream.Length)
                 throw new InvalidDataException($"Invalid version {WzMsConstants.Version4} entry start position: {entryStartPos}");
 
             var header = new WzMsHeader(fullFileName, saltStr, fileNameWithSalt, headerHash, WzMsConstants.Version4, entryCount, headerStartPos, entryStartPos);
@@ -380,14 +382,23 @@ namespace MapleLib.WzLib.MSFile
             if (this.Header == null || this.Header.EntryCount == 0 || this.Header.EntryCount == this.Entries.Count)
                 return;
             this.Entries.Clear();
-
-            if (this.Header.Version == WzMsConstants.Version4)
+            long previousDataStart = this.Header.DataStartPosition;
+            try
             {
-                ReadEntriesVersion4();
-                return;
-            }
+                if (this.Header.Version == WzMsConstants.Version4)
+                {
+                    ReadEntriesVersion4();
+                    return;
+                }
 
-            ReadEntriesVersion2();
+                ReadEntriesVersion2();
+            }
+            catch
+            {
+                this.Entries.Clear();
+                this.Header.DataStartPosition = previousDataStart;
+                throw;
+            }
         }
 
         private void ReadEntriesVersion2()
@@ -449,6 +460,8 @@ namespace MapleLib.WzLib.MSFile
 
             long dataStartPos = this.BaseStream.Position;
             dataStartPos = AlignToPage(dataStartPos); // Extracted helper
+            if (dataStartPos > this.BaseStream.Length)
+                throw new InvalidDataException($"Version {WzMsConstants.Version2} data section starts outside the containing stream.");
             this.Header.DataStartPosition = dataStartPos; // skip the random padding after entries
 
             foreach (var entry in this.Entries)
@@ -465,6 +478,8 @@ namespace MapleLib.WzLib.MSFile
         private void ReadEntriesVersion4()
         {
             int entryCount = this.Header.EntryCount;
+            if (entryCount < 0 || entryCount > MaxEntryCount)
+                throw new InvalidDataException($"Invalid version {WzMsConstants.Version4} entry count: {entryCount}");
             if (this.Entries.Capacity < entryCount)
                 this.Entries.Capacity = entryCount;
 
@@ -478,7 +493,7 @@ namespace MapleLib.WzLib.MSFile
 
             for (int i = 0; i < entryCount; i++)
             {
-                string entryName = chacha20Reader.ReadString();
+                string entryName = chacha20Reader.ReadString(MaxEntryNameLength);
                 int checkSum = chacha20Reader.ReadInt32();
                 int flags = chacha20Reader.ReadInt32();
                 int startPos = chacha20Reader.ReadInt32();
@@ -490,17 +505,27 @@ namespace MapleLib.WzLib.MSFile
                 int unk3 = chacha20Reader.ReadInt32();
                 int unk4 = chacha20Reader.ReadInt32();
 
+                if (startPos < 0)
+                    throw new InvalidDataException($"MS entry '{entryName}' has a negative start position.");
+                if (size < 0 || sizeAligned < 0 || sizeAligned < size)
+                    throw new InvalidDataException($"Invalid MS entry size for '{entryName}'.");
+
                 var entry = new WzMsEntry(entryName, checkSum, flags, startPos, size, sizeAligned, unk1, unk2, entryKey, unk3, unk4);
                 this.Entries.Add(entry);
             }
 
             long dataStartPos = AlignToPage(this.BaseStream.Position);
+            if (dataStartPos > this.BaseStream.Length)
+                throw new InvalidDataException($"Version {WzMsConstants.Version4} data section starts outside the containing stream.");
             this.Header.DataStartPosition = dataStartPos;
 
             foreach (var entry in this.Entries)
             {
                 long absoluteStart = checked(dataStartPos + entry.StartPos * (long)WzMsConstants.BlockAlignment);
                 entry.StartPos = absoluteStart;
+                // Version 4 packs may contain an intentionally truncated data section
+                // (for example, metadata-only fixtures). Validate bounds when an entry
+                // is actually decrypted instead of rejecting the entire table here.
             }
         }
 
@@ -509,7 +534,12 @@ namespace MapleLib.WzLib.MSFile
         /// </summary>
         /// <param name="pos">Current position.</param>
         /// <returns>Aligned position.</returns>
-        private static long AlignToPage(long pos) => (pos + WzMsConstants.PageAlignmentMask) & ~WzMsConstants.PageAlignmentMask;
+        private static long AlignToPage(long pos)
+        {
+            if (pos < 0 || pos > long.MaxValue - WzMsConstants.PageAlignmentMask)
+                throw new InvalidDataException("MS data position cannot be aligned safely.");
+            return (pos + WzMsConstants.PageAlignmentMask) & ~WzMsConstants.PageAlignmentMask;
+        }
 
         private static int SumChars(ReadOnlySpan<char> chars)
         {
@@ -566,6 +596,8 @@ namespace MapleLib.WzLib.MSFile
 
             public byte[] ReadBytes(int count)
             {
+                if (count < 0 || count > MemoryLimits.MAX_WZ_PAYLOAD_BYTES)
+                    throw new InvalidDataException($"Invalid version {WzMsConstants.Version4} payload length: {count}");
                 byte[] result = new byte[count];
                 ReadBytes(result);
                 return result;
@@ -599,10 +631,10 @@ namespace MapleLib.WzLib.MSFile
                 return BinaryPrimitives.ReadInt32LittleEndian(value);
             }
 
-            public string ReadString()
+            public string ReadString(int maxLength)
             {
                 int length = ReadInt32();
-                if (length < 0)
+                if (length < 0 || length > maxLength)
                     throw new InvalidDataException($"Invalid version {WzMsConstants.Version4} entry name length: {length}");
 
                 char[] rented = ArrayPool<char>.Shared.Rent(length);
@@ -756,10 +788,14 @@ namespace MapleLib.WzLib.MSFile
                 return this.BaseStream;
 
             // Encrypt data and update entry fields
-            var encryptedDatas = new List<byte[]>(this.Entries.Count);
+            // Keep encrypted data indexed by its source entry. Entries with no
+            // in-memory payload are intentionally skipped, so a compact list
+            // would shift later entries and write the wrong bytes.
+            byte[]?[] encryptedDatas = new byte[]?[this.Entries.Count];
             long currentBlockIndex = 0;
-            foreach (var entry in this.Entries)
+            for (int i = 0; i < this.Entries.Count; i++)
             {
+                WzMsEntry entry = this.Entries[i] ?? throw new InvalidDataException("MS entry cannot be null.");
                 if (entry.Data == null)
                     continue;
 
@@ -770,7 +806,7 @@ namespace MapleLib.WzLib.MSFile
                 entry.SizeAligned = sizeAligned;
                 entry.StartPos = currentBlockIndex;
                 currentBlockIndex += sizeAligned / 1024;
-                encryptedDatas.Add(encrypted);
+                encryptedDatas[i] = encrypted;
 
                 // Recalculate checksum using RecalculateFields
                 entry.RecalculateFields(entry.Flags, (int)entry.StartPos, entry.Unk1);
@@ -891,11 +927,11 @@ namespace MapleLib.WzLib.MSFile
             long maxPos = dataStartPos;
             for (int i = 0; i < this.Entries.Count; i++)
             {
-                var entry = this.Entries[i];
+                WzMsEntry entry = this.Entries[i] ?? throw new InvalidDataException("MS entry cannot be null.");
                 if (entry.Data == null)
                     continue;
 
-                byte[] encrypted = encryptedDatas[i];
+                byte[] encrypted = encryptedDatas[i] ?? throw new InvalidDataException("MS entry encryption data is missing.");
                 long blockStart = dataStartPos + entry.StartPos * 1024;
                 if (blockStart > this.BaseStream.Position)
                     this.BaseStream.Position = blockStart;
@@ -929,6 +965,7 @@ namespace MapleLib.WzLib.MSFile
         /// <returns>16-byte imgKey.</returns>
         private void DeriveImgKey(WzMsEntry entry, Span<byte> imgKey)
         {
+            ValidateEntryKeyInputs(entry);
             uint keyHash = WzMsConstants.InitialKeyHash;
             foreach (char c in Header.Salt)
             {
@@ -954,6 +991,7 @@ namespace MapleLib.WzLib.MSFile
 
         private void DeriveChaCha20ImgKey(WzMsEntry entry, Span<byte> imgKey, Span<byte> nonce, out uint counter)
         {
+            ValidateEntryKeyInputs(entry);
             uint keyHash = WzMsConstants.InitialKeyHash;
             foreach (char c in Header.Salt)
             {
@@ -996,6 +1034,16 @@ namespace MapleLib.WzLib.MSFile
             nonce.Clear();
             keyHashData[..8].CopyTo(nonce[4..]);
             counter = BinaryPrimitives.ReadUInt32LittleEndian(keyHashData[8..]);
+        }
+
+        private static void ValidateEntryKeyInputs(WzMsEntry entry)
+        {
+            if (entry == null)
+                throw new InvalidDataException("MS entry cannot be null.");
+            if (string.IsNullOrEmpty(entry.Name))
+                throw new InvalidDataException("MS entry name cannot be empty.");
+            if (entry.EntryKey == null || entry.EntryKey.Length != WzMsConstants.EntryKeySize)
+                throw new InvalidDataException("MS entry key has an invalid length.");
         }
 
         /// <summary>
@@ -1100,7 +1148,8 @@ namespace MapleLib.WzLib.MSFile
 
         public void Close()
         {
-            BaseStream?.Dispose();
+            if (!leaveOpen)
+                BaseStream?.Dispose();
             BaseStream = null;
         }
 

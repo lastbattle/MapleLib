@@ -36,12 +36,14 @@ namespace MapleLib.Img
 
         #region Fields
         private readonly string _rootPath;
+        private readonly object _stateLock = new();
         private readonly List<VersionInfo> _availableVersions = new();
         private bool _scanned;
 
         // Hot swap
         private FileSystemWatcherService _watcherService;
         private bool _hotSwapEnabled;
+        private long _watcherGeneration;
         private readonly List<string> _additionalWatchPaths = new();
         #endregion
 
@@ -65,9 +67,22 @@ namespace MapleLib.Img
         {
             get
             {
-                if (!_scanned)
+                bool scanned;
+                lock (_stateLock)
+                {
+                    scanned = _scanned;
+                }
+
+                if (!scanned)
                     ScanVersions();
-                return _availableVersions.AsReadOnly();
+
+                // Never expose the backing list.  A read-only wrapper around the
+                // mutable list would still change underneath callers while a
+                // scan or watcher callback is replacing its contents.
+                lock (_stateLock)
+                {
+                    return _availableVersions.ToList().AsReadOnly();
+                }
             }
         }
 
@@ -79,7 +94,16 @@ namespace MapleLib.Img
         /// <summary>
         /// Gets whether hot swap (file system watching) is enabled
         /// </summary>
-        public bool HotSwapEnabled => _hotSwapEnabled;
+        public bool HotSwapEnabled
+        {
+            get
+            {
+                lock (_stateLock)
+                {
+                    return _hotSwapEnabled;
+                }
+            }
+        }
         #endregion
 
         #region Constructor
@@ -105,10 +129,17 @@ namespace MapleLib.Img
         /// <returns>List of discovered versions</returns>
         public List<VersionInfo> ScanVersions()
         {
-            // Preserve external versions
-            var externalVersions = _availableVersions.Where(v => v.IsExternal).ToList();
+            // Take a state snapshot before doing filesystem I/O.  In particular,
+            // do not hold the state lock while manifests and directories are read.
+            List<VersionInfo> baseline;
+            lock (_stateLock)
+            {
+                baseline = _availableVersions.ToList();
+            }
 
-            _availableVersions.Clear();
+            var baselineSet = new HashSet<VersionInfo>(baseline);
+            var externalVersions = baseline.Where(v => v.IsExternal).ToList();
+            var discoveredVersions = new List<VersionInfo>();
 
             if (Directory.Exists(_rootPath))
             {
@@ -117,26 +148,46 @@ namespace MapleLib.Img
                     var versionInfo = LoadVersionManifest(dir);
                     if (versionInfo != null)
                     {
-                        _availableVersions.Add(versionInfo);
+                        discoveredVersions.Add(versionInfo);
                     }
                 }
             }
 
-            // Re-add external versions that still exist
-            foreach (var externalVersion in externalVersions)
+            // Preserve external versions and any versions added by a watcher while
+            // this scan was reading the filesystem.  Directory checks are kept
+            // outside the lock so a slow or unavailable filesystem cannot block
+            // readers and hot-swap callbacks.
+            List<VersionInfo> concurrentVersions;
+            lock (_stateLock)
             {
-                if (Directory.Exists(externalVersion.DirectoryPath) &&
-                    !_availableVersions.Any(v => v.DirectoryPath.Equals(externalVersion.DirectoryPath, StringComparison.OrdinalIgnoreCase)))
-                {
-                    _availableVersions.Add(externalVersion);
-                }
+                concurrentVersions = _availableVersions
+                    .Where(v => !baselineSet.Contains(v))
+                    .ToList();
             }
 
-            // Sort by version name
-            _availableVersions.Sort((a, b) => string.Compare(a.Version, b.Version, StringComparison.OrdinalIgnoreCase));
+            var retainedVersions = externalVersions
+                .Concat(concurrentVersions)
+                .Where(v => Directory.Exists(v.DirectoryPath))
+                .ToList();
 
-            _scanned = true;
-            return _availableVersions;
+            lock (_stateLock)
+            {
+                _availableVersions.Clear();
+                _availableVersions.AddRange(discoveredVersions);
+
+                foreach (var retainedVersion in retainedVersions)
+                {
+                    if (!_availableVersions.Any(v =>
+                        string.Equals(v.DirectoryPath, retainedVersion.DirectoryPath, StringComparison.OrdinalIgnoreCase)))
+                    {
+                        _availableVersions.Add(retainedVersion);
+                    }
+                }
+
+                _availableVersions.Sort((a, b) => string.Compare(a.Version, b.Version, StringComparison.OrdinalIgnoreCase));
+                _scanned = true;
+                return new List<VersionInfo>(_availableVersions);
+            }
         }
 
         /// <summary>
@@ -144,7 +195,10 @@ namespace MapleLib.Img
         /// </summary>
         public void Refresh()
         {
-            _scanned = false;
+            lock (_stateLock)
+            {
+                _scanned = false;
+            }
             ScanVersions();
         }
 
@@ -154,7 +208,7 @@ namespace MapleLib.Img
         public VersionInfo GetVersion(string versionId)
         {
             return AvailableVersions.FirstOrDefault(v =>
-                v.Version.Equals(versionId, StringComparison.OrdinalIgnoreCase));
+                string.Equals(v.Version, versionId, StringComparison.OrdinalIgnoreCase));
         }
 
         /// <summary>
@@ -183,6 +237,7 @@ namespace MapleLib.Img
             {
                 try
                 {
+                    MemoryLimits.EnsureFileSize(manifestPath, MemoryLimits.MAX_METADATA_JSON_BYTES, "IMG version manifest");
                     string json = File.ReadAllText(manifestPath);
                     versionInfo = JsonSerializer.Deserialize(json, MapleJsonContext.Default.VersionInfo);
                     versionInfo.DirectoryPath = versionPath;
@@ -413,10 +468,6 @@ namespace MapleLib.Img
             if (!Directory.Exists(versionPath))
                 return null;
 
-            // Check if already in the list
-            if (_availableVersions.Any(v => v.DirectoryPath.Equals(versionPath, StringComparison.OrdinalIgnoreCase)))
-                return null;
-
             // Load the version info
             var versionInfo = LoadVersionManifest(versionPath);
             if (versionInfo == null)
@@ -425,11 +476,19 @@ namespace MapleLib.Img
             // Mark as external
             versionInfo.IsExternal = true;
 
-            // Add to the list
-            _availableVersions.Add(versionInfo);
+            lock (_stateLock)
+            {
+                // The load is intentionally outside the lock, but duplicate
+                // detection and publication must be one atomic operation.
+                if (_availableVersions.Any(v =>
+                    string.Equals(v.DirectoryPath, versionPath, StringComparison.OrdinalIgnoreCase)))
+                {
+                    return null;
+                }
 
-            // Sort by version name
-            _availableVersions.Sort((a, b) => string.Compare(a.Version, b.Version, StringComparison.OrdinalIgnoreCase));
+                _availableVersions.Add(versionInfo);
+                _availableVersions.Sort((a, b) => string.Compare(a.Version, b.Version, StringComparison.OrdinalIgnoreCase));
+            }
 
             return versionInfo;
         }
@@ -445,8 +504,17 @@ namespace MapleLib.Img
 
             try
             {
-                Directory.Delete(version.DirectoryPath, recursive: true);
-                _availableVersions.Remove(version);
+                string versionPath = version.DirectoryPath;
+                Directory.Delete(versionPath, recursive: true);
+
+                lock (_stateLock)
+                {
+                    // A concurrent refresh can replace the VersionInfo instance;
+                    // remove by path as well as by reference in that case.
+                    _availableVersions.RemoveAll(v =>
+                        ReferenceEquals(v, version) ||
+                        string.Equals(v.DirectoryPath, versionPath, StringComparison.OrdinalIgnoreCase));
+                }
                 return true;
             }
             catch (Exception)
@@ -474,11 +542,14 @@ namespace MapleLib.Img
             if (version == null)
                 return false;
 
-            if (_availableVersions.Any(v =>
-                !ReferenceEquals(v, version) &&
-                v.Version.Equals(newVersionId, StringComparison.OrdinalIgnoreCase)))
+            lock (_stateLock)
             {
-                return false;
+                if (_availableVersions.Any(v =>
+                    !ReferenceEquals(v, version) &&
+                    string.Equals(v.Version, newVersionId, StringComparison.OrdinalIgnoreCase)))
+                {
+                    return false;
+                }
             }
 
             try
@@ -487,7 +558,18 @@ namespace MapleLib.Img
                 if (string.IsNullOrEmpty(parentPath))
                     return false;
 
-                string newPath = Path.Combine(parentPath, newVersionId);
+                if (string.IsNullOrWhiteSpace(newVersionId) ||
+                    newVersionId is "." or ".." ||
+                    Path.IsPathRooted(newVersionId) ||
+                    newVersionId.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0)
+                    return false;
+
+                string fullParentPath = Path.GetFullPath(parentPath);
+                string newPath = Path.GetFullPath(Path.Combine(fullParentPath, newVersionId));
+                string newParentPath = Path.GetDirectoryName(newPath);
+                if (!string.Equals(fullParentPath, newParentPath, StringComparison.OrdinalIgnoreCase))
+                    return false;
+
                 if (!version.DirectoryPath.Equals(newPath, StringComparison.OrdinalIgnoreCase) && Directory.Exists(newPath))
                     return false;
 
@@ -508,8 +590,14 @@ namespace MapleLib.Img
                 version.DirectoryPath = newPath;
                 SaveVersionManifest(version);
 
-                _availableVersions.Sort((a, b) => string.Compare(a.Version, b.Version, StringComparison.OrdinalIgnoreCase));
-                renamedVersion = version;
+                lock (_stateLock)
+                {
+                    _availableVersions.Sort((a, b) => string.Compare(a.Version, b.Version, StringComparison.OrdinalIgnoreCase));
+                    renamedVersion = version;
+                }
+
+                // Event handlers may call back into VersionManager, so invoke
+                // them only after releasing the state lock.
                 OnVersionsChanged(VersionChangeType.Refreshed, version);
                 return true;
             }
@@ -549,15 +637,29 @@ namespace MapleLib.Img
         /// <param name="additionalPaths">Additional paths to watch (e.g., from config.AdditionalVersionPaths)</param>
         public void EnableHotSwap(bool enable, int debounceMs = 500, IEnumerable<string> additionalPaths = null)
         {
-            if (enable && !_hotSwapEnabled)
+            if (enable)
             {
-                InitializeFileWatchers(debounceMs, additionalPaths);
-                _hotSwapEnabled = true;
+                long generation;
+                lock (_stateLock)
+                {
+                    if (_hotSwapEnabled)
+                        return;
+
+                    if (debounceMs < 0)
+                        throw new ArgumentOutOfRangeException(nameof(debounceMs));
+
+                    // Publish the desired state before doing I/O.  This gives a
+                    // concurrent disable operation a linearization point and
+                    // lets it invalidate an in-progress initialization.
+                    _hotSwapEnabled = true;
+                    generation = ++_watcherGeneration;
+                }
+
+                InitializeFileWatchers(debounceMs, additionalPaths, generation);
             }
-            else if (!enable && _hotSwapEnabled)
+            else
             {
                 DisposeFileWatchers();
-                _hotSwapEnabled = false;
             }
         }
 
@@ -567,16 +669,46 @@ namespace MapleLib.Img
         /// <param name="path">The path to watch</param>
         public void AddWatchPath(string path)
         {
-            if (!_hotSwapEnabled || _watcherService == null || string.IsNullOrEmpty(path))
+            if (string.IsNullOrEmpty(path) || !Directory.Exists(path))
                 return;
 
-            if (!Directory.Exists(path))
-                return;
-
-            if (!_additionalWatchPaths.Contains(path, StringComparer.OrdinalIgnoreCase))
+            string normalizedPath;
+            try
             {
-                _additionalWatchPaths.Add(path);
-                _watcherService.WatchPath(path, WatchType.VersionRoot);
+                normalizedPath = Path.TrimEndingDirectorySeparator(Path.GetFullPath(path));
+            }
+            catch (Exception)
+            {
+                return;
+            }
+
+            FileSystemWatcherService watcher;
+            lock (_stateLock)
+            {
+                if (!_hotSwapEnabled || _watcherService == null ||
+                    _additionalWatchPaths.Contains(normalizedPath, StringComparer.OrdinalIgnoreCase))
+                {
+                    return;
+                }
+
+                watcher = _watcherService;
+                _additionalWatchPaths.Add(normalizedPath);
+            }
+
+            try
+            {
+                watcher.WatchPath(normalizedPath, WatchType.VersionRoot);
+            }
+            catch (ObjectDisposedException)
+            {
+                lock (_stateLock)
+                {
+                    if (ReferenceEquals(_watcherService, watcher))
+                    {
+                        _additionalWatchPaths.RemoveAll(p =>
+                            p.Equals(normalizedPath, StringComparison.OrdinalIgnoreCase));
+                    }
+                }
             }
         }
 
@@ -586,47 +718,128 @@ namespace MapleLib.Img
         /// <param name="path">The path to stop watching</param>
         public void RemoveWatchPath(string path)
         {
-            if (!_hotSwapEnabled || _watcherService == null || string.IsNullOrEmpty(path))
+            if (string.IsNullOrEmpty(path))
                 return;
 
-            _additionalWatchPaths.Remove(path);
-            _watcherService.UnwatchPath(path);
+            string normalizedPath;
+            try
+            {
+                normalizedPath = Path.TrimEndingDirectorySeparator(Path.GetFullPath(path));
+            }
+            catch (Exception)
+            {
+                return;
+            }
+
+            FileSystemWatcherService watcher;
+            lock (_stateLock)
+            {
+                if (!_hotSwapEnabled || _watcherService == null)
+                    return;
+
+                watcher = _watcherService;
+                _additionalWatchPaths.RemoveAll(p =>
+                    p.Equals(normalizedPath, StringComparison.OrdinalIgnoreCase));
+            }
+
+            watcher.UnwatchPath(normalizedPath);
         }
 
         /// <summary>
         /// Initializes file system watchers
         /// </summary>
-        private void InitializeFileWatchers(int debounceMs, IEnumerable<string> additionalPaths)
+        private void InitializeFileWatchers(int debounceMs, IEnumerable<string> additionalPaths, long generation)
         {
-            _watcherService = new FileSystemWatcherService(debounceMs);
-            _watcherService.VersionDirectoryChanged += OnVersionDirectoryChanged;
-            _watcherService.WatcherError += OnWatcherError;
+            var watcher = new FileSystemWatcherService(debounceMs);
+            var pathsToStore = new List<string>();
 
-            // Watch the root versions path
-            if (Directory.Exists(_rootPath))
-            {
-                _watcherService.WatchPath(_rootPath, WatchType.VersionRoot);
-            }
+            watcher.VersionDirectoryChanged += OnVersionDirectoryChanged;
+            watcher.WatcherError += OnWatcherError;
 
-            // Watch additional paths
-            if (additionalPaths != null)
+            try
             {
-                foreach (var path in additionalPaths)
+                // Watch the root versions path
+                if (Directory.Exists(_rootPath))
                 {
-                    if (Directory.Exists(path))
+                    watcher.WatchPath(_rootPath, WatchType.VersionRoot);
+                }
+
+                // Watch additional paths
+                if (additionalPaths != null)
+                {
+                    foreach (var path in additionalPaths)
                     {
-                        _additionalWatchPaths.Add(path);
-                        // Watch the parent directory of each additional version path
-                        string parentPath = Path.GetDirectoryName(path);
-                        if (!string.IsNullOrEmpty(parentPath) && Directory.Exists(parentPath))
+                        if (string.IsNullOrEmpty(path) || !Directory.Exists(path))
+                            continue;
+
+                        string normalizedPath;
+                        try
                         {
-                            _watcherService.WatchPath(parentPath, WatchType.VersionRoot);
+                            normalizedPath = Path.TrimEndingDirectorySeparator(Path.GetFullPath(path));
+                        }
+                        catch (Exception)
+                        {
+                            continue;
+                        }
+                        if (!pathsToStore.Contains(normalizedPath, StringComparer.OrdinalIgnoreCase))
+                        {
+                            pathsToStore.Add(normalizedPath);
+                            // Watch the parent directory of each additional version path
+                            string parentPath = Path.GetDirectoryName(normalizedPath);
+                            if (!string.IsNullOrEmpty(parentPath) && Directory.Exists(parentPath))
+                            {
+                                watcher.WatchPath(parentPath, WatchType.VersionRoot);
+                            }
                         }
                     }
                 }
-            }
 
-            System.Diagnostics.Debug.WriteLine($"VersionManager hot swap enabled for {_watcherService.WatchedPaths.Count} paths");
+                bool publish;
+                lock (_stateLock)
+                {
+                    publish = _hotSwapEnabled && generation == _watcherGeneration &&
+                        _watcherService == null;
+
+                    if (publish)
+                    {
+                        _watcherService = watcher;
+                        _additionalWatchPaths.Clear();
+                        _additionalWatchPaths.AddRange(pathsToStore);
+                    }
+                }
+
+                if (!publish)
+                {
+                    DisposeWatcher(watcher);
+                    return;
+                }
+
+                System.Diagnostics.Debug.WriteLine($"VersionManager hot swap enabled for {watcher.WatchedPaths.Count} paths");
+            }
+            catch (Exception)
+            {
+                bool published;
+
+                lock (_stateLock)
+                {
+                    published = ReferenceEquals(_watcherService, watcher);
+                    if (published)
+                    {
+                        _watcherService = null;
+                        _additionalWatchPaths.Clear();
+                        _hotSwapEnabled = false;
+                        ++_watcherGeneration;
+                    }
+
+                    if (generation == _watcherGeneration && !published)
+                    {
+                        _hotSwapEnabled = false;
+                        ++_watcherGeneration;
+                    }
+                }
+
+                DisposeWatcher(watcher);
+            }
         }
 
         /// <summary>
@@ -634,16 +847,34 @@ namespace MapleLib.Img
         /// </summary>
         private void DisposeFileWatchers()
         {
-            if (_watcherService != null)
+            FileSystemWatcherService watcher;
+            lock (_stateLock)
             {
-                _watcherService.VersionDirectoryChanged -= OnVersionDirectoryChanged;
-                _watcherService.WatcherError -= OnWatcherError;
-                _watcherService.Dispose();
+                if (!_hotSwapEnabled && _watcherService == null)
+                    return;
+
+                _hotSwapEnabled = false;
+                ++_watcherGeneration;
+                watcher = _watcherService;
                 _watcherService = null;
+                _additionalWatchPaths.Clear();
             }
 
-            _additionalWatchPaths.Clear();
+            // Detaching and disposing can block on watcher callbacks.  Do that
+            // outside the state lock so callers and callbacks cannot deadlock.
+            if (watcher != null)
+            {
+                DisposeWatcher(watcher);
+            }
+
             System.Diagnostics.Debug.WriteLine("VersionManager hot swap disabled");
+        }
+
+        private void DisposeWatcher(FileSystemWatcherService watcher)
+        {
+            watcher.VersionDirectoryChanged -= OnVersionDirectoryChanged;
+            watcher.WatcherError -= OnWatcherError;
+            watcher.Dispose();
         }
 
         /// <summary>
@@ -653,7 +884,12 @@ namespace MapleLib.Img
         {
             try
             {
-                VersionChangeType changeType;
+                // A disposed/replaced watcher can still have a callback queued.
+                // Ignore callbacks that no longer belong to the active service.
+                if (!IsActiveWatcher(sender))
+                    return;
+
+                VersionChangeType? changeType = null;
                 VersionInfo affectedVersion = null;
 
                 switch (e.ChangeType)
@@ -669,16 +905,25 @@ namespace MapleLib.Img
                             var newVersion = LoadVersionManifest(e.VersionPath);
                             if (newVersion != null && newVersion.IsValid)
                             {
-                                if (!_availableVersions.Any(v =>
-                                    v.DirectoryPath.Equals(e.VersionPath, StringComparison.OrdinalIgnoreCase)))
+                                bool added;
+                                lock (_stateLock)
                                 {
-                                    _availableVersions.Add(newVersion);
-                                    _availableVersions.Sort((a, b) =>
-                                        string.Compare(a.Version, b.Version, StringComparison.OrdinalIgnoreCase));
+                                    added = _hotSwapEnabled && ReferenceEquals(_watcherService, sender) &&
+                                        !_availableVersions.Any(v =>
+                                            string.Equals(v.DirectoryPath, e.VersionPath, StringComparison.OrdinalIgnoreCase));
 
+                                    if (added)
+                                    {
+                                        _availableVersions.Add(newVersion);
+                                        _availableVersions.Sort((a, b) =>
+                                            string.Compare(a.Version, b.Version, StringComparison.OrdinalIgnoreCase));
+                                    }
+                                }
+
+                                if (added)
+                                {
                                     affectedVersion = newVersion;
                                     changeType = VersionChangeType.Added;
-                                    OnVersionsChanged(changeType, affectedVersion);
                                 }
                             }
                         }
@@ -686,22 +931,36 @@ namespace MapleLib.Img
 
                     case WatcherChangeTypes.Deleted:
                         // A directory was deleted - remove from list
-                        affectedVersion = _availableVersions.FirstOrDefault(v =>
-                            v.DirectoryPath.Equals(e.VersionPath, StringComparison.OrdinalIgnoreCase));
-
-                        if (affectedVersion != null)
+                        lock (_stateLock)
                         {
-                            _availableVersions.Remove(affectedVersion);
-                            changeType = VersionChangeType.Removed;
-                            OnVersionsChanged(changeType, affectedVersion);
+                            if (_hotSwapEnabled && ReferenceEquals(_watcherService, sender))
+                            {
+                                affectedVersion = _availableVersions.FirstOrDefault(v =>
+                                    string.Equals(v.DirectoryPath, e.VersionPath, StringComparison.OrdinalIgnoreCase));
+
+                                if (affectedVersion != null)
+                                {
+                                    _availableVersions.Remove(affectedVersion);
+                                    changeType = VersionChangeType.Removed;
+                                }
+                            }
                         }
                         break;
 
                     case WatcherChangeTypes.Renamed:
                         // Directory was renamed - refresh the list
                         Refresh();
-                        OnVersionsChanged(VersionChangeType.Refreshed, null);
+                        if (IsActiveWatcher(sender))
+                        {
+                            changeType = VersionChangeType.Refreshed;
+                        }
                         break;
+                }
+
+                // Never invoke user code while holding the state lock.
+                if (changeType.HasValue)
+                {
+                    OnVersionsChanged(changeType.Value, affectedVersion);
                 }
 
                 System.Diagnostics.Debug.WriteLine($"VersionManager hot swap: {e.ChangeType} - {e.VersionPath}");
@@ -709,6 +968,14 @@ namespace MapleLib.Img
             catch (Exception ex)
             {
                 System.Diagnostics.Debug.WriteLine($"Error handling version directory change: {ex.Message}");
+            }
+        }
+
+        private bool IsActiveWatcher(object sender)
+        {
+            lock (_stateLock)
+            {
+                return _hotSwapEnabled && ReferenceEquals(_watcherService, sender);
             }
         }
 

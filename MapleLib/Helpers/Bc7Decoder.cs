@@ -1,5 +1,6 @@
 using System;
 using System.Buffers.Binary;
+using System.IO;
 
 namespace MapleLib.Helpers
 {
@@ -32,13 +33,12 @@ namespace MapleLib.Helpers
 
         public static byte[] DecodeToBgra32(byte[] source, int width, int height)
         {
-            int blockCountX = (width + 3) / 4;
-            int blockCountY = (height + 3) / 4;
-            int requiredLength = blockCountX * blockCountY * 16;
+            ValidateDimensionsAndSource(source, width, height, out int blockCountX, out int blockCountY, out int requiredLength);
+            long outputLength = ValidateDecodedLength(width, height);
             if (source.Length < requiredLength)
                 throw new ArgumentException("BC7 source data is shorter than the dimensions require.", nameof(source));
 
-            byte[] output = new byte[width * height * 4];
+            byte[] output = new byte[(int)outputLength];
             Span<byte> block = stackalloc byte[64];
             int sourceOffset = 0;
 
@@ -64,11 +64,14 @@ namespace MapleLib.Helpers
 
         public static unsafe void DecodeToBgra32(byte[] source, int width, int height, IntPtr destination, int stride)
         {
-            int blockCountX = (width + 3) / 4;
-            int blockCountY = (height + 3) / 4;
-            int requiredLength = blockCountX * blockCountY * 16;
+            ValidateDimensionsAndSource(source, width, height, out int blockCountX, out int blockCountY, out int requiredLength);
+            ValidateDecodedLength(width, height);
             if (source.Length < requiredLength)
                 throw new ArgumentException("BC7 source data is shorter than the dimensions require.", nameof(source));
+            if (destination == IntPtr.Zero)
+                throw new ArgumentException("Destination pointer cannot be null.", nameof(destination));
+            if (Math.Abs((long)stride) < (long)width * 4)
+                throw new ArgumentOutOfRangeException(nameof(stride), "Destination stride is smaller than one decoded row.");
 
             Span<byte> block = stackalloc byte[64];
             int sourceOffset = 0;
@@ -90,6 +93,40 @@ namespace MapleLib.Helpers
                     }
                 }
             }
+        }
+
+        private static void ValidateDimensionsAndSource(
+            byte[] source,
+            int width,
+            int height,
+            out int blockCountX,
+            out int blockCountY,
+            out int requiredLength)
+        {
+            ArgumentNullException.ThrowIfNull(source);
+            if (width <= 0)
+                throw new ArgumentOutOfRangeException(nameof(width));
+            if (height <= 0)
+                throw new ArgumentOutOfRangeException(nameof(height));
+
+            long blocksX = ((long)width + 3) / 4;
+            long blocksY = ((long)height + 3) / 4;
+            long payloadLength = blocksX * blocksY * 16;
+            if (blocksX > int.MaxValue || blocksY > int.MaxValue || payloadLength > int.MaxValue)
+                throw new ArgumentOutOfRangeException(nameof(width), "BC7 dimensions are too large.");
+
+            blockCountX = (int)blocksX;
+            blockCountY = (int)blocksY;
+            requiredLength = (int)payloadLength;
+        }
+
+        private static long ValidateDecodedLength(int width, int height)
+        {
+            long pixels = (long)width * height;
+            if (pixels > (long)MemoryLimits.MAX_WZ_PAYLOAD_BYTES / 4)
+                throw new InvalidDataException("Decoded BC7 image exceeds the materialized payload limit.");
+
+            return pixels * 4;
         }
 
         private static void DecodeBlock(ReadOnlySpan<byte> source, Span<byte> output)

@@ -67,28 +67,20 @@ namespace MapleLib.WzLib.WzProperties
             if (width > MaxDimension || height > MaxDimension)
                 throw new System.IO.InvalidDataException("PNG dimensions exceed the supported limit.");
 
-            long decodedSize;
-            try
+            long pixels = (long)width * height;
+            long decodedSize = format switch
             {
-                long pixels = checked((long)width * height);
-                decodedSize = format switch
-                {
-                    WzPngFormat.Format1 => checked(pixels * 2),
-                    WzPngFormat.Format2 => checked(pixels * 4),
-                    WzPngFormat.Format3 => checked(((width + 3L) / 4) * ((height + 3L) / 4) * 16),
-                    WzPngFormat.Format257 => checked(pixels * 2),
-                    WzPngFormat.Format513 => checked(pixels * 2),
-                    WzPngFormat.Format517 => pixels / 128,
-                    WzPngFormat.Format1026 => checked(((width + 3L) / 4) * ((height + 3L) / 4) * 16),
-                    WzPngFormat.Format2050 => checked(((width + 3L) / 4) * ((height + 3L) / 4) * 16),
-                    WzPngFormat.Format4098 => checked(((width + 3L) / 4) * ((height + 3L) / 4) * 16),
-                    _ => checked(pixels * 4)
-                };
-            }
-            catch (OverflowException ex)
-            {
-                throw new System.IO.InvalidDataException("PNG decoded size is too large.", ex);
-            }
+                WzPngFormat.Format1 => pixels * 2,
+                WzPngFormat.Format2 => pixels * 4,
+                WzPngFormat.Format3 => ((width + 3L) / 4) * ((height + 3L) / 4) * 16,
+                WzPngFormat.Format257 => pixels * 2,
+                WzPngFormat.Format513 => pixels * 2,
+                WzPngFormat.Format517 => ((width + 15L) / 16) * ((height + 15L) / 16) * 2,
+                WzPngFormat.Format1026 => ((width + 3L) / 4) * ((height + 3L) / 4) * 16,
+                WzPngFormat.Format2050 => ((width + 3L) / 4) * ((height + 3L) / 4) * 16,
+                WzPngFormat.Format4098 => ((width + 3L) / 4) * ((height + 3L) / 4) * 16,
+                _ => pixels * 4
+            };
 
             if (decodedSize < 0 || decodedSize > MaxDecodedSize || decodedSize > int.MaxValue)
                 throw new System.IO.InvalidDataException("PNG decoded size exceeds the supported limit.");

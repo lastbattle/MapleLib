@@ -14,6 +14,7 @@
  * You should have received a copy of the GNU General Public License
     along with this program.  If not, see <http://www.gnu.org/licenses/>.*/
 
+using System;
 using System.Runtime.CompilerServices;
 
 namespace MapleLib.MapleCryptoLib
@@ -33,6 +34,7 @@ namespace MapleLib.MapleCryptoLib
 		/// <returns>Encrypted data</returns>
 		public static void Encrypt(byte[] data)
 		{
+			ArgumentNullException.ThrowIfNull(data);
 			int size = data.Length;
 			byte a, c;
 			for (int i = 0; i < 3; i++)
@@ -72,6 +74,7 @@ namespace MapleLib.MapleCryptoLib
 		/// <returns>Decrypted data</returns>
 		public static void Decrypt(byte[] data)
 		{
+			ArgumentNullException.ThrowIfNull(data);
 			int size = data.Length;
 			byte a, b, c;
 			for (int i = 0; i < 3; i++)

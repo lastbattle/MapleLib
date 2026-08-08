@@ -9,6 +9,7 @@ namespace MapleLib.Helpers
     public static class ErrorLogger
     {
         private static readonly object _lock = new object();
+        private static readonly object _saveLock = new object();
         private static readonly List<Error> _errorList = new List<Error>();
 
         public static void Log(ErrorLevel level, string message)
@@ -26,7 +27,8 @@ namespace MapleLib.Helpers
         /// <returns></returns>
         public static int NumberOfErrorsPresent()
         {
-            return _errorList.Count;
+            lock (_lock)
+                return _errorList.Count;
         }
 
         /// <summary>
@@ -35,7 +37,8 @@ namespace MapleLib.Helpers
         /// <returns></returns>
         public static bool ErrorsPresent()
         {
-            return _errorList.Any();
+            lock (_lock)
+                return _errorList.Count != 0;
         }
 
         /// <summary>
@@ -58,42 +61,51 @@ namespace MapleLib.Helpers
             if (string.IsNullOrWhiteSpace(filename))
                 throw new ArgumentNullException(nameof(filename), "Filename cannot be null or empty.");
 
-            if (!ErrorsPresent())
-                return;
-
-            List<Error> errorsCopy;
-            lock (_lock)
+            lock (_saveLock)
             {
-                errorsCopy = new List<Error>(_errorList);
-                ClearErrors();
-            }
-
-            var groupedErrors = errorsCopy
-                .GroupBy(e => e.Level)
-                .OrderBy(g => g.Key);
-
-            var sb = new StringBuilder();
-            sb.AppendLine($"----- Start of the error log. [{DateTime.UtcNow:yyyy-MM-dd HH:mm:ss.fff}] -----");
-
-            foreach (var errorGroup in groupedErrors)
-            {
-                sb.AppendLine();
-                sb.AppendLine($"=== {errorGroup.Key} Errors ===");
-
-                foreach (var error in errorGroup.OrderBy(e => e.Timestamp))
+                List<Error> errorsCopy;
+                lock (_lock)
                 {
-                    sb.AppendLine($"[{error.Timestamp:HH:mm:ss.fff}] : {error.Message}");
+                    if (_errorList.Count == 0)
+                        return;
+                    errorsCopy = new List<Error>(_errorList);
                 }
-            }
 
-            sb.AppendLine();
-            sb.AppendLine($"----- End of the error log. [{DateTime.UtcNow:yyyy-MM-dd HH:mm:ss.fff}] -----");
-            sb.AppendLine();
+                var groupedErrors = errorsCopy
+                    .GroupBy(e => e.Level)
+                    .OrderBy(g => g.Key);
 
-            // Use FileShare.ReadWrite to allow other processes to read the file while we're writing
-            using (var sw = new StreamWriter(File.Open(filename, FileMode.Append, FileAccess.Write, FileShare.ReadWrite)))
-            {
-                sw.Write(sb.ToString());
+                var sb = new StringBuilder();
+                sb.AppendLine($"----- Start of the error log. [{DateTime.UtcNow:yyyy-MM-dd HH:mm:ss.fff}] -----");
+
+                foreach (var errorGroup in groupedErrors)
+                {
+                    sb.AppendLine();
+                    sb.AppendLine($"=== {errorGroup.Key} Errors ===");
+
+                    foreach (var error in errorGroup.OrderBy(e => e.Timestamp))
+                    {
+                        sb.AppendLine($"[{error.Timestamp:HH:mm:ss.fff}] : {error.Message}");
+                    }
+                }
+
+                sb.AppendLine();
+                sb.AppendLine($"----- End of the error log. [{DateTime.UtcNow:yyyy-MM-dd HH:mm:ss.fff}] -----");
+                sb.AppendLine();
+
+                // Use FileShare.ReadWrite to allow other processes to read the file while we're writing.
+                using (var sw = new StreamWriter(File.Open(filename, FileMode.Append, FileAccess.Write, FileShare.ReadWrite)))
+                {
+                    sw.Write(sb.ToString());
+                }
+
+                // Remove only the entries that were successfully persisted. Errors
+                // logged while the file was being written remain pending.
+                lock (_lock)
+                {
+                    foreach (Error error in errorsCopy)
+                        _errorList.Remove(error);
+                }
             }
         }
 

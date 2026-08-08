@@ -306,25 +306,6 @@ namespace MapleLib.Tests.Img
             Assert.True(stats.CategoryCount >= 3);
         }
 
-        [Fact]
-        public void ClearCache_DoesNotThrow()
-        {
-            // Arrange
-            using var dataSource = new ImgFileSystemDataSource(_testPath, _config);
-
-            // Act & Assert
-            dataSource.ClearCache();
-        }
-
-        [Fact]
-        public void PreloadCategory_ValidCategory_DoesNotThrow()
-        {
-            // Arrange
-            using var dataSource = new ImgFileSystemDataSource(_testPath, _config);
-
-            // Act & Assert
-            dataSource.PreloadCategory("String");
-        }
     }
 
     public class HybridDataSourceTests : IDisposable

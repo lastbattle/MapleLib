@@ -32,6 +32,26 @@ namespace MapleLib.MapleCryptoLib
         /// <returns>Crypted data</returns>
         public static byte[] AesCrypt(byte[] IV, byte[] data, int length, byte[] key)
         {
+            ArgumentNullException.ThrowIfNull(IV);
+            ArgumentNullException.ThrowIfNull(data);
+            ArgumentNullException.ThrowIfNull(key);
+
+            if (IV.Length < 4)
+            {
+                throw new ArgumentException("The IV must contain at least four bytes.", nameof(IV));
+            }
+
+            if ((uint)length > (uint)data.Length)
+            {
+                throw new ArgumentOutOfRangeException(nameof(length), length,
+                    "The requested length must be between zero and the data length.");
+            }
+
+            if (key.Length != 32)
+            {
+                throw new ArgumentException("The AES key must contain exactly 32 bytes.", nameof(key));
+            }
+
             using Aes aes = Aes.Create();
             aes.KeySize = 256; // in bits
             aes.Key = key;

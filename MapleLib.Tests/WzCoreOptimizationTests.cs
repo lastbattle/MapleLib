@@ -333,6 +333,27 @@ public class WzCoreOptimizationTests
         Assert.IsNull(root.GetDirectoryByName("originaldir"));
     }
 
+    [TestMethod]
+    public void DirectoryMutationRejectsCyclesAndPreservesForeignParents()
+    {
+        var root = new WzDirectory("Root");
+        var child = new WzDirectory("Child");
+        root.AddDirectory(child);
+
+        Assert.Throws<InvalidOperationException>(() => root.AddDirectory(root));
+        Assert.Throws<InvalidOperationException>(() => child.AddDirectory(root));
+
+        var otherRoot = new WzDirectory("Other");
+        Assert.Throws<InvalidOperationException>(() => otherRoot.AddDirectory(child));
+        otherRoot.RemoveDirectory(child);
+        Assert.AreSame(root, child.Parent);
+
+        var image = new WzImage("item.img");
+        root.AddImage(image);
+        otherRoot.RemoveImage(image);
+        Assert.AreSame(root, image.Parent);
+    }
+
     private static WzFile CreateCanvasShard(string name, bool includeTarget)
     {
         var file = CreateInMemoryCanvasEraWzFile();

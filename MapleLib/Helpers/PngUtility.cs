@@ -96,10 +96,7 @@ namespace MapleLib.Helpers
         /// </summary>
         public static byte[] DecompressImageBC7(byte[] rawData, int width, int height)
         {
-            if (width <= 0 || height <= 0)
-                throw new ArgumentException("Width and height must be positive.");
-
-            int expectedSize = ((width + 3) / 4) * ((height + 3) / 4) * 16;
+            int expectedSize = GetCompressedBlockPayloadLength(width, height, 16);
             if (rawData == null || rawData.Length < expectedSize)
                 throw new ArgumentException($"Raw data length ({rawData?.Length ?? 0}) is insufficient for the specified dimensions ({width}x{height}).");
 
@@ -111,12 +108,11 @@ namespace MapleLib.Helpers
         /// </summary>
         public static void DecompressImageBC7(byte[] rawData, int width, int height, BitmapData bmpData)
         {
-            if (width <= 0 || height <= 0)
-                throw new ArgumentException("Width and height must be positive.");
-
-            int expectedSize = ((width + 3) / 4) * ((height + 3) / 4) * 16;
+            int expectedSize = GetCompressedBlockPayloadLength(width, height, 16);
             if (rawData == null || rawData.Length < expectedSize)
                 throw new ArgumentException($"Raw data length ({rawData?.Length ?? 0}) is insufficient for the specified dimensions ({width}x{height}).");
+
+            ValidateBitmapData(bmpData, width, height, 4);
 
             Bc7Decoder.DecodeToBgra32(rawData, width, height, bmpData.Scan0, bmpData.Stride);
         }
@@ -149,9 +145,12 @@ namespace MapleLib.Helpers
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public unsafe static void DecompressImage_PixelDataBgra4444(Span<byte> rawData, int width, int height, Bitmap bmp, BitmapData bmpData)
         {
-            int uncompressedSize = width * height * 2;
+            if (width <= 0 || height <= 0)
+                throw new ArgumentOutOfRangeException(nameof(width), "Image dimensions must be positive.");
+            int uncompressedSize = checked(width * height * 2);
             if (rawData.Length < uncompressedSize)
                 throw new ArgumentException("Raw data length is insufficient for the specified dimensions.");
+            ValidateBitmapData(bmpData, width, height, 4);
 
             byte* destinationBase = (byte*)bmpData.Scan0;
             if (Sse2.IsSupported && bmpData.Stride == width * 4)
@@ -208,14 +207,13 @@ namespace MapleLib.Helpers
         /// <param name="bmpData"></param>
         public static unsafe void DecompressImageDXT3(byte[] rawData, int width, int height, BitmapData bmpData)
         {
-            if (width <= 0 || height <= 0)
-                throw new ArgumentException("Width and height must be positive.");
+            int expectedSize = GetCompressedBlockPayloadLength(width, height, 16);
+            if (rawData == null || rawData.Length < expectedSize)
+                throw new ArgumentException($"Raw data length ({rawData?.Length ?? 0}) is insufficient for the specified dimensions ({width}x{height}).");
 
             int blockCountX = (width + 3) / 4;
             int blockCountY = (height + 3) / 4;
-            int expectedSize = blockCountX * blockCountY * 16;
-            if (rawData.Length < expectedSize)
-                throw new ArgumentException($"Raw data length ({rawData.Length}) is insufficient for the specified dimensions ({width}x{height}).");
+            ValidateBitmapData(bmpData, width, height, 4);
 
             int stride = bmpData.Stride;
             byte* pDecoded = (byte*)bmpData.Scan0;
@@ -344,11 +342,20 @@ namespace MapleLib.Helpers
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static unsafe void DecompressImage_PixelDataForm517(byte[] rawData, int width, int height, Bitmap bmp, BitmapData bmpData)
         {
-            int blockCountX = width / 16;
-            int blockCountY = height / 16;
-            int expectedSize = blockCountX * blockCountY * 2;
+            ArgumentNullException.ThrowIfNull(rawData);
+            ArgumentNullException.ThrowIfNull(bmp);
+            if (width <= 0 || height <= 0)
+                throw new ArgumentException("Width and height must be positive.");
+
+            int blockCountX = (int)(((long)width + 15) / 16);
+            int blockCountY = (int)(((long)height + 15) / 16);
+            long expectedSizeLong = (long)blockCountX * blockCountY * 2;
+            if (expectedSizeLong > int.MaxValue)
+                throw new ArgumentException("The specified dimensions require too much raw data.");
+            int expectedSize = (int)expectedSizeLong;
             if (rawData.Length < expectedSize)
                 throw new ArgumentException($"Raw data length ({rawData.Length}) is insufficient for the specified dimensions ({width}x{height}).");
+            ValidateBitmapData(bmpData, width, height, 2);
 
             byte* destinationBase = (byte*)bmpData.Scan0;
             int sourceOffset = 0;
@@ -360,18 +367,20 @@ namespace MapleLib.Helpers
                     byte b1 = rawData[sourceOffset++];
                     int startX = blockX * 16;
                     int startY = blockY * 16;
+                    int copyWidth = Math.Min(16, width - startX);
+                    int copyHeight = Math.Min(16, height - startY);
                     ushort pixel = (ushort)(b0 | (b1 << 8));
 
-                    for (int y = 0; y < 16; y++)
+                    for (int y = 0; y < copyHeight; y++)
                     {
                         byte* destination = destinationBase + (startY + y) * bmpData.Stride + startX * 2;
-                        if (Avx2.IsSupported)
+                        if (copyWidth == 16 && Avx2.IsSupported)
                         {
                             Avx.Store((ushort*)destination, Vector256.Create(pixel));
                             continue;
                         }
 
-                        for (int x = 0; x < 16; x++)
+                        for (int x = 0; x < copyWidth; x++)
                         {
                             destination[0] = b0;
                             destination[1] = b1;
@@ -392,15 +401,13 @@ namespace MapleLib.Helpers
         /// <param name="bmpData"></param>
         public static unsafe void DecompressImageDXT5(byte[] rawData, int width, int height, BitmapData bmpData)
         {
+            int expectedSize = GetCompressedBlockPayloadLength(width, height, 16);
+            if (rawData == null || rawData.Length < expectedSize)
+                throw new ArgumentException($"Raw data length ({rawData?.Length ?? 0}) is insufficient for the specified dimensions ({width}x{height}).");
+
             int blockCountX = (width + 3) / 4;  // Round up to cover partial blocks
             int blockCountY = (height + 3) / 4; // Round up to cover partial blocks
-
-            if (width <= 0 || height <= 0)
-                throw new ArgumentException("Width and height must be positive.");
-
-            int expectedSize = blockCountX * blockCountY * 16;
-            if (rawData.Length < expectedSize)
-                throw new ArgumentException($"Raw data length ({rawData.Length}) is insufficient for the specified dimensions ({width}x{height}).");
+            ValidateBitmapData(bmpData, width, height, 4);
 
             int stride = bmpData.Stride;        // Use actual stride for offset calculation
 
@@ -552,15 +559,25 @@ namespace MapleLib.Helpers
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static void CopyBmpDataWithStride(byte[] source, int stride, BitmapData bmpData)
         {
-            if (bmpData.Stride == stride)
+            ArgumentNullException.ThrowIfNull(source);
+            ArgumentNullException.ThrowIfNull(bmpData);
+            int sourceStride = checked(Math.Abs(stride));
+            int destinationStride = checked(Math.Abs(bmpData.Stride));
+            if (sourceStride == 0 || sourceStride > destinationStride)
+                throw new ArgumentOutOfRangeException(nameof(stride));
+            int requiredLength = checked(sourceStride * bmpData.Height);
+            if (source.Length < requiredLength)
+                throw new ArgumentException("Source data is shorter than the bitmap rows require.", nameof(source));
+
+            if (destinationStride == sourceStride)
             {
-                Marshal.Copy(source, 0, bmpData.Scan0, source.Length);
+                Marshal.Copy(source, 0, bmpData.Scan0, requiredLength);
             }
             else
             {
                 for (int y = 0; y < bmpData.Height; y++)
                 {
-                    Marshal.Copy(source, stride * y, bmpData.Scan0 + bmpData.Stride * y, stride);
+                    Marshal.Copy(source, sourceStride * y, bmpData.Scan0 + bmpData.Stride * y, sourceStride);
                 }
             }
 
@@ -1218,6 +1235,31 @@ namespace MapleLib.Helpers
 
             // Generate color table (same as decompression)
             ExpandColorTable(colors, c0, c1);
+        }
+
+        private static int GetCompressedBlockPayloadLength(int width, int height, int bytesPerBlock)
+        {
+            if (width <= 0)
+                throw new ArgumentOutOfRangeException(nameof(width));
+            if (height <= 0)
+                throw new ArgumentOutOfRangeException(nameof(height));
+            long blocksX = ((long)width + 3) / 4;
+            long blocksY = ((long)height + 3) / 4;
+            long payload = checked(blocksX * blocksY * bytesPerBlock);
+            if (payload > int.MaxValue)
+                throw new ArgumentOutOfRangeException(nameof(width), "Compressed image dimensions are too large.");
+            return (int)payload;
+        }
+
+        private static void ValidateBitmapData(BitmapData bmpData, int width, int height, int bytesPerPixel)
+        {
+            ArgumentNullException.ThrowIfNull(bmpData);
+            if (bmpData.Scan0 == IntPtr.Zero)
+                throw new ArgumentException("Bitmap data does not contain a valid destination pointer.", nameof(bmpData));
+            if (bmpData.Width < width || bmpData.Height < height)
+                throw new ArgumentException("Bitmap dimensions are smaller than the decoded image.", nameof(bmpData));
+            if (Math.Abs((long)bmpData.Stride) < (long)width * bytesPerPixel)
+                throw new ArgumentException("Bitmap stride is smaller than one decoded row.", nameof(bmpData));
         }
 
         private static ushort ColorToRGB565(byte r, byte g, byte b)

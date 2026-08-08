@@ -7,7 +7,11 @@
  */
 
 using System.IO;
+using System.Linq;
 using System.Text.Json;
+using System.Reflection;
+using System.Threading;
+using System.Threading.Tasks;
 using MapleLib.Img;
 using Xunit;
 using Assert = Xunit.Assert;
@@ -201,6 +205,52 @@ namespace MapleLib.Tests.Img
         }
 
         [Fact]
+        public void RenameVersion_RejectsTraversalWithoutMovingVersionOutsideRoot()
+        {
+            string originalPath = CreateTestVersion("v83", "GMS v83");
+            _versionManager.ScanVersions();
+            string escapedName = $"MapleLibEscaped_{Guid.NewGuid():N}";
+            string escapedPath = Path.Combine(Directory.GetParent(_testRootPath)!.FullName, escapedName);
+
+            try
+            {
+                bool result = _versionManager.RenameVersion(
+                    "v83",
+                    Path.Combine("..", escapedName),
+                    "escaped",
+                    out VersionInfo? renamed);
+
+                Assert.False(result);
+                Assert.Null(renamed);
+                Assert.True(Directory.Exists(originalPath));
+                Assert.False(Directory.Exists(escapedPath));
+            }
+            finally
+            {
+                if (Directory.Exists(escapedPath))
+                    Directory.Delete(escapedPath, recursive: true);
+            }
+        }
+
+        [Fact]
+        public void RenameVersion_ValidNameMovesDirectoryAndUpdatesManifest()
+        {
+            string originalPath = CreateTestVersion("v83", "GMS v83");
+            _versionManager.ScanVersions();
+
+            bool result = _versionManager.RenameVersion("v83", "v84", "GMS v84", out VersionInfo? renamed);
+
+            string renamedPath = Path.Combine(_testRootPath, "v84");
+            Assert.True(result);
+            Assert.NotNull(renamed);
+            Assert.False(Directory.Exists(originalPath));
+            Assert.True(Directory.Exists(renamedPath));
+            Assert.Equal("v84", renamed.Version);
+            Assert.Equal(renamedPath, renamed.DirectoryPath);
+            Assert.True(File.Exists(Path.Combine(renamedPath, "manifest.json")));
+        }
+
+        [Fact]
         public void AddExternalVersion_ValidPath_AddsToList()
         {
             // Arrange
@@ -242,6 +292,131 @@ namespace MapleLib.Tests.Img
             Assert.Single(_versionManager.AvailableVersions);
         }
 
+        [Fact]
+        public void AvailableVersions_ReturnsStableSnapshot()
+        {
+            CreateTestVersion("v83", "GMS v83");
+
+            var firstSnapshot = _versionManager.AvailableVersions;
+            CreateTestVersion("v84", "GMS v84");
+
+            _versionManager.Refresh();
+
+            // A read-only wrapper over the backing list would reflect the
+            // refresh and expose callers to concurrent list mutations.
+            Assert.Single(firstSnapshot);
+            Assert.Equal("v83", firstSnapshot[0].Version);
+            Assert.Equal(2, _versionManager.AvailableVersions.Count);
+        }
+
+        [Fact]
+        public async Task AddExternalVersion_ConcurrentCalls_PublishesOnlyOneVersion()
+        {
+            string externalPath = Path.Combine(Path.GetTempPath(), $"External_{Guid.NewGuid():N}");
+            Directory.CreateDirectory(externalPath);
+            CreateTestManifest(externalPath, "external", "External Version");
+
+            try
+            {
+                using var start = new ManualResetEventSlim(false);
+                var tasks = Enumerable.Range(0, 32)
+                    .Select(_ => Task.Run(() =>
+                    {
+                        start.Wait();
+                        return _versionManager.AddExternalVersion(externalPath);
+                    }))
+                    .ToArray();
+
+                start.Set();
+                VersionInfo[] results = await Task.WhenAll(tasks);
+
+                Assert.Equal(1, results.Count(v => v != null));
+                Assert.Single(_versionManager.AvailableVersions.Where(v =>
+                    v.DirectoryPath.Equals(externalPath, StringComparison.OrdinalIgnoreCase)));
+            }
+            finally
+            {
+                if (Directory.Exists(externalPath))
+                    Directory.Delete(externalPath, true);
+            }
+        }
+
+        [Fact]
+        public async Task HotSwap_CallbacksAndRefreshes_AreSafeToRunConcurrently()
+        {
+            _versionManager.ScanVersions();
+            string versionPath = CreateValidTestVersion("v84", "GMS v84");
+            _versionManager.EnableHotSwap(enable: true, debounceMs: 0);
+
+            try
+            {
+                var watcherField = typeof(VersionManager).GetField(
+                    "_watcherService",
+                    BindingFlags.Instance | BindingFlags.NonPublic);
+                var watcher = watcherField?.GetValue(_versionManager);
+                Assert.NotNull(watcher);
+
+                var callback = typeof(VersionManager).GetMethod(
+                    "OnVersionDirectoryChanged",
+                    BindingFlags.Instance | BindingFlags.NonPublic);
+                Assert.NotNull(callback);
+
+                using var start = new ManualResetEventSlim(false);
+                var tasks = Enumerable.Range(0, 24)
+                    .Select(index => Task.Run(() =>
+                    {
+                        start.Wait();
+                        if ((index & 1) == 0)
+                        {
+                            callback!.Invoke(
+                                _versionManager,
+                                new object[]
+                                {
+                                    watcher,
+                                    new VersionDirectoryChangedEventArgs(
+                                        versionPath,
+                                        WatcherChangeTypes.Created)
+                                });
+                        }
+                        else
+                        {
+                            _versionManager.Refresh();
+                        }
+                    }))
+                    .ToArray();
+
+                start.Set();
+                await Task.WhenAll(tasks);
+
+                Assert.Single(_versionManager.AvailableVersions.Where(v =>
+                    v.DirectoryPath.Equals(versionPath, StringComparison.OrdinalIgnoreCase)));
+            }
+            finally
+            {
+                _versionManager.EnableHotSwap(false);
+            }
+        }
+
+        [Fact]
+        public async Task HotSwap_EnableDisable_RacingCallsLeaveNoActiveWatcher()
+        {
+            using var start = new ManualResetEventSlim(false);
+            var tasks = Enumerable.Range(0, 16)
+                .Select(_ => Task.Run(() =>
+                {
+                    start.Wait();
+                    _versionManager.EnableHotSwap(enable: true, debounceMs: 0);
+                    _versionManager.EnableHotSwap(enable: false);
+                }))
+                .ToArray();
+
+            start.Set();
+            await Task.WhenAll(tasks);
+
+            _versionManager.EnableHotSwap(false);
+            Assert.False(_versionManager.HotSwapEnabled);
+        }
+
         #region Helper Methods
 
         private string CreateTestVersion(string versionName, string displayName)
@@ -249,6 +424,18 @@ namespace MapleLib.Tests.Img
             string versionPath = Path.Combine(_testRootPath, versionName);
             Directory.CreateDirectory(versionPath);
             CreateTestManifest(versionPath, versionName, displayName);
+            return versionPath;
+        }
+
+        private string CreateValidTestVersion(string versionName, string displayName)
+        {
+            string versionPath = CreateTestVersion(versionName, displayName);
+            string stringPath = Path.Combine(versionPath, "String");
+            string mapPath = Path.Combine(versionPath, "Map");
+            Directory.CreateDirectory(stringPath);
+            Directory.CreateDirectory(mapPath);
+            File.WriteAllBytes(Path.Combine(stringPath, "Map.img"), new byte[] { 0 });
+            File.WriteAllBytes(Path.Combine(mapPath, "Map.img"), new byte[] { 0 });
             return versionPath;
         }
 

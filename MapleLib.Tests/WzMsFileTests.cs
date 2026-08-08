@@ -3,6 +3,7 @@ using Microsoft.VisualStudio.TestTools.UnitTesting;
 using System.IO;
 using System.Reflection;
 using System.Security.Cryptography;
+using System.Text;
 
 namespace MapleLib.Tests;
 
@@ -12,6 +13,147 @@ public class WzMsFileTests
     private static readonly string PackDirectory = Path.Combine(AppContext.BaseDirectory, "WzFiles", "Ms", "Packs");
     private static readonly MethodInfo DecryptDataToArrayMethod = typeof(WzMsFile).GetMethod("DecryptDataToArray", BindingFlags.Instance | BindingFlags.NonPublic)
         ?? throw new MissingMethodException(nameof(WzMsFile), "DecryptDataToArray");
+
+    [TestMethod]
+    public void HeaderUpdateAppliesNewEntryCount()
+    {
+        var header = new WzMsHeader("test.ms", "salt", "test.mssalt", 1, 2, 3, 4, 5);
+
+        header.UpdateHeader(10, 11, 12, 13, 14);
+
+        Assert.AreEqual(10, header.Hash);
+        Assert.AreEqual(11, header.EntryCount);
+        Assert.AreEqual(12, header.HeaderStartPosition);
+        Assert.AreEqual(13, header.EntryStartPosition);
+        Assert.AreEqual(14, header.DataStartPosition);
+    }
+
+    [TestMethod]
+    public void LeaveOpenCloseDoesNotDisposeCallerStream()
+    {
+        using var stream = new MemoryStream([1, 2, 3]);
+        using (var file = new WzMsFile(stream, "test.ms", "test.ms", leaveOpen: true, isSavingFile: true))
+        {
+            file.Close();
+        }
+
+        Assert.IsTrue(stream.CanRead);
+    }
+
+    [TestMethod]
+    public void Version4EntryCountIsHardBoundedBeforeCapacityGrowth()
+    {
+        using var stream = new MemoryStream();
+        using var file = new WzMsFile(stream, "test.ms", "test.ms", leaveOpen: true, isSavingFile: true);
+        typeof(WzMsFile).GetProperty(nameof(WzMsFile.Header), BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)!
+            .SetValue(file, new WzMsHeader("test.ms", "", "test.ms", 0, WzMsConstants.Version4, 100_001, 0, 0));
+
+        Assert.Throws<InvalidDataException>(() => file.ReadEntries());
+    }
+
+    [TestMethod]
+    public void Version4ReaderRejectsOversizedEntryNameBeforeRentingBuffer()
+    {
+        byte[] encryptedTable = EncryptVersion4Table(BitConverter.GetBytes(int.MaxValue), "test.ms");
+        using var stream = new MemoryStream(encryptedTable);
+        using var file = new WzMsFile(stream, "test.ms", "test.ms", leaveOpen: true, isSavingFile: true);
+        typeof(WzMsFile).GetProperty(nameof(WzMsFile.Header), BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)!
+            .SetValue(file, new WzMsHeader("test.ms", "", "test.ms", 0, WzMsConstants.Version4, 1, 0, 0));
+
+        Assert.Throws<InvalidDataException>(() => file.ReadEntries());
+    }
+
+    [TestMethod]
+    public void Version4ReaderDefersDataBoundsUntilEntryRead()
+    {
+        byte[] encryptedTable = BuildEncryptedVersion4EntryTable(startPos: 1, size: 1, sizeAligned: 1);
+        using var stream = new MemoryStream(encryptedTable);
+        using var file = new WzMsFile(stream, "test.ms", "test.ms", leaveOpen: true, isSavingFile: true);
+        typeof(WzMsFile).GetProperty(nameof(WzMsFile.Header), BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)!
+            .SetValue(file, new WzMsHeader("test.ms", "", "test.ms", 0, WzMsConstants.Version4, 1, 0, 0));
+
+        // Version 4 metadata tables can describe data blocks that are not
+        // included in metadata-only/truncated packs. Parsing the table itself
+        // remains valid; bounds are enforced when that entry is selected.
+        file.ReadEntries();
+        Assert.HasCount(1, file.Entries);
+
+        var exception = Assert.Throws<TargetInvocationException>(
+            () => DecryptDataToArrayMethod.Invoke(file, [file.Entries[0]]));
+        Assert.IsInstanceOfType<InvalidDataException>(exception.InnerException);
+    }
+
+    [TestMethod]
+    public void EntryRecalculationRejectsMalformedEntryKeyLength()
+    {
+        var entry = new WzMsEntry("test.img", 0, 0, 0, 0, 0, 0, 0, [1, 2, 3]);
+        entry.Data = [1];
+
+        Assert.Throws<InvalidDataException>(() => entry.RecalculateFields(0, 0, 0));
+    }
+
+    private static byte[] EncryptVersion4Table(byte[] prefix, string fileNameWithSalt)
+    {
+        byte[] plaintext = new byte[64];
+        prefix.CopyTo(plaintext, 0);
+        byte[] obscure =
+        [
+            0x7B, 0x2F, 0x35, 0x48, 0x43, 0x95, 0x02, 0xB9,
+            0xAE, 0x91, 0xA6, 0xE1, 0xD8, 0xD6, 0x24, 0xB4,
+            0x33, 0x10, 0x1D, 0x3D, 0xC1, 0xBB, 0xC6, 0xF4,
+            0xA5, 0xFE, 0xB3, 0x69, 0x6B, 0x56, 0xE4, 0x75
+        ];
+        byte[] key = new byte[32];
+        for (int i = 0; i < key.Length; i++)
+        {
+            key[i] = (byte)(i + (i % 3 + 2) * fileNameWithSalt[fileNameWithSalt.Length - 1 - i % fileNameWithSalt.Length]);
+            key[i] ^= obscure[i];
+        }
+
+        using var transform = new ChaCha20CryptoTransform(key, new byte[12], 0);
+        transform.TransformInPlace(plaintext);
+        return plaintext;
+    }
+
+    private static byte[] BuildEncryptedVersion4EntryTable(int startPos, int size, int sizeAligned)
+    {
+        byte[] plaintext = new byte[1024];
+        using (var stream = new MemoryStream(plaintext, writable: true))
+        using (var writer = new BinaryWriter(stream, Encoding.Unicode, leaveOpen: true))
+        {
+            writer.Write(1); // UTF-16 entry name length
+            writer.Write('x');
+            writer.Write(0); // checksum
+            writer.Write(0); // flags
+            writer.Write(startPos);
+            writer.Write(size);
+            writer.Write(sizeAligned);
+            writer.Write(0); // unk1
+            writer.Write(0); // unk2
+            writer.Write(new byte[WzMsConstants.EntryKeySize]);
+            writer.Write(0); // unk3
+            writer.Write(0); // unk4
+        }
+
+        byte[] obscure =
+        [
+            0x7B, 0x2F, 0x35, 0x48, 0x43, 0x95, 0x02, 0xB9,
+            0xAE, 0x91, 0xA6, 0xE1, 0xD8, 0xD6, 0x24, 0xB4,
+            0x33, 0x10, 0x1D, 0x3D, 0xC1, 0xBB, 0xC6, 0xF4,
+            0xA5, 0xFE, 0xB3, 0x69, 0x6B, 0x56, 0xE4, 0x75
+        ];
+        byte[] key = new byte[32];
+        const string fileNameWithSalt = "test.ms";
+        for (int i = 0; i < key.Length; i++)
+        {
+            key[i] = (byte)(i + (i % 3 + 2) * fileNameWithSalt[fileNameWithSalt.Length - 1 - i % fileNameWithSalt.Length]);
+            key[i] ^= obscure[i];
+        }
+
+        using var transform = new ChaCha20CryptoTransform(key, new byte[12], 0);
+        transform.TransformInPlace(plaintext);
+        return plaintext;
+    }
 
     [TestMethod]
     public void ChaCha20TransformMatchesRfc8439Vector()
@@ -79,4 +221,5 @@ public class WzMsFileTests
         Assert.HasCount(expectedFirstEntrySize, decrypted);
         Assert.AreEqual(expectedSha256, Convert.ToHexString(SHA256.HashData(decrypted)));
     }
+
 }

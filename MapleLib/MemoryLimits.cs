@@ -1,8 +1,60 @@
 ﻿
+using System;
+using System.IO;
+
 namespace MapleLib
 {
     public class MemoryLimits
     {
+        /// <summary>
+        /// Upper bound for attacker-controlled encoded WZ strings and the
+        /// mutable encryption key material needed to decode them.
+        /// </summary>
+        public const int MAX_WZ_STRING_BYTES = 64 * 1024 * 1024;
+
+        /// <summary>
+        /// Null-terminated strings are metadata, not bulk payloads. Keeping a
+        /// separate lower ceiling prevents a missing terminator in a large
+        /// stream from consuming memory until the process is exhausted.
+        /// </summary>
+        public const int MAX_NULL_TERMINATED_STRING_BYTES = 1024 * 1024;
+
+        /// <summary>
+        /// WZ headers contain a short identifier and copyright string. This is
+        /// intentionally generous while still bounding malformed FStart values.
+        /// </summary>
+        public const int MAX_WZ_HEADER_BYTES = 1024 * 1024;
+
+        /// <summary>
+        /// Upper bound for a single eagerly materialized media/raw payload.
+        /// Larger WZ files remain supported; only one property allocation is
+        /// constrained here.
+        /// </summary>
+        public const int MAX_WZ_PAYLOAD_BYTES = 256 * 1024 * 1024;
+
+        /// <summary>
+        /// Maximum packet body that the asynchronous Maple session parser will
+        /// materialize from an untrusted length header.
+        /// </summary>
+        public const int MAX_PACKET_BYTES = 16 * 1024 * 1024;
+
+        /// <summary>
+        /// Upper bound for JSON manifests, indexes, and case maps read from an
+        /// IMG filesystem before deserialization.
+        /// </summary>
+        public const long MAX_METADATA_JSON_BYTES = 16L * 1024 * 1024;
+
+        public static void EnsureFileSize(string path, long maximumBytes, string description)
+        {
+            ArgumentException.ThrowIfNullOrWhiteSpace(path);
+            if (maximumBytes < 0)
+                throw new ArgumentOutOfRangeException(nameof(maximumBytes));
+
+            long length = new FileInfo(path).Length;
+            if (length > maximumBytes)
+                throw new InvalidDataException($"{description} exceeds the supported size limit.");
+        }
+
         /// <summary>
         /// The stackalloc size for decoding strings, and arrays.
         /// - Avoiding L2 Cache Spillover: Keeping allocations well below the L1 cache size (divided by number of cores) prevents unnecessary cache misses.

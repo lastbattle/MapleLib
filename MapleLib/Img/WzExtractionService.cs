@@ -363,6 +363,7 @@ namespace MapleLib.Img
             {
                 result.Success = false;
                 result.ErrorMessage = "Extraction was cancelled";
+                result.EndTime = DateTime.Now;
                 progressData.IsCancelled = true;
                 progress?.Report(progressData);
             }
@@ -370,6 +371,7 @@ namespace MapleLib.Img
             {
                 result.Success = false;
                 result.ErrorMessage = ex.Message;
+                result.EndTime = DateTime.Now;
                 progressData.Errors.Add(ex.Message);
                 progress?.Report(progressData);
                 OnErrorOccurred(ex);
@@ -401,7 +403,17 @@ namespace MapleLib.Img
                 StartTime = DateTime.Now
             };
 
-            string categoryOutputPath = Path.Combine(outputVersionPath, category);
+            // Category names are data supplied by callers (and, for Packs, by
+            // archive entries).  Resolve them against the requested output
+            // root and reject traversal/rooted paths before creating anything.
+            if (!TryGetContainedPath(outputVersionPath, category, out string categoryOutputPath))
+            {
+                result.Success = false;
+                result.Errors.Add($"Category path escapes extraction root: {category}");
+                result.EndTime = DateTime.Now;
+                return result;
+            }
+
             if (!Directory.Exists(categoryOutputPath))
             {
                 Directory.CreateDirectory(categoryOutputPath);
@@ -568,7 +580,11 @@ namespace MapleLib.Img
                                 string outputPath = categoryOutputPath;
                                 if (!string.IsNullOrEmpty(relativePath))
                                 {
-                                    outputPath = Path.Combine(categoryOutputPath, relativePath);
+                                    if (!TryGetContainedPath(categoryOutputPath, relativePath, out outputPath))
+                                    {
+                                        result.Errors.Add($"WZ directory path escapes extraction root: {relativePath}");
+                                        continue;
+                                    }
                                     if (!Directory.Exists(outputPath))
                                     {
                                         Directory.CreateDirectory(outputPath);
@@ -640,6 +656,13 @@ namespace MapleLib.Img
                 {
                     SaveImageCaseMap(categoryOutputPath, extractedImageCaseMap);
                 }
+            }
+            catch (OperationCanceledException)
+            {
+                result.Success = false;
+                result.Errors.Add("Extraction was cancelled");
+                result.EndTime = DateTime.Now;
+                throw;
             }
             catch (Exception ex)
             {
@@ -1127,7 +1150,11 @@ namespace MapleLib.Img
                     if (subDir == null) continue;
                     if (HaCreatorPaths.IsBackupsDirectoryName(subDir.Name)) continue;
 
-                    string subDirPath = Path.Combine(outputPath, EscapeFileName(subDir.Name));
+                    if (!TryGetContainedPath(outputPath, EscapeFileName(subDir.Name), out string subDirPath))
+                    {
+                        result.Errors.Add($"WZ directory path escapes extraction root: {subDir.Name}");
+                        continue;
+                    }
                     if (!Directory.Exists(subDirPath))
                     {
                         Directory.CreateDirectory(subDirPath);
@@ -1164,6 +1191,12 @@ namespace MapleLib.Img
                     }
 
                     string imgPath = GetImageOutputPath(outputPath, img.Name);
+                    if (!TryGetContainedPath(categoryOutputRootPath,
+                        Path.GetRelativePath(categoryOutputRootPath, imgPath), out imgPath))
+                    {
+                        result.Errors.Add($"Image path escapes extraction root: {img.Name}");
+                        continue;
+                    }
                     EnsureExactFilePathCase(imgPath);
                     SerializeImageToOutput(img, imgPath, serializer);
                     TryRecordImageCaseMap(categoryOutputRootPath, imgPath, extractedImageCaseMap);
@@ -1306,6 +1339,12 @@ namespace MapleLib.Img
                                 }
 
                                 string imgPath = GetImageOutputPath(categoryOutputPath, img.Name);
+                                if (!TryGetContainedPath(categoryOutputPath,
+                                    Path.GetRelativePath(categoryOutputPath, imgPath), out imgPath))
+                                {
+                                    result.Errors.Add($"Image path escapes extraction root: {img.Name}");
+                                    continue;
+                                }
                                 EnsureExactFilePathCase(imgPath);
                                 SerializeImageToOutput(img, imgPath, serializer);
                                 TryRecordImageCaseMap(categoryOutputPath, imgPath, extractedImageCaseMap);
@@ -1539,8 +1578,16 @@ namespace MapleLib.Img
                                     string entryCategory = entryName.Substring(0, firstSlash);
                                     string remainingPath = entryName.Substring(firstSlash + 1);
 
+                                    // Resolve archive-controlled paths before creating directories.  A
+                                    // malformed entry such as Map/../../outside.img must never escape
+                                    // the extraction root.
+                                    if (!TryGetContainedPath(outputVersionPath, entryCategory, out string categoryOutputPath))
+                                    {
+                                        result.Errors.Add($"Invalid .ms entry category path: {entryCategory}");
+                                        continue;
+                                    }
+
                                     // Create category output folder if needed
-                                    string categoryOutputPath = Path.Combine(outputVersionPath, entryCategory);
                                     if (!Directory.Exists(categoryOutputPath))
                                     {
                                         Directory.CreateDirectory(categoryOutputPath);
@@ -1553,7 +1600,11 @@ namespace MapleLib.Img
                                     {
                                         string subDir = remainingPath.Substring(0, lastSlash);
                                         string imgName = remainingPath.Substring(lastSlash + 1);
-                                        string subDirPath = Path.Combine(categoryOutputPath, subDir);
+                                        if (!TryGetContainedPath(categoryOutputPath, subDir, out string subDirPath))
+                                        {
+                                            result.Errors.Add($"Invalid .ms entry subdirectory path: {subDir}");
+                                            continue;
+                                        }
                                         if (!Directory.Exists(subDirPath))
                                         {
                                             Directory.CreateDirectory(subDirPath);
@@ -1563,6 +1614,13 @@ namespace MapleLib.Img
                                     else
                                     {
                                         imgOutputPath = GetImageOutputPath(categoryOutputPath, remainingPath);
+                                    }
+
+                                    if (!TryGetContainedPath(categoryOutputPath,
+                                        Path.GetRelativePath(categoryOutputPath, imgOutputPath), out _))
+                                    {
+                                        result.Errors.Add($"Invalid .ms entry image path: {entryName}");
+                                        continue;
                                     }
 
                                     // Find the corresponding WzImage in the loaded WzFile
@@ -1757,6 +1815,105 @@ namespace MapleLib.Img
             }
 
             return Path.Combine(outputDirectory, escapedName);
+        }
+
+        /// <summary>
+        /// Resolves a relative path below <paramref name="rootPath"/> and
+        /// verifies that normalization cannot escape that root.  Extraction
+        /// receives category and image names from callers and WZ/.ms data, so
+        /// this check must happen before any directory or file is created.
+        /// </summary>
+        private static bool TryGetContainedPath(string rootPath, string relativePath, out string fullPath)
+        {
+            fullPath = null;
+            if (string.IsNullOrWhiteSpace(rootPath) || string.IsNullOrWhiteSpace(relativePath) ||
+                Path.IsPathRooted(relativePath))
+            {
+                return false;
+            }
+
+            try
+            {
+                string rootFullPath = Path.GetFullPath(rootPath);
+                string candidate = Path.GetFullPath(Path.Combine(rootFullPath, relativePath));
+                string rootPrefix = rootFullPath.EndsWith(Path.DirectorySeparatorChar.ToString(), StringComparison.Ordinal) ||
+                                    rootFullPath.EndsWith(Path.AltDirectorySeparatorChar.ToString(), StringComparison.Ordinal)
+                    ? rootFullPath
+                    : rootFullPath + Path.DirectorySeparatorChar;
+
+                if (!candidate.StartsWith(rootPrefix, StringComparison.OrdinalIgnoreCase))
+                {
+                    return false;
+                }
+
+                if (ContainsReparsePointBelowRoot(rootFullPath, relativePath))
+                {
+                    return false;
+                }
+
+                fullPath = candidate;
+                return true;
+            }
+            catch (ArgumentException)
+            {
+                return false;
+            }
+            catch (IOException)
+            {
+                return false;
+            }
+            catch (UnauthorizedAccessException)
+            {
+                return false;
+            }
+        }
+
+        private static bool ContainsReparsePointBelowRoot(string rootPath, string relativePath)
+        {
+            string currentPath = rootPath;
+            string[] segments = relativePath.Split(
+                new[] { Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar },
+                StringSplitOptions.RemoveEmptyEntries);
+
+            foreach (string segment in segments)
+            {
+                if (segment == ".")
+                    continue;
+
+                // Reject parent segments even when lexical normalization would
+                // keep the result below root; otherwise a symlink in an
+                // intermediate segment could be traversed before "..".
+                if (segment == "..")
+                    return true;
+
+                currentPath = Path.Combine(currentPath, segment);
+                if (!Directory.Exists(currentPath) && !File.Exists(currentPath))
+                    break;
+
+                try
+                {
+                    if ((File.GetAttributes(currentPath) & FileAttributes.ReparsePoint) != 0)
+                        return true;
+                }
+                catch (FileNotFoundException)
+                {
+                    break;
+                }
+                catch (DirectoryNotFoundException)
+                {
+                    break;
+                }
+                catch (IOException)
+                {
+                    return true;
+                }
+                catch (UnauthorizedAccessException)
+                {
+                    return true;
+                }
+            }
+
+            return false;
         }
 
         /// <summary>

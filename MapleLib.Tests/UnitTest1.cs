@@ -99,7 +99,7 @@ namespace UnitTest_WzFile
             }
             catch (Exception e)
             {
-                Debug.WriteLine(
+                Assert.Fail(
                     "Error initializing " + Path.GetFileName(filePath) + " (" + e.Message + ").\r\nAlso, check that the directory is valid and the file is not in use.");
             }
         }
@@ -121,7 +121,7 @@ namespace UnitTest_WzFile
 
                 try
                 {
-                    WzFile f = new WzFile(filePath, (short)-1, wzMapleVerEnc);
+                    using WzFile f = new WzFile(filePath, (short)-1, wzMapleVerEnc);
 
                     WzFileParseStatus parseStatus = f.ParseWzFile();
 
@@ -130,7 +130,7 @@ namespace UnitTest_WzFile
                 }
                 catch (Exception e)
                 {
-                    Debug.WriteLine(
+                    Assert.Fail(
                         "Error initializing " + Path.GetFileName(filePath) + " (" + e.Message + ").\r\nAlso, check that the directory is valid and the file is not in use.");
                 }
             }
@@ -142,7 +142,7 @@ namespace UnitTest_WzFile
         /// during eager parse in WzPngProperty constructor.
         /// </summary>
         [TestMethod]
-        public void TestLegacyExtractionStyleSavePath_DoesNotThrow()
+        public void TestLegacyExtractionStyleSavePath_SavesSampleImages()
         {
             var legacyFiles = new[]
             {

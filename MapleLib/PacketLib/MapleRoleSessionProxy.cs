@@ -10,6 +10,15 @@ namespace MapleLib.PacketLib
     {
         private sealed class BridgePair
         {
+            // Retain the reflection-facing constructor used by the existing
+            // MapSimulator harnesses. Production attaches a unique id at the
+            // call site; a directly constructed harness pair has no published
+            // session identity, so it uses the legacy zero sentinel.
+            public BridgePair(TcpClient clientTcpClient, TcpClient serverTcpClient, Session clientSession, Session serverSession)
+                : this(0, clientTcpClient, serverTcpClient, clientSession, serverSession)
+            {
+            }
+
             public BridgePair(long proxySessionId, TcpClient clientTcpClient, TcpClient serverTcpClient, Session clientSession, Session serverSession)
             {
                 ProxySessionId = proxySessionId;
@@ -59,7 +68,12 @@ namespace MapleLib.PacketLib
         private CancellationTokenSource _listenerCancellation;
         private Task _listenerTask;
         private BridgePair _activePair;
-        private long _nextProxySessionId;
+        // A client is reserved while its upstream connection is being
+        // established.  Keeping this token separate from _activePair closes
+        // the check/connect/publish race where two clients could both pass the
+        // empty-session check before either pair became active.
+        private object _pendingAttachToken;
+        private static long _nextProxySessionId;
 
         public MapleRoleSessionProxy(MapleServerRole role, MapleHandshakePolicy handshakePolicy = null)
         {
@@ -76,15 +90,63 @@ namespace MapleLib.PacketLib
         public int ListenPort { get; private set; }
         public string RemoteHost { get; private set; }
         public int RemotePort { get; private set; }
-        public bool IsRunning => _listenerTask != null && !_listenerTask.IsCompleted;
-        public bool HasAttachedClient => _activePair != null;
-        public bool HasConnectedSession => _activePair?.InitCompleted == true;
-        public short? CurrentSessionVersion => _activePair?.InitCompleted == true ? _activePair.Version : null;
-        public long? CurrentProxySessionId => _activePair?.InitCompleted == true ? _activePair.ProxySessionId : null;
+        public bool IsRunning
+        {
+            get
+            {
+                lock (_sync)
+                    return _listenerTask != null && !_listenerTask.IsCompleted;
+            }
+        }
+        public bool HasAttachedClient
+        {
+            get
+            {
+                lock (_sync)
+                    return _activePair != null;
+            }
+        }
+        public bool HasConnectedSession
+        {
+            get
+            {
+                lock (_sync)
+                    return _activePair?.InitCompleted == true;
+            }
+        }
+        public short? CurrentSessionVersion
+        {
+            get
+            {
+                lock (_sync)
+                {
+                    BridgePair pair = _activePair;
+                    return pair?.InitCompleted == true ? pair.Version : null;
+                }
+            }
+        }
+        public long? CurrentProxySessionId
+        {
+            get
+            {
+                lock (_sync)
+                {
+                    BridgePair pair = _activePair;
+                    return pair?.InitCompleted == true ? pair.ProxySessionId : null;
+                }
+            }
+        }
         public int ReceivedCount { get; private set; }
         public int ClientReceivedCount { get; private set; }
         public int SentCount { get; private set; }
-        public int ActiveSessionCount => _activePair == null ? 0 : 1;
+        public int ActiveSessionCount
+        {
+            get
+            {
+                lock (_sync)
+                    return _activePair == null ? 0 : 1;
+            }
+        }
         public DateTime? LastPacketUtc { get; private set; }
         public string LastStatus { get; private set; }
 
@@ -119,7 +181,7 @@ namespace MapleLib.PacketLib
                     _listener = new TcpListener(IPAddress.Loopback, listenPort);
                     _listener.Start();
                     ListenPort = ((IPEndPoint)_listener.LocalEndpoint).Port;
-                    _listenerTask = Task.Run(() => ListenLoopAsync(_listenerCancellation.Token));
+                    _listenerTask = ListenLoopAsync(_listenerCancellation.Token);
                     status = $"{_role} role-session proxy listening on 127.0.0.1:{ListenPort} and proxying to {RemoteHost}:{RemotePort}.";
                     LastStatus = status;
                     return true;
@@ -145,7 +207,10 @@ namespace MapleLib.PacketLib
 
         public bool TrySendToServer(byte[] payload, out string status)
         {
-            BridgePair pair = _activePair;
+            ArgumentNullException.ThrowIfNull(payload);
+            BridgePair pair;
+            lock (_sync)
+                pair = _activePair;
             if (pair == null || !pair.InitCompleted)
             {
                 status = $"{_role} role-session proxy has no active Maple session.";
@@ -185,7 +250,9 @@ namespace MapleLib.PacketLib
                 while (!cancellationToken.IsCancellationRequested && _listener != null)
                 {
                     TcpClient client = await _listener.AcceptTcpClientAsync(cancellationToken).ConfigureAwait(false);
-                    _ = Task.Run(() => AcceptClientAsync(client, cancellationToken), cancellationToken);
+                    // Start the async attach directly so a busy thread pool
+                    // cannot delay reservation/cleanup of an accepted client.
+                    _ = AcceptClientAsync(client, cancellationToken);
                 }
             }
             catch (OperationCanceledException)
@@ -203,19 +270,24 @@ namespace MapleLib.PacketLib
         private async Task AcceptClientAsync(TcpClient client, CancellationToken cancellationToken)
         {
             BridgePair pair = null;
+            TcpClient server = null;
+            object attachToken = null;
             try
             {
                 lock (_sync)
                 {
-                    if (_activePair != null)
+                    if (_activePair != null || _pendingAttachToken != null)
                     {
                         LastStatus = $"Rejected {_role} role-session client because a live Maple session is already attached.";
                         client.Close();
                         return;
                     }
+
+                    attachToken = new object();
+                    _pendingAttachToken = attachToken;
                 }
 
-                TcpClient server = new();
+                server = new TcpClient();
                 await server.ConnectAsync(RemoteHost, RemotePort, cancellationToken).ConfigureAwait(false);
 
                 Session clientSession = new(client.Client, SessionType.SERVER_TO_CLIENT);
@@ -228,9 +300,27 @@ namespace MapleLib.PacketLib
                 serverSession.OnPacketReceived += (packet, isInit) => HandleServerPacket(pair, packet, isInit);
                 serverSession.OnClientDisconnected += _ => ClearActivePair(pair, $"{_role} role-session server disconnected: {pair.RemoteEndpoint}.");
 
+                bool published;
                 lock (_sync)
                 {
-                    _activePair = pair;
+                    published = ReferenceEquals(_pendingAttachToken, attachToken)
+                        && !cancellationToken.IsCancellationRequested;
+                    if (published)
+                    {
+                        _activePair = pair;
+                        _pendingAttachToken = null;
+                    }
+                    else if (ReferenceEquals(_pendingAttachToken, attachToken))
+                    {
+                        _pendingAttachToken = null;
+                    }
+                }
+
+                if (!published)
+                {
+                    pair.Close();
+                    pair = null;
+                    return;
                 }
 
                 LastStatus = $"{_role} role-session proxy connected {pair.ClientEndpoint} -> {pair.RemoteEndpoint}. Waiting for Maple init packet.";
@@ -238,8 +328,16 @@ namespace MapleLib.PacketLib
             }
             catch (Exception ex)
             {
+                lock (_sync)
+                {
+                    if (ReferenceEquals(_pendingAttachToken, attachToken))
+                        _pendingAttachToken = null;
+                }
                 client.Close();
-                pair?.Close();
+                if (pair != null)
+                    pair.Close();
+                else
+                    server?.Close();
                 LastStatus = $"{_role} role-session proxy connect failed: {ex.Message}";
             }
         }
@@ -265,11 +363,13 @@ namespace MapleLib.PacketLib
                         return;
                     }
 
-                    pair.Version = sessionVersion;
+                    lock (_sync)
+                        pair.Version = sessionVersion;
                     pair.ClientSession.SIV = _handshakePolicy.CreateCrypto(clientReceiveIv, sessionVersion);
                     pair.ClientSession.RIV = _handshakePolicy.CreateCrypto(clientSendIv, sessionVersion);
                     pair.ClientSession.SendInitialPacket(sessionVersion, patchLocation, clientSendIv, clientReceiveIv, serverType);
-                    pair.InitCompleted = true;
+                    lock (_sync)
+                        pair.InitCompleted = true;
                     LastStatus = $"{_role} role-session initialized Maple crypto with version {sessionVersion} for {pair.ClientEndpoint} <-> {pair.RemoteEndpoint}.";
                     pair.ClientSession.WaitForData();
                     RaiseServerPacket(pair.RemoteEndpoint, raw, true, pair.Version, pair.ProxySessionId);
@@ -376,6 +476,7 @@ namespace MapleLib.PacketLib
 
             _activePair?.Close();
             _activePair = null;
+            _pendingAttachToken = null;
             _listener = null;
             _listenerCancellation?.Dispose();
             _listenerCancellation = null;

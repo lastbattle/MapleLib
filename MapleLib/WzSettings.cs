@@ -13,6 +13,7 @@ namespace MapleLib.WzLib
 
         private readonly Type userSettingsType;
         private readonly Type appSettingsType;
+        private readonly object _ioLock = new();
 
         private const string USER_SETTING_JSON = "UserSettings";
         private const string APP_SETTING_JSON = "ApplicationSettings";
@@ -36,12 +37,15 @@ namespace MapleLib.WzLib
         /// </summary>
         public void LoadSettings()
         {
-            if (File.Exists(settingFilePath))
+            lock (_ioLock)
             {
-                string strJsonConfig = File.ReadAllText(settingFilePath);
-
                 try
                 {
+                    if (!File.Exists(settingFilePath))
+                        return;
+
+                    MemoryLimits.EnsureFileSize(settingFilePath, MemoryLimits.MAX_METADATA_JSON_BYTES, "WZ settings");
+                    string strJsonConfig = File.ReadAllText(settingFilePath);
                     JsonObject mainJson = JsonNode.Parse(strJsonConfig)?.AsObject()
                         ?? throw new JsonException("Settings JSON must contain an object.");
 
@@ -52,9 +56,6 @@ namespace MapleLib.WzLib
                     // its fine if loading isnt possible
                     // fallback to default
                 }
-            } else
-            {
-                // do nothing, default setting is in the value as specified in WzSettings.cs
             }
         }
 
@@ -65,6 +66,9 @@ namespace MapleLib.WzLib
         /// <param name="settingsHolderType"></param>
         private void LoadSettingsJson(JsonObject json, Type settingsHolderType)
         {
+            if (json == null || settingsHolderType == null)
+                return;
+
             foreach (FieldInfo fieldInfo in settingsHolderType.GetFields(BindingFlags.Public | BindingFlags.Static))
             {
                 string fieldName = fieldInfo.Name;
@@ -137,7 +141,7 @@ namespace MapleLib.WzLib
                             int valueHeight = jsonHoldingObject["valueHeight"].GetValue<int>();
                             int valueWidth = jsonHoldingObject["valueWidth"].GetValue<int>();
 
-                            System.Drawing.Size size = new System.Drawing.Size(valueHeight, valueWidth);
+                            System.Drawing.Size size = new System.Drawing.Size(valueWidth, valueHeight);
 
                             fieldInfo.SetValue(null, size);
                             break;
@@ -157,7 +161,8 @@ namespace MapleLib.WzLib
                             Bitmap bmp;
                             using (var ms = new MemoryStream(byteImage))
                             {
-                                bmp = new Bitmap(ms);
+                                using Bitmap source = new Bitmap(ms);
+                                bmp = new Bitmap(source);
                             }
                             fieldInfo.SetValue(null, bmp);
                             break;
@@ -181,18 +186,37 @@ namespace MapleLib.WzLib
         #region Saving
         public void SaveSettings()
         {
-            JsonObject userSettingJson = SaveSettingsJson(userSettingsType);
-            JsonObject appSettingJson = SaveSettingsJson(appSettingsType);
+            lock (_ioLock)
+            {
+                JsonObject userSettingJson = SaveSettingsJson(userSettingsType);
+                JsonObject appSettingJson = SaveSettingsJson(appSettingsType);
 
-            JsonObject mainJson = new JsonObject();
-            mainJson.Add(USER_SETTING_JSON, userSettingJson);
-            mainJson.Add(APP_SETTING_JSON, appSettingJson);
+                JsonObject mainJson = new JsonObject();
+                mainJson.Add(USER_SETTING_JSON, userSettingJson);
+                mainJson.Add(APP_SETTING_JSON, appSettingJson);
 
-            bool settingsExist = File.Exists(settingFilePath);
-            if (settingsExist)
-                File.Delete(settingFilePath);
+                string tempPath = $"{settingFilePath}.{Guid.NewGuid():N}.tmp";
+                try
+                {
+                    using (FileStream stream = new FileStream(tempPath, FileMode.CreateNew, FileAccess.Write, FileShare.None,
+                        bufferSize: 4096, options: FileOptions.WriteThrough))
+                    using (var writer = new StreamWriter(stream, new System.Text.UTF8Encoding(false), 4096, leaveOpen: true))
+                    {
+                        writer.Write(mainJson.ToJsonString(MapleJson.IndentedOptions));
+                        writer.Flush();
+                        stream.Flush(flushToDisk: true);
+                    }
 
-            File.WriteAllText(settingFilePath, mainJson.ToJsonString(MapleJson.IndentedOptions));
+                    if (File.Exists(settingFilePath))
+                        File.Replace(tempPath, settingFilePath, destinationBackupFileName: null);
+                    else
+                        File.Move(tempPath, settingFilePath);
+                }
+                finally
+                {
+                    try { File.Delete(tempPath); } catch { }
+                }
+            }
         }
 
         /// <summary>

@@ -197,6 +197,66 @@ namespace MapleLib.Tests.Img
         }
 
         [Fact]
+        public void Constructor_MalformedManifest_ThrowsInvalidDataException()
+        {
+            File.WriteAllText(Path.Combine(_testVersionPath, "manifest.json"), "null");
+
+            Assert.Throws<InvalidDataException>(() => new ImgFileSystemManager(_testVersionPath, _config));
+        }
+
+        [Fact]
+        public void Constructor_OversizedManifestIsRejectedBeforeReading()
+        {
+            string manifestPath = Path.Combine(_testVersionPath, "manifest.json");
+            using (FileStream stream = new FileStream(manifestPath, FileMode.Create, FileAccess.Write, FileShare.None))
+                stream.SetLength(MemoryLimits.MAX_METADATA_JSON_BYTES + 1);
+
+            Assert.Throws<InvalidDataException>(() => new ImgFileSystemManager(_testVersionPath, _config));
+        }
+
+        [Fact]
+        public void CategoryIndex_AllImagePathsIncludesNestedSubdirectories()
+        {
+            string categoryPath = Path.Combine(_testVersionPath, "NestedCategory");
+            string nestedPath = Path.Combine(categoryPath, "A", "B");
+            Directory.CreateDirectory(nestedPath);
+            CreateMockImgFile(Path.Combine(nestedPath, "Deep.img"));
+
+            CategoryIndex index = CategoryIndex.BuildFromDirectory(categoryPath, "NestedCategory");
+
+            Assert.Contains(Path.Combine("A", "B", "Deep.img"), index.AllImagePaths);
+        }
+
+        [Fact]
+        public void MalformedCategoryIndexFallsBackToDirectoryScan()
+        {
+            string categoryPath = Path.Combine(_testVersionPath, "Map");
+            var index = new CategoryIndex
+            {
+                Category = "Map",
+                GeneratedAt = DateTime.UtcNow.AddMinutes(1),
+                Images = [new ImageIndexEntry { Name = "evil.img", RelativePath = "..\\evil.img" }]
+            };
+            index.Save(Path.Combine(categoryPath, "index.json"));
+
+            using var manager = new ImgFileSystemManager(_testVersionPath, _config);
+            manager.Initialize();
+
+            Assert.True(manager.CategoryExists("Map"));
+        }
+
+        [Fact]
+        public void CategoryDirectoryApisRejectPathTraversal()
+        {
+            using var manager = new ImgFileSystemManager(_testVersionPath, _config);
+            manager.Initialize();
+
+            Assert.Throws<InvalidOperationException>(() => manager.GetDirectory("..\\outside"));
+            Assert.Throws<InvalidOperationException>(() => manager.GetSubdirectories("..\\outside").ToList());
+            Assert.Throws<InvalidOperationException>(() => manager.GenerateCategoryIndex("..\\outside"));
+        }
+
+        [Fact]
         public void EnumerateFilesExcludingBackups_SkipsTopLevelAndNestedBackups()
         {
             var imageFiles = HaCreatorPaths.EnumerateFilesExcludingBackups(
@@ -338,39 +398,6 @@ namespace MapleLib.Tests.Img
             // Assert
             Assert.NotNull(stats);
             Assert.True(stats.CategoryCount >= 3); // At least String, Map, Mob
-        }
-
-        [Fact]
-        public void ClearCache_DoesNotThrow()
-        {
-            // Arrange
-            using var manager = new ImgFileSystemManager(_testVersionPath, _config);
-            manager.Initialize();
-
-            // Act & Assert (should not throw)
-            manager.ClearCache();
-        }
-
-        [Fact]
-        public void TrimCache_DoesNotThrow()
-        {
-            // Arrange
-            using var manager = new ImgFileSystemManager(_testVersionPath, _config);
-            manager.Initialize();
-
-            // Act & Assert (should not throw)
-            manager.TrimCache(100);
-        }
-
-        [Fact]
-        public void PreloadCategory_ValidCategory_DoesNotThrow()
-        {
-            // Arrange
-            using var manager = new ImgFileSystemManager(_testVersionPath, _config);
-            manager.Initialize();
-
-            // Act & Assert (should not throw)
-            manager.PreloadCategory("String");
         }
 
         [Fact]

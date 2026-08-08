@@ -352,10 +352,19 @@ namespace MapleLib.Img
         /// </summary>
         public string GetImageFilePath(string imageName)
         {
+            if (string.IsNullOrWhiteSpace(imageName))
+                throw new ArgumentException("Image name is required.", nameof(imageName));
             if (!imageName.EndsWith(".img", StringComparison.OrdinalIgnoreCase))
                 imageName += ".img";
 
-            return Path.Combine(_filesystemPath, imageName);
+            string root = Path.GetFullPath(_filesystemPath);
+            string fullPath = Path.GetFullPath(Path.Combine(root, imageName));
+            string rootWithSeparator = Path.EndsInDirectorySeparator(root)
+                ? root
+                : root + Path.DirectorySeparatorChar;
+            if (!fullPath.StartsWith(rootWithSeparator, StringComparison.OrdinalIgnoreCase))
+                throw new InvalidOperationException($"Image path escapes the category directory: {fullPath}");
+            return fullPath;
         }
 
         /// <summary>
@@ -402,7 +411,7 @@ namespace MapleLib.Img
             if (image == null || string.IsNullOrEmpty(image.Name))
                 return false;
 
-            string filePath = Path.Combine(_filesystemPath, image.Name);
+            string filePath = GetImageFilePath(image.Name);
             return _manager.SaveImageToFile(image, filePath);
         }
 

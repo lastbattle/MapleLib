@@ -118,6 +118,7 @@ namespace MapleLib.Img
         /// </summary>
         public bool TryGet(TKey key, out TValue value)
         {
+            ThrowIfDisposed();
             _lock.EnterUpgradeableReadLock();
             try
             {
@@ -156,15 +157,36 @@ namespace MapleLib.Img
         /// </summary>
         public TValue GetOrAdd(TKey key, Func<TKey, TValue> factory)
         {
+            ThrowIfDisposed();
+            ArgumentNullException.ThrowIfNull(factory);
+
             if (TryGet(key, out var value))
                 return value;
 
-            value = factory(key);
-            if (value != null)
+            // Serialize the miss path and re-check while holding the write
+            // lock.  Without this second check concurrent callers could all
+            // run the factory and replace one another's values.
+            _lock.EnterWriteLock();
+            try
             {
-                Add(key, value);
+                if (_cache.TryGetValue(key, out var existingNode))
+                {
+                    _lruList.Remove(existingNode);
+                    _lruList.AddFirst(existingNode);
+                    existingNode.Value.LastAccess = DateTime.UtcNow;
+                    Interlocked.Increment(ref _hitCount);
+                    return existingNode.Value.Value;
+                }
+
+                value = factory(key);
+                if (value != null)
+                    AddCore(key, value);
+                return value;
             }
-            return value;
+            finally
+            {
+                _lock.ExitWriteLock();
+            }
         }
 
         /// <summary>
@@ -172,41 +194,20 @@ namespace MapleLib.Img
         /// </summary>
         public void Add(TKey key, TValue value)
         {
+            ThrowIfDisposed();
             if (value == null)
                 return;
 
             long itemSize = _sizeEstimator?.Invoke(value) ?? 1;
+            if (itemSize < 0)
+                throw new ArgumentOutOfRangeException(nameof(value), "The size estimator cannot return a negative size.");
+            if (itemSize > _maxSizeBytes)
+                return;
 
             _lock.EnterWriteLock();
             try
             {
-                // Remove existing if present
-                if (_cache.TryGetValue(key, out var existingNode))
-                {
-                    _currentSize -= existingNode.Value.Size;
-                    _lruList.Remove(existingNode);
-                    _cache.Remove(key);
-                }
-
-                // Evict if necessary
-                while ((_cache.Count >= _capacity || _currentSize + itemSize > _maxSizeBytes) && _lruList.Count > 0)
-                {
-                    EvictLeastRecentlyUsed();
-                }
-
-                // Add new item
-                var cacheItem = new CacheItem
-                {
-                    Key = key,
-                    Value = value,
-                    Size = itemSize,
-                    LastAccess = DateTime.UtcNow
-                };
-
-                var node = new LinkedListNode<CacheItem>(cacheItem);
-                _lruList.AddFirst(node);
-                _cache[key] = node;
-                _currentSize += itemSize;
+                AddCore(key, value, itemSize);
             }
             finally
             {
@@ -219,6 +220,7 @@ namespace MapleLib.Img
         /// </summary>
         public bool Remove(TKey key)
         {
+            ThrowIfDisposed();
             _lock.EnterWriteLock();
             try
             {
@@ -242,6 +244,7 @@ namespace MapleLib.Img
         /// </summary>
         public bool ContainsKey(TKey key)
         {
+            ThrowIfDisposed();
             _lock.EnterReadLock();
             try
             {
@@ -304,6 +307,7 @@ namespace MapleLib.Img
         /// </summary>
         public void Clear()
         {
+            ThrowIfDisposed();
             _lock.EnterWriteLock();
             try
             {
@@ -322,6 +326,7 @@ namespace MapleLib.Img
         /// </summary>
         public void ResetStatistics()
         {
+            ThrowIfDisposed();
             Interlocked.Exchange(ref _hitCount, 0);
             Interlocked.Exchange(ref _missCount, 0);
             Interlocked.Exchange(ref _evictionCount, 0);
@@ -332,6 +337,7 @@ namespace MapleLib.Img
         /// </summary>
         public CacheStatistics GetStatistics()
         {
+            ThrowIfDisposed();
             return new CacheStatistics
             {
                 ItemCount = Count,
@@ -359,6 +365,45 @@ namespace MapleLib.Img
                 // With freeResources=true, file handles are already closed after parsing.
                 // Memory will be freed by GC when no more references exist.
             }
+        }
+
+        private void AddCore(TKey key, TValue value, long? estimatedSize = null)
+        {
+            long itemSize = estimatedSize ?? (_sizeEstimator?.Invoke(value) ?? 1);
+            if (itemSize < 0)
+                throw new ArgumentOutOfRangeException(nameof(value), "The size estimator cannot return a negative size.");
+            if (itemSize > _maxSizeBytes)
+                return;
+
+            // Remove existing if present.
+            if (_cache.TryGetValue(key, out var existingNode))
+            {
+                _currentSize -= existingNode.Value.Size;
+                _lruList.Remove(existingNode);
+                _cache.Remove(key);
+            }
+
+            // Evict until both item count and estimated size are within limits.
+            while ((_cache.Count >= _capacity || itemSize > _maxSizeBytes - _currentSize) && _lruList.Count > 0)
+                EvictLeastRecentlyUsed();
+
+            var cacheItem = new CacheItem
+            {
+                Key = key,
+                Value = value,
+                Size = itemSize,
+                LastAccess = DateTime.UtcNow
+            };
+            var node = new LinkedListNode<CacheItem>(cacheItem);
+            _lruList.AddFirst(node);
+            _cache[key] = node;
+            _currentSize = checked(_currentSize + itemSize);
+        }
+
+        private void ThrowIfDisposed()
+        {
+            if (Volatile.Read(ref _disposed))
+                throw new ObjectDisposedException(nameof(LRUCache<TKey, TValue>));
         }
 
         public void Dispose()
