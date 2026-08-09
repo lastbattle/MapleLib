@@ -373,6 +373,18 @@ namespace MapleLib {
         }
 
         /// <summary>
+        /// Checks if the V Update status-bar owner exists.
+        /// Newer clients may retain StatusBar.img and StatusBar2.img, so
+        /// StatusBar3.img is the authoritative V Update UI-family marker.
+        /// </summary>
+        /// <param name="statusBar3Image">The StatusBar3.img WzImage (can be null)</param>
+        /// <returns>True if this is a V Update UI family, false otherwise</returns>
+        public static bool IsVUpdate(WzImage statusBar3Image)
+        {
+            return statusBar3Image != null;
+        }
+
+        /// <summary>
         /// Detects if this is a Big Bang 2 / Chaos update version by checking for BigBang2 marker in UIWindow2.img.
         /// Use this for format detection from a MapleStory installation path.
         /// </summary>
@@ -428,6 +440,59 @@ namespace MapleLib {
                 // If we can't detect, assume false
                 return false;
             }
+        }
+
+        /// <summary>
+        /// Detects the V Update UI family by checking for UI.wz/StatusBar3.img.
+        /// For 64-bit clients, all split UI archives are checked because the
+        /// status-bar image is not guaranteed to be in the first archive.
+        /// </summary>
+        /// <param name="mapleStoryPath">Path to MapleStory installation</param>
+        /// <param name="encryption">WZ encryption version</param>
+        /// <param name="is64Bit">Whether this is a 64-bit client</param>
+        /// <returns>True if StatusBar3.img exists, false otherwise</returns>
+        public static bool DetectVUpdateFormat(string mapleStoryPath, WzMapleVersion encryption, bool is64Bit)
+        {
+            if (DetectBetaDataWzFormat(mapleStoryPath))
+                return false;
+
+            IEnumerable<string> uiWzPaths;
+            if (is64Bit)
+            {
+                string uiPath = Path.Combine(mapleStoryPath, "Data", "UI");
+                if (!Directory.Exists(uiPath))
+                    return false;
+
+                uiWzPaths = HaCreatorPaths.EnumerateFilesExcludingBackups(uiPath, "UI_*.wz")
+                    .OrderBy(path => path, StringComparer.OrdinalIgnoreCase);
+            }
+            else
+            {
+                uiWzPaths = new[] { Path.Combine(mapleStoryPath, "UI.wz") };
+            }
+
+            foreach (string uiWzPath in uiWzPaths)
+            {
+                if (!File.Exists(uiWzPath))
+                    continue;
+
+                try
+                {
+                    using var wzFile = new WzFile(uiWzPath, encryption);
+                    if (wzFile.ParseWzFile() != WzFileParseStatus.Success)
+                        continue;
+
+                    WzImage statusBar3 = wzFile.WzDirectory?.GetImageByName("StatusBar3.img");
+                    if (IsVUpdate(statusBar3))
+                        return true;
+                }
+                catch
+                {
+                    // Continue through split UI archives when one cannot be parsed.
+                }
+            }
+
+            return false;
         }
 
         /// <summary>

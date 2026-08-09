@@ -168,6 +168,7 @@ namespace MapleLib.Img
                                WzFileManager.DetectIsPreBBDataWZFileFormat(mapleStoryPath, encryption);
                 bool isBetaMs = WzFileManager.DetectBetaDataWzFormat(mapleStoryPath);
                 bool isBigBang2 = WzFileManager.DetectBigBang2Format(mapleStoryPath, encryption, is64Bit);
+                bool isVUpdate = WzFileManager.DetectVUpdateFormat(mapleStoryPath, encryption, is64Bit);
 
                 // Create output directory
                 if (!Directory.Exists(outputVersionPath))
@@ -331,6 +332,7 @@ namespace MapleLib.Img
                     isPreBB,
                     isBetaMs,
                     isBigBang2,
+                    isVUpdate,
                     outputVersionPath,
                     result.CategoriesExtracted,
                     detectedPatchVersion,
@@ -1736,6 +1738,7 @@ namespace MapleLib.Img
             bool isPreBB,
             bool isBetaMs,
             bool isBigBang2,
+            bool isVUpdate,
             string outputPath,
             Dictionary<string, CategoryExtractionResult> categories,
             short detectedPatchVersion = 0,
@@ -1751,6 +1754,7 @@ namespace MapleLib.Img
                 IsPreBBDataWzFormat = isPreBB,
                 IsBetaMs = isBetaMs,
                 IsBigBang2 = isBigBang2,
+                IsVUpdate = isVUpdate,
                 ExtractedDate = DateTime.Now,
                 DirectoryPath = outputPath,
                 PatchVersion = detectedPatchVersion,

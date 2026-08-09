@@ -142,6 +142,7 @@ namespace MapleLib.Img
                 _versionInfo.Categories ??= new Dictionary<string, CategoryInfo>(StringComparer.OrdinalIgnoreCase);
                 _versionInfo.Features ??= new VersionFeatures();
                 _versionInfo.DirectoryPath = _versionPath;
+                VersionManager.InferAndPersistVUpdate(_versionInfo);
             }
             else
             {

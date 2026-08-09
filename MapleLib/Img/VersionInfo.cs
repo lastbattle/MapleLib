@@ -72,6 +72,12 @@ namespace MapleLib.Img
         public bool IsBigBang2 { get; set; }
 
         /// <summary>
+        /// Whether this uses the V Update UI family (has StatusBar3.img in UI.wz)
+        /// </summary>
+        [JsonPropertyName("isVUpdate")]
+        public bool IsVUpdate { get; set; }
+
+        /// <summary>
         /// The original MapleStory patch version number (e.g., 83, 176, 230)
         /// </summary>
         [JsonPropertyName("patchVersion")]

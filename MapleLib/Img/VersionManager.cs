@@ -241,6 +241,7 @@ namespace MapleLib.Img
                     string json = File.ReadAllText(manifestPath);
                     versionInfo = JsonSerializer.Deserialize(json, MapleJsonContext.Default.VersionInfo);
                     versionInfo.DirectoryPath = versionPath;
+                    InferAndPersistVUpdate(versionInfo);
                 }
                 catch (Exception)
                 {
@@ -275,6 +276,7 @@ namespace MapleLib.Img
                 ExtractedDate = Directory.GetCreationTime(versionPath),
                 Encryption = WzMapleVersion.BMS.ToString()
             };
+            versionInfo.IsVUpdate = DetectVUpdateFromImgDirectory(versionPath);
 
             // Scan for categories
             foreach (var dir in HaCreatorPaths.EnumerateDirectoriesExcludingBackups(versionPath))
@@ -491,6 +493,54 @@ namespace MapleLib.Img
             }
 
             return versionInfo;
+        }
+
+        /// <summary>
+        /// Detects the V Update UI family in an IMG filesystem version.
+        /// This keeps manifests created before the isVUpdate field was added compatible.
+        /// </summary>
+        public static bool DetectVUpdateFromImgDirectory(string versionPath)
+        {
+            if (string.IsNullOrWhiteSpace(versionPath))
+                return false;
+
+            return File.Exists(Path.Combine(versionPath, "UI", "StatusBar3.img"));
+        }
+
+        /// <summary>
+        /// Upgrades an older IMG manifest when StatusBar3.img proves that it is a
+        /// V Update version. Persistence is best-effort so read-only versions can
+        /// still be opened with the correctly inferred in-memory flag.
+        /// </summary>
+        public static bool InferAndPersistVUpdate(VersionInfo versionInfo)
+        {
+            if (versionInfo == null || versionInfo.IsVUpdate ||
+                !DetectVUpdateFromImgDirectory(versionInfo.DirectoryPath))
+            {
+                return false;
+            }
+
+            versionInfo.IsVUpdate = true;
+
+            try
+            {
+                string manifestPath = Path.Combine(versionInfo.DirectoryPath, MANIFEST_FILENAME);
+                if (File.Exists(manifestPath))
+                {
+                    string json = JsonSerializer.Serialize(versionInfo, MapleJsonContext.Default.VersionInfo);
+                    File.WriteAllText(manifestPath, json);
+                }
+            }
+            catch (IOException)
+            {
+                // Keep the inferred in-memory value when the manifest is read-only.
+            }
+            catch (UnauthorizedAccessException)
+            {
+                // Keep the inferred in-memory value when the manifest is read-only.
+            }
+
+            return true;
         }
 
         /// <summary>

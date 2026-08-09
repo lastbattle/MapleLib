@@ -97,6 +97,57 @@ namespace MapleLib.Tests.Img
         }
 
         [Fact]
+        public void SaveAndLoadVersionManifest_PreservesVUpdateFlag()
+        {
+            string versionPath = Path.Combine(_testRootPath, "v-update");
+            Directory.CreateDirectory(versionPath);
+            var version = new VersionInfo
+            {
+                Version = "v-update",
+                DisplayName = "V Update",
+                DirectoryPath = versionPath,
+                Encryption = "GMS",
+                IsVUpdate = true
+            };
+
+            _versionManager.SaveVersionManifest(version);
+            VersionInfo loaded = _versionManager.LoadVersionManifest(versionPath);
+
+            Assert.True(loaded.IsVUpdate);
+            Assert.Contains(
+                "\"isVUpdate\": true",
+                File.ReadAllText(Path.Combine(versionPath, "manifest.json")));
+        }
+
+        [Fact]
+        public void LoadVersionManifest_WithoutVUpdateFlag_DefaultsToFalse()
+        {
+            string versionPath = Path.Combine(_testRootPath, "legacy-manifest");
+            Directory.CreateDirectory(versionPath);
+            CreateTestManifest(versionPath, "legacy-manifest", "Legacy Manifest");
+
+            VersionInfo loaded = _versionManager.LoadVersionManifest(versionPath);
+
+            Assert.False(loaded.IsVUpdate);
+        }
+
+        [Fact]
+        public void LoadVersionManifest_WithoutVUpdateFlag_DetectsStatusBar3()
+        {
+            string versionPath = Path.Combine(_testRootPath, "old-v-update-manifest");
+            string uiPath = Path.Combine(versionPath, "UI");
+            Directory.CreateDirectory(uiPath);
+            File.WriteAllBytes(Path.Combine(uiPath, "StatusBar3.img"), new byte[] { 0 });
+            CreateTestManifest(versionPath, "old-v-update-manifest", "Old V Update Manifest");
+
+            VersionInfo loaded = _versionManager.LoadVersionManifest(versionPath);
+
+            Assert.True(loaded.IsVUpdate);
+            string updatedManifest = File.ReadAllText(Path.Combine(versionPath, "manifest.json"));
+            Assert.Contains("\"isVUpdate\": true", updatedManifest);
+        }
+
+        [Fact]
         public void ScanVersions_WithMultipleVersions_FindsAll()
         {
             // Arrange
