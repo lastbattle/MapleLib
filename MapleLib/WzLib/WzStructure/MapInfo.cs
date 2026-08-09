@@ -13,6 +13,90 @@ using System.Text;
 
 namespace MapleLib.WzLib.WzStructure
 {
+    /// <summary>
+    /// Typed map audio metadata.  The raw <c>bgmSub</c> subtree is retained
+    /// so newer client structures can round-trip even when their stem fields
+    /// are not understood by this version of HaCreator.
+    /// </summary>
+    public sealed class MapAudioInfo
+    {
+        public string PrimaryBgm { get; set; }
+        public string AmbientBgm { get; set; }
+        public int? AmbientVolume { get; set; }
+        public WzImageProperty BgmSub { get; set; }
+        public List<WzImageProperty> UnknownAudioProperties { get; } = new();
+
+        /// <summary>Original WZ property spelling for compatibility with unusual clients.</summary>
+        public string PrimaryBgmPropertyName { get; set; } = "bgm";
+        public string AmbientBgmPropertyName { get; set; } = "AmbientBGM";
+        public string AmbientVolumePropertyName { get; set; } = "AmbientBGMv";
+        public string BgmSubPropertyName { get; set; } = "bgmSub";
+
+        public MapAudioInfo Clone()
+        {
+            var clone = new MapAudioInfo
+            {
+                PrimaryBgm = PrimaryBgm,
+                AmbientBgm = AmbientBgm,
+                AmbientVolume = AmbientVolume,
+                PrimaryBgmPropertyName = PrimaryBgmPropertyName,
+                AmbientBgmPropertyName = AmbientBgmPropertyName,
+                AmbientVolumePropertyName = AmbientVolumePropertyName,
+                BgmSubPropertyName = BgmSubPropertyName,
+                BgmSub = BgmSub?.DeepClone()
+            };
+            foreach (WzImageProperty property in UnknownAudioProperties)
+                clone.UnknownAudioProperties.Add(property?.DeepClone());
+            return clone;
+        }
+
+        internal void ReadProperty(WzImageProperty property)
+        {
+            if (property == null)
+                return;
+            switch (property.Name)
+            {
+                case "bgm":
+                    PrimaryBgmPropertyName = property.Name;
+                    PrimaryBgm = InfoTool.GetString(property);
+                    break;
+                case "AmbientBGM":
+                    AmbientBgmPropertyName = property.Name;
+                    AmbientBgm = InfoTool.GetOptionalString(property);
+                    break;
+                case "AmbientBGMv":
+                    AmbientVolumePropertyName = property.Name;
+                    AmbientVolume = InfoTool.GetOptionalInt(property);
+                    break;
+                case "bgmSub":
+                    BgmSubPropertyName = property.Name;
+                    BgmSub = property.DeepClone();
+                    break;
+                default:
+                    // Keep only audio-adjacent fields in this list.  Other
+                    // unsupported map info properties remain in MapInfo's
+                    // existing unsupportedInfoProperties collection.
+                    if (property.Name?.IndexOf("bgm", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                        property.Name?.IndexOf("ambient", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                        property.Name?.IndexOf("sound", StringComparison.OrdinalIgnoreCase) >= 0)
+                        UnknownAudioProperties.Add(property.DeepClone());
+                    break;
+            }
+        }
+
+        internal void WriteProperties(WzSubProperty info)
+        {
+            if (info == null)
+                return;
+            if (!string.IsNullOrWhiteSpace(AmbientBgm))
+                info[AmbientBgmPropertyName ?? "AmbientBGM"] = InfoTool.SetString(AmbientBgm);
+            if (AmbientVolume.HasValue)
+                info[AmbientVolumePropertyName ?? "AmbientBGMv"] = InfoTool.SetInt(AmbientVolume.Value);
+            if (BgmSub != null)
+                info[BgmSubPropertyName ?? "bgmSub"] = BgmSub.DeepClone();
+        }
+    }
+
     public class MapInfo //Credits to Bui for some of the info
     {
         public static MapInfo Default = new MapInfo();
@@ -32,6 +116,43 @@ namespace MapleLib.WzLib.WzStructure
 
         //Must have
         public string bgm = "Bgm00/GoPicnic";
+        /// <summary>Typed audio view over bgm/AmbientBGM/AmbientBGMv/bgmSub.</summary>
+        public MapAudioInfo audio = new();
+        public MapAudioInfo audioInfo
+        {
+            get => audio;
+            set => audio = value ?? new MapAudioInfo();
+        }
+        public MapAudioInfo Audio => audio;
+        public MapAudioInfo AudioInfo => audio;
+        public string PrimaryBgm
+        {
+            get => audio?.PrimaryBgm ?? bgm;
+            set => SetPrimaryBgm(value);
+        }
+        public string AmbientBgm
+        {
+            get => audio?.AmbientBgm;
+            set => SetAmbientBgm(value, audio?.AmbientVolume);
+        }
+        public int? AmbientVolume
+        {
+            get => audio?.AmbientVolume;
+            set
+            {
+                audio ??= new MapAudioInfo();
+                audio.AmbientVolume = value;
+            }
+        }
+        public WzImageProperty BgmSub
+        {
+            get => audio?.BgmSub;
+            set
+            {
+                audio ??= new MapAudioInfo();
+                audio.BgmSub = value;
+            }
+        }
         public string mapMark = "None";
         public long fieldLimit = 0; // FieldLimitType a | FieldLimitType b | etc
         public int returnMap = 999999999;
@@ -141,10 +262,88 @@ namespace MapleLib.WzLib.WzStructure
 
             foreach (WzImageProperty prop in infoImage.WzProperties)
             {
+                // Client builds occasionally vary the casing of optional
+                // audio fields. Recognize those spellings while retaining the
+                // exact name for round-trip serialization.
+                if (string.Equals(prop.Name, "bgm", StringComparison.OrdinalIgnoreCase))
+                {
+                    bgm = InfoTool.GetString(prop);
+                    audio.PrimaryBgm = bgm;
+                    audio.PrimaryBgmPropertyName = prop.Name;
+                    continue;
+                }
+                if (string.Equals(prop.Name, "AmbientBGM", StringComparison.OrdinalIgnoreCase))
+                {
+                    try
+                    {
+                        audio.AmbientBgm = InfoTool.GetOptionalString(prop);
+                        audio.AmbientBgmPropertyName = prop.Name;
+                    }
+                    catch
+                    {
+                        WzImageProperty clone = prop.DeepClone();
+                        audio.UnknownAudioProperties.Add(clone);
+                        unsupportedInfoProperties.Add(clone.DeepClone());
+                    }
+                    continue;
+                }
+                if (string.Equals(prop.Name, "AmbientBGMv", StringComparison.OrdinalIgnoreCase))
+                {
+                    try
+                    {
+                        audio.AmbientVolume = InfoTool.GetOptionalInt(prop);
+                        audio.AmbientVolumePropertyName = prop.Name;
+                    }
+                    catch
+                    {
+                        WzImageProperty clone = prop.DeepClone();
+                        audio.UnknownAudioProperties.Add(clone);
+                        unsupportedInfoProperties.Add(clone.DeepClone());
+                    }
+                    continue;
+                }
+                if (string.Equals(prop.Name, "bgmSub", StringComparison.OrdinalIgnoreCase))
+                {
+                    audio.BgmSub = prop.DeepClone();
+                    audio.BgmSubPropertyName = prop.Name;
+                    continue;
+                }
                 switch (prop.Name)
                 {
                     case "bgm":
                         bgm = InfoTool.GetString(prop);
+                        audio.PrimaryBgm = bgm;
+                        audio.PrimaryBgmPropertyName = prop.Name;
+                        break;
+                    case "AmbientBGM":
+                        try
+                        {
+                            audio.AmbientBgm = InfoTool.GetOptionalString(prop);
+                            audio.AmbientBgmPropertyName = prop.Name;
+                        }
+                        catch
+                        {
+                            WzImageProperty clone = prop.DeepClone();
+                            audio.UnknownAudioProperties.Add(clone);
+                            unsupportedInfoProperties.Add(clone.DeepClone());
+                        }
+                        break;
+                    case "AmbientBGMv":
+                        try
+                        {
+                            audio.AmbientVolume = InfoTool.GetOptionalInt(prop);
+                            audio.AmbientVolumePropertyName = prop.Name;
+                        }
+                        catch
+                        {
+                            WzImageProperty clone = prop.DeepClone();
+                            audio.UnknownAudioProperties.Add(clone);
+                            unsupportedInfoProperties.Add(clone.DeepClone());
+                        }
+                        break;
+                    case "bgmSub":
+                        audio.BgmSub = prop.DeepClone();
+                        audio.BgmSubPropertyName = prop.Name;
                         break;
                     case "cloud":
                         cloud = InfoTool.GetBool(prop);
@@ -388,8 +587,6 @@ namespace MapleLib.WzLib.WzStructure
                     case "LBBottom":
                         LBBottom = InfoTool.GetInt(prop); // the height of the border
                         break;
-                    case "AmbientBGM":
-                    case "AmbientBGMv":
                     case "areaCtrl":
                     case "onlyUseSkill":
                     case "limitUseShop":
@@ -425,7 +622,6 @@ namespace MapleLib.WzLib.WzStructure
                     case "MRBottom":
                     case "limitSpeedAndJump":
                     case "directionInfo":
-                    case "bgmSub":
                     case "fieldLimit2":
                     case "fieldLimit_tw":
                     case "particle":
@@ -567,6 +763,12 @@ namespace MapleLib.WzLib.WzStructure
                             //cloneProperty.Parent = prop.Parent;
 
                             unsupportedInfoProperties.Add(cloneProperty);
+                            if (prop.Name?.IndexOf("bgm", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                                prop.Name?.IndexOf("ambient", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                                prop.Name?.IndexOf("sound", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                                string.Equals(prop.Name, "questAmbience", StringComparison.OrdinalIgnoreCase) ||
+                                string.Equals(prop.Name, "specialSound", StringComparison.OrdinalIgnoreCase))
+                                audio.UnknownAudioProperties.Add(cloneProperty.DeepClone());
                             break;
                         }
                     default:
@@ -600,7 +802,19 @@ namespace MapleLib.WzLib.WzStructure
         public void Save(WzImage dest, Rectangle? VR)
         {
             WzSubProperty info = new WzSubProperty();
-            info["bgm"] = InfoTool.SetString(bgm);
+            audio ??= new MapAudioInfo();
+            string primaryBgm = audio.PrimaryBgm;
+            if (string.IsNullOrWhiteSpace(primaryBgm))
+                primaryBgm = bgm;
+            else if (!string.Equals(primaryBgm, bgm, StringComparison.Ordinal) &&
+                     !string.Equals(bgm, "Bgm00/GoPicnic", StringComparison.OrdinalIgnoreCase))
+                // Existing callers historically write the legacy field.  Keep
+                // those changes authoritative while allowing a new map's
+                // typed audio view to replace the default value.
+                primaryBgm = bgm;
+            bgm = primaryBgm;
+            audio.PrimaryBgm = primaryBgm;
+            info[audio.PrimaryBgmPropertyName ?? "bgm"] = InfoTool.SetString(primaryBgm);
             info["cloud"] = InfoTool.SetBool(cloud);
             info["swim"] = InfoTool.SetBool(swim);
             info["forcedReturn"] = InfoTool.SetInt(forcedReturn);
@@ -728,6 +942,11 @@ namespace MapleLib.WzLib.WzStructure
             if (LBBottom != null) 
                 info["LBBottom"] = InfoTool.SetInt((int) LBBottom);
 
+            // Ambient layers and bgmSub are optional and are written only when
+            // present.  Unknown audio fields continue to flow through the
+            // existing unsupportedInfoProperties preservation path below.
+            audio.WriteProperties(info);
+
             // Add back all unsupported properties
             foreach (WzImageProperty imgProp in unsupportedInfoProperties)
             {
@@ -748,6 +967,36 @@ namespace MapleLib.WzLib.WzStructure
         {
             // To keep JSON.NET from serializing this
             return false;
+        }
+
+        public bool ShouldSerializeAudio() => false;
+        public bool ShouldSerializeAudioInfo() => false;
+        public bool ShouldSerializeaudioInfo() => false;
+        public bool ShouldSerializePrimaryBgm() => false;
+        public bool ShouldSerializeAmbientBgm() => false;
+        public bool ShouldSerializeAmbientVolume() => false;
+        public bool ShouldSerializeBgmSub() => false;
+
+        /// <summary>Updates both the legacy field and typed audio view.</summary>
+        public void SetPrimaryBgm(string value)
+        {
+            bgm = value;
+            audio ??= new MapAudioInfo();
+            audio.PrimaryBgm = value;
+        }
+
+        public void SetAmbientBgm(string value, int? volume = null)
+        {
+            audio ??= new MapAudioInfo();
+            audio.AmbientBgm = value;
+            // Removing the ambient layer also removes its volume override;
+            // retaining a stale AmbientBGMv would make a later client read a
+            // volume for a non-existent layer and would dirty an otherwise
+            // unchanged map on save.
+            if (string.IsNullOrWhiteSpace(value))
+                audio.AmbientVolume = null;
+            else if (volume.HasValue)
+                audio.AmbientVolume = volume;
         }
     }
 }

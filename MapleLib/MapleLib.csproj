@@ -33,7 +33,7 @@
     <ProjectReference Include="..\spine-runtimes-2.1.25\spine-csharp\spine-csharp 2.1.25.csproj" />
   </ItemGroup>
   <ItemGroup>
-    <PackageReference Include="lz4net" Version="1.0.15.93" />
+    <PackageReference Include="lz4net" Version="1.0.15.93" PrivateAssets="all" />
     <PackageReference Include="MonoGame.Framework.WindowsDX" Version="3.8.4.1" />
     <PackageReference Include="NAudio" Version="2.3.0" />
     <PackageReference Include="NAudio.Asio" Version="2.3.0" />
