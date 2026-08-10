@@ -14,11 +14,18 @@ namespace MapleLib.WzLib.Serializer
     public class WzImgDeserializer : ProgressingWzSerializer
     {
         private readonly bool freeResources;
+        private readonly bool calculateChecksum;
 
         public WzImgDeserializer(bool freeResources)
+            : this(freeResources, calculateChecksum: true)
+        {
+        }
+
+        public WzImgDeserializer(bool freeResources, bool calculateChecksum)
             : base()
         {
             this.freeResources = freeResources;
+            this.calculateChecksum = calculateChecksum;
         }
 
         public WzImage WzImageFromIMGBytes(byte[] bytes, WzMapleVersion version, string name, bool freeResources)
@@ -36,7 +43,8 @@ namespace MapleLib.WzLib.Serializer
                     BlockSize = bytes.Length
                 };
 
-                img.CalculateAndSetImageChecksum(bytes);
+                if (calculateChecksum)
+                    img.CalculateAndSetImageChecksum(bytes);
 
                 img.Offset = 0;
                 if (freeResources)
@@ -78,7 +86,13 @@ namespace MapleLib.WzLib.Serializer
             WzImage img = null;
             try
             {
-                stream = File.OpenRead(inPath);
+                stream = new FileStream(
+                    inPath,
+                    FileMode.Open,
+                    FileAccess.Read,
+                    FileShare.ReadWrite | FileShare.Delete,
+                    bufferSize: 4096,
+                    FileOptions.RandomAccess);
                 if (stream.Length > int.MaxValue)
                     throw new InvalidDataException("IMG files larger than 2 GiB are not supported.");
 
@@ -88,7 +102,8 @@ namespace MapleLib.WzLib.Serializer
                     BlockSize = checked((int)stream.Length)
                 };
 
-                img.CalculateAndSetImageChecksum(stream);
+                if (calculateChecksum)
+                    img.CalculateAndSetImageChecksum(stream);
                 img.Offset = 0;
 
                 if (freeResources)

@@ -47,6 +47,7 @@ namespace MapleLib.Img
         private readonly LRUCache<string, WzImage> _imageCache;
         private readonly ConcurrentDictionary<string, VirtualWzDirectory> _directoryCache = new();
         private readonly ConcurrentDictionary<string, List<string>> _categoryIndex = new();
+        private readonly ConcurrentDictionary<string, byte> _indexedCategories = new();
 
         // Default cache settings
         private const int DEFAULT_MAX_CACHE_ITEMS = 500;
@@ -221,7 +222,8 @@ namespace MapleLib.Img
         }
 
         /// <summary>
-        /// Builds the index of all IMG files organized by category
+        /// Discovers category directories. Individual category file indexes
+        /// are built only when an operation needs a recursive category scan.
         /// </summary>
         private void BuildCategoryIndex()
         {
@@ -230,23 +232,53 @@ namespace MapleLib.Img
             {
                 string categoryName = Path.GetFileName(dir);
 
-                // Try to load from index file first, fall back to directory scan
-                var imageFiles = LoadCategoryIndex(categoryName, dir);
+                string categoryKey = categoryName.ToLowerInvariant();
+                _categoryIndex.TryAdd(categoryKey, new List<string>());
 
-                if (imageFiles.Count > 0)
+                // Preserve manifest counts without touching every IMG file.
+                if (!_versionInfo.Categories.ContainsKey(categoryName))
                 {
-                    _categoryIndex[categoryName.ToLower()] = imageFiles;
-
-                    // Update category info
-                    if (!_versionInfo.Categories.ContainsKey(categoryName))
+                    _versionInfo.Categories[categoryName] = new CategoryInfo
                     {
-                        _versionInfo.Categories[categoryName] = new CategoryInfo
-                        {
-                            FileCount = imageFiles.Count,
-                            LastModified = DateTime.Now
-                        };
-                    }
+                        FileCount = 0,
+                        LastModified = Directory.GetLastWriteTime(dir)
+                    };
                 }
+            }
+        }
+
+        private List<string> EnsureCategoryIndexed(string category)
+        {
+            EnsureInitialized();
+            string categoryKey = category.ToLowerInvariant();
+            if (!_categoryIndex.ContainsKey(categoryKey))
+                return null;
+            if (_indexedCategories.ContainsKey(categoryKey))
+                return _categoryIndex[categoryKey];
+
+            _cacheLock.EnterUpgradeableReadLock();
+            try
+            {
+                if (_indexedCategories.ContainsKey(categoryKey))
+                    return _categoryIndex[categoryKey];
+
+                _cacheLock.EnterWriteLock();
+                try
+                {
+                    string categoryPath = GetContainedCategoryPath(category);
+                    List<string> paths = LoadCategoryIndex(category, categoryPath);
+                    _categoryIndex[categoryKey] = paths;
+                    _indexedCategories[categoryKey] = 0;
+                    return paths;
+                }
+                finally
+                {
+                    _cacheLock.ExitWriteLock();
+                }
+            }
+            finally
+            {
+                _cacheLock.ExitUpgradeableReadLock();
             }
         }
 
@@ -313,23 +345,28 @@ namespace MapleLib.Img
         /// </summary>
         private WzImage LoadImageFromFile(string filePath, string imageName)
         {
-            try
-            {
-                Interlocked.Increment(ref _diskReads);
+            Interlocked.Increment(ref _diskReads);
 
-                foreach (var mapleVersion in GetReadMapleVersionCandidates())
+            foreach (var mapleVersion in GetReadMapleVersionCandidates())
+            {
+                WzImage image = null;
+                try
                 {
                     byte[] wzIv = WzTool.GetIvByMapleVersion(mapleVersion);
 
-                    // Use freeResources=true to fully parse and close file handle.
-                    // This loads all bitmap data into memory but ensures images render correctly.
-                    // Memory is managed by the LRU cache which evicts old images.
-                    var deserializer = new WzImgDeserializer(true);
-                    WzImage image = deserializer.WzImageFromIMGFile(
+                    // Standalone IMG files keep a shareable reader so canvas
+                    // and sound payloads remain on disk until the property is
+                    // actually rendered or played. Checksums are recalculated
+                    // by packing/saving paths and are not needed for reading.
+                    var deserializer = new WzImgDeserializer(
+                        freeResources: false,
+                        calculateChecksum: false);
+                    image = deserializer.WzImageFromIMGFile(
                         filePath,
                         wzIv,
                         imageName,
                         out bool success);
+                    success = success && image != null && image.ParseImage();
 
                     if (success && image != null)
                     {
@@ -342,16 +379,16 @@ namespace MapleLib.Img
                     }
 
                     Debug.WriteLine($"[ImgFileSystemManager] Failed to parse image: {filePath} (success={success}, image={image != null}, encryption={mapleVersion})");
+                    image?.Dispose();
                 }
+                catch (Exception ex)
+                {
+                    image?.Dispose();
+                    Debug.WriteLine($"[ImgFileSystemManager] Error loading image {filePath} with {mapleVersion}: {ex.Message}");
+                }
+            }
 
-                return null;
-            }
-            catch (Exception ex)
-            {
-                Debug.WriteLine($"[ImgFileSystemManager] Error loading image {filePath}: {ex.Message}");
-                Debug.WriteLine($"[ImgFileSystemManager] Stack trace: {ex.StackTrace}");
-                return null;
-            }
+            return null;
         }
 
         private IEnumerable<WzMapleVersion> GetReadMapleVersionCandidates()
@@ -372,10 +409,8 @@ namespace MapleLib.Img
         /// </summary>
         public IEnumerable<WzImage> LoadImagesInCategory(string category)
         {
-            EnsureInitialized();
-
-            string categoryLower = category.ToLower();
-            if (!_categoryIndex.TryGetValue(categoryLower, out var imagePaths))
+            List<string> imagePaths = EnsureCategoryIndexed(category);
+            if (imagePaths == null)
             {
                 yield break;
             }
@@ -395,26 +430,21 @@ namespace MapleLib.Img
         /// </summary>
         public IEnumerable<WzImage> LoadImagesInDirectory(string category, string subDirectory)
         {
-            EnsureInitialized();
-
-            string categoryLower = category.ToLower();
-            if (!_categoryIndex.TryGetValue(categoryLower, out var imagePaths))
+            string directoryPath = GetContainedDirectoryPath(category, subDirectory);
+            if (!Directory.Exists(directoryPath))
             {
                 yield break;
             }
 
-            string subDirNormalized = subDirectory.Replace('/', Path.DirectorySeparatorChar)
-                                                   .Replace('\\', Path.DirectorySeparatorChar);
-
-            foreach (var relativePath in imagePaths)
+            string categoryPath = GetContainedCategoryPath(category);
+            foreach (string filePath in HaCreatorPaths.EnumerateFilesExcludingBackups(
+                directoryPath, "*.img", SearchOption.AllDirectories))
             {
-                if (relativePath.StartsWith(subDirNormalized, StringComparison.OrdinalIgnoreCase))
+                string relativePath = Path.GetRelativePath(categoryPath, filePath);
+                WzImage image = LoadImage(category, relativePath);
+                if (image != null)
                 {
-                    var image = LoadImage(category, relativePath);
-                    if (image != null)
-                    {
-                        yield return image;
-                    }
+                    yield return image;
                 }
             }
         }
@@ -425,32 +455,15 @@ namespace MapleLib.Img
         /// </summary>
         public IEnumerable<string> GetImageNamesInDirectory(string category, string subDirectory)
         {
-            EnsureInitialized();
-
-            string categoryLower = category.ToLower();
-            if (!_categoryIndex.TryGetValue(categoryLower, out var imagePaths))
+            string directoryPath = GetContainedDirectoryPath(category, subDirectory);
+            if (!Directory.Exists(directoryPath))
             {
                 yield break;
             }
 
-            string subDirNormalized = subDirectory.Replace('/', Path.DirectorySeparatorChar)
-                                                   .Replace('\\', Path.DirectorySeparatorChar);
-
-            foreach (var relativePath in imagePaths)
+            foreach (string filePath in HaCreatorPaths.EnumerateFilesExcludingBackups(directoryPath, "*.img"))
             {
-                if (relativePath.StartsWith(subDirNormalized, StringComparison.OrdinalIgnoreCase))
-                {
-                    // Return just the name without path and extension
-                    string fileName = Path.GetFileName(relativePath);
-                    if (fileName.EndsWith(".img", StringComparison.OrdinalIgnoreCase))
-                    {
-                        yield return fileName.Substring(0, fileName.Length - 4);
-                    }
-                    else
-                    {
-                        yield return fileName;
-                    }
-                }
+                yield return Path.GetFileNameWithoutExtension(filePath);
             }
         }
 
@@ -459,10 +472,8 @@ namespace MapleLib.Img
         /// </summary>
         public async Task<List<WzImage>> LoadImagesParallelAsync(string category, int maxParallelism = 4)
         {
-            EnsureInitialized();
-
-            string categoryLower = category.ToLower();
-            if (!_categoryIndex.TryGetValue(categoryLower, out var imagePaths))
+            List<string> imagePaths = EnsureCategoryIndexed(category);
+            if (imagePaths == null)
             {
                 return new List<WzImage>();
             }
@@ -732,6 +743,23 @@ namespace MapleLib.Img
             return fullPath;
         }
 
+        private string GetContainedDirectoryPath(string category, string relativePath)
+        {
+            string categoryPath = GetContainedCategoryPath(category);
+            string fullPath = string.IsNullOrWhiteSpace(relativePath)
+                ? categoryPath
+                : Path.GetFullPath(Path.Combine(categoryPath, relativePath));
+            string categoryWithSeparator = Path.EndsInDirectorySeparator(categoryPath)
+                ? categoryPath
+                : categoryPath + Path.DirectorySeparatorChar;
+            if (!string.Equals(fullPath, categoryPath, StringComparison.OrdinalIgnoreCase) &&
+                !fullPath.StartsWith(categoryWithSeparator, StringComparison.OrdinalIgnoreCase))
+                throw new InvalidOperationException($"Directory path escapes the category: {fullPath}");
+            if (HaCreatorPaths.ContainsBackupsDirectory(fullPath))
+                throw new InvalidOperationException($"Backup directories are not part of the IMG data source: {fullPath}");
+            return fullPath;
+        }
+
         private static bool IsSafeIndexedImagePath(string categoryPath, string relativePath)
         {
             if (string.IsNullOrWhiteSpace(relativePath) ||
@@ -904,7 +932,8 @@ namespace MapleLib.Img
             return new DataSourceStats
             {
                 CategoryCount = _categoryIndex.Count,
-                ImageCount = _categoryIndex.Values.Sum(v => v.Count),
+                ImageCount = _versionInfo.Categories?.Values.Sum(v => v.FileCount) ??
+                    _categoryIndex.Values.Sum(v => v.Count),
                 CachedImageCount = cacheStats.ItemCount,
                 CacheHitCount = (int)cacheStats.HitCount,
                 CacheMissCount = (int)cacheStats.MissCount,
@@ -1374,6 +1403,7 @@ namespace MapleLib.Img
                     try
                     {
                         _categoryIndex[category.ToLower()] = imageFiles;
+                        _indexedCategories[category.ToLower()] = 0;
                     }
                     finally
                     {
@@ -1386,6 +1416,8 @@ namespace MapleLib.Img
             else
             {
                 // Refresh all categories
+                _categoryIndex.Clear();
+                _indexedCategories.Clear();
                 BuildCategoryIndex();
                 OnCategoryIndexChanged(null, CategoryChangeType.IndexRefreshed, null);
             }
@@ -1456,12 +1488,13 @@ namespace MapleLib.Img
             switch (prop)
             {
                 case WzCanvasProperty canvas:
-                    // Canvas properties contain bitmap data - major memory consumer
+                    // Count only payloads actually materialized in memory.
                     var pngProp = canvas.PngProperty;
                     if (pngProp != null)
                     {
-                        // ARGB = 4 bytes per pixel
-                        size += pngProp.Width * pngProp.Height * 4L;
+                        size += pngProp.compressedImageBytes?.LongLength ?? 0;
+                        if (pngProp.png != null)
+                            size += pngProp.Width * pngProp.Height * 4L;
                     }
                     break;
 
@@ -1470,8 +1503,8 @@ namespace MapleLib.Img
                     break;
 
                 case WzBinaryProperty binary:
-                    // Sound/binary data size
-                    size += binary.Length;
+                    size += binary.fileBytes?.LongLength ?? 0;
+                    size += binary.header?.LongLength ?? 0;
                     break;
             }
 
@@ -1504,6 +1537,7 @@ namespace MapleLib.Img
             _imageCache?.Dispose();  // LRU cache disposes all cached WzImage objects
             _directoryCache.Clear();
             _categoryIndex.Clear();
+            _indexedCategories.Clear();
             _cacheLock?.Dispose();
 
             _disposed = true;
