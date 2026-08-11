@@ -43,6 +43,24 @@ namespace MapleLib.WzLib.WzProperties
             this.properties = new WzPropertyCollection(this);
         }
 
+        public WzVideoProperty(string name, int videoType, byte[] data)
+        {
+            this.name = name;
+            type = videoType;
+            _bytes = data == null ? [] : (byte[])data.Clone();
+            _length = _bytes.Length;
+            properties = new WzPropertyCollection(this);
+        }
+
+        public int VideoType => type;
+
+        public void ReplaceBytes(byte[] data)
+        {
+            _bytes = data == null ? [] : (byte[])data.Clone();
+            _length = _bytes.Length;
+            wzReader = null;
+        }
+
         /// <summary>
         /// Constructor copy
         /// </summary>

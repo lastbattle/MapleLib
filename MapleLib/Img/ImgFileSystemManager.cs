@@ -1506,6 +1506,12 @@ namespace MapleLib.Img
                     size += binary.fileBytes?.LongLength ?? 0;
                     size += binary.header?.LongLength ?? 0;
                     break;
+
+                case WzUOLProperty uol:
+                    // UOL.WzProperties resolves the target. Memory accounting must describe
+                    // the link object itself, not traverse external, broken, or cyclic targets.
+                    size += (uol.Value?.Length ?? 0) * 2L;
+                    return size;
             }
 
             // Add children

@@ -124,6 +124,8 @@ namespace MapleLib.WzLib.WzProperties
         public WzObject LinkValue {
             get {
                 if (linkVal == null) {
+                    if (string.IsNullOrEmpty(val) || parent == null)
+                        return null;
                     string[] paths = val.Split('/');
 
                     if (paths.Length >= 1) {
@@ -135,8 +137,10 @@ namespace MapleLib.WzLib.WzProperties
                         }
                         string fullPath = parent.FullPath;
                         foreach (string path in paths) {
+                            if (linkVal == null)
+                                return null;
                             if (path == "..") {
-                                linkVal = (WzObject)linkVal.Parent;
+                                linkVal = linkVal.Parent;
                             }
                             else {
                                 if (linkVal is WzImageProperty)

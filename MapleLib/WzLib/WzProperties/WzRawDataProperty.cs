@@ -44,6 +44,24 @@ namespace MapleLib.WzLib.WzProperties
             this.properties = new WzPropertyCollection(this);
         }
 
+        public WzRawDataProperty(string name, byte type, byte[] data)
+        {
+            _name = name;
+            _type = type;
+            _bytes = data == null ? [] : (byte[])data.Clone();
+            _length = _bytes.Length;
+            properties = new WzPropertyCollection(this);
+        }
+
+        public void ReplaceBytes(byte[] data)
+        {
+            _bytes = data == null ? [] : (byte[])data.Clone();
+            _length = _bytes.Length;
+            _wzReader = null;
+        }
+
+        public byte RawType => _type;
+
         #region Inherited Members
         public override WzImageProperty DeepClone()
         {

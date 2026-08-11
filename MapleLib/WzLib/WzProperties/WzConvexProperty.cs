@@ -83,7 +83,15 @@ namespace MapleLib.WzLib.WzProperties
 		/// <returns>the wz property with the specified name</returns>
 		public override WzImageProperty GetFromPath(string path)
 		{
+            if (string.IsNullOrWhiteSpace(path))
+            {
+                return null;
+            }
 			string[] segments = path.Split(new char[1] { '/' }, System.StringSplitOptions.RemoveEmptyEntries);
+            if (segments.Length == 0)
+            {
+                return null;
+            }
 			if (segments[0] == "..")
 			{
 				return ((WzImageProperty)Parent)[path.Substring(name.IndexOf('/') + 1)];
