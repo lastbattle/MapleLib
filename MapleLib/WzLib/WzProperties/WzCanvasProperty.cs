@@ -284,7 +284,22 @@ namespace MapleLib.WzLib.WzProperties {
         /// </summary>
         /// <returns></returns>
         public Bitmap GetLinkedWzCanvasBitmap() {
-            return GetLinkedWzImageProperty().GetBitmap();
+            WzImageProperty linkedProperty = GetLinkedWzImageProperty();
+            if (linkedProperty is WzCanvasProperty linkedCanvas)
+            {
+                return linkedCanvas.GetBitmap();
+            }
+            if (linkedProperty is WzPngProperty linkedPng)
+            {
+                return linkedPng.GetBitmap();
+            }
+            if (linkedProperty is WzUOLProperty linkedUol)
+            {
+                return linkedUol.GetBitmap();
+            }
+
+            Debug.WriteLine($"Canvas link did not resolve to bitmap data: {FullPath}");
+            return GetBitmap();
         }
 
         /// <summary>
@@ -415,14 +430,17 @@ namespace MapleLib.WzLib.WzProperties {
                 return null;
             }
 
-            string normalizedPath = outlinkPath.Replace('\\', '/').Trim('/');
+            // WZ property paths use '/', but a property name can itself be a backslash
+            // (for example StatusBar2.img's gauge divider glyph). Only normalize the
+            // image portion so the property portion remains lossless.
+            string normalizedPath = outlinkPath.Trim().Trim('/');
             int imagePathEnd = FindImagePathEnd(normalizedPath);
             if (imagePathEnd < 0)
             {
                 return null;
             }
 
-            string imagePath = normalizedPath.Substring(0, imagePathEnd);
+            string imagePath = normalizedPath.Substring(0, imagePathEnd).Replace('\\', '/');
             WzImage image = ExternalImageResolver(imagePath);
             if (image == null)
             {
@@ -449,7 +467,13 @@ namespace MapleLib.WzLib.WzProperties {
             int segmentStart = 0;
             while (segmentStart < normalizedPath.Length)
             {
-                int slashIndex = normalizedPath.IndexOf('/', segmentStart);
+                int forwardSlashIndex = normalizedPath.IndexOf('/', segmentStart);
+                int backslashIndex = normalizedPath.IndexOf('\\', segmentStart);
+                int slashIndex = forwardSlashIndex < 0
+                    ? backslashIndex
+                    : backslashIndex < 0
+                        ? forwardSlashIndex
+                        : Math.Min(forwardSlashIndex, backslashIndex);
                 int segmentEnd = slashIndex < 0 ? normalizedPath.Length : slashIndex;
                 int segmentLength = segmentEnd - segmentStart;
 
