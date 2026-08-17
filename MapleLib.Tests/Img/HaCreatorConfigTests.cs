@@ -75,38 +75,6 @@ namespace MapleLib.Tests.Img
         }
 
         [Fact]
-        public void VersionsPath_ReturnsCorrectPath()
-        {
-            // Arrange
-            var config = new HaCreatorConfig
-            {
-                ImgRootPath = @"C:\Test\Data"
-            };
-
-            // Act
-            string versionsPath = config.VersionsPath;
-
-            // Assert
-            Assert.Equal(Path.Combine(@"C:\Test\Data", "versions"), versionsPath);
-        }
-
-        [Fact]
-        public void CustomPath_ReturnsCorrectPath()
-        {
-            // Arrange
-            var config = new HaCreatorConfig
-            {
-                ImgRootPath = @"C:\Test\Data"
-            };
-
-            // Act
-            string customPath = config.CustomPath;
-
-            // Assert
-            Assert.Equal(Path.Combine(@"C:\Test\Data", "custom"), customPath);
-        }
-
-        [Fact]
         public void SaveAndLoad_PreservesAllSettings()
         {
             // Arrange

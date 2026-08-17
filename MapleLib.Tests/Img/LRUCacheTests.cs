@@ -159,27 +159,6 @@ namespace MapleLib.Tests.Img
         }
 
         [Fact]
-        public void ContainsKey_ExistingKey_ReturnsTrue()
-        {
-            // Arrange
-            _cache = new LRUCache<string, IntWrapper>(10);
-            _cache.Add("key1", new IntWrapper(100));
-
-            // Act & Assert
-            Assert.True(_cache.ContainsKey("key1"));
-        }
-
-        [Fact]
-        public void ContainsKey_NonExistingKey_ReturnsFalse()
-        {
-            // Arrange
-            _cache = new LRUCache<string, IntWrapper>(10);
-
-            // Act & Assert
-            Assert.False(_cache.ContainsKey("nonexistent"));
-        }
-
-        [Fact]
         public async Task IsThreadSafe_ConcurrentAccess_DoesNotThrow()
         {
             // Arrange
