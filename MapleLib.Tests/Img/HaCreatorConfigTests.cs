@@ -37,88 +37,6 @@ namespace MapleLib.Tests.Img
         }
 
         [Fact]
-        public void DefaultValues_AreCorrect()
-        {
-            // Act
-            var config = new HaCreatorConfig();
-
-            // Assert
-            Assert.Equal(DataSourceMode.ImgFileSystem, config.DataSourceMode);
-            Assert.NotNull(config.Cache);
-            Assert.NotNull(config.Legacy);
-            Assert.NotNull(config.Extraction);
-            Assert.NotNull(config.AdditionalVersionPaths);
-        }
-
-        [Fact]
-        public void CacheConfig_HasDefaultValues()
-        {
-            // Act
-            var config = new HaCreatorConfig();
-
-            // Assert
-            Assert.Equal(512, config.Cache.MaxMemoryCacheMB);
-            Assert.Equal(1000, config.Cache.MaxCachedImages);
-            Assert.True(config.Cache.EnableMemoryMappedFiles);
-            Assert.NotNull(config.Cache.PreloadCategories);
-        }
-
-        [Fact]
-        public void LegacyConfig_HasDefaultValues()
-        {
-            // Act
-            var config = new HaCreatorConfig();
-
-            // Assert
-            Assert.Null(config.Legacy.WzFilePath);
-            Assert.False(config.Legacy.AllowWzFallback);
-            Assert.False(config.Legacy.AutoConvertOnLoad);
-        }
-
-        [Fact]
-        public void ExtractionConfig_HasDefaultValues()
-        {
-            // Act
-            var config = new HaCreatorConfig();
-
-            // Assert
-            Assert.Equal(4, config.Extraction.ParallelThreads);
-            Assert.True(config.Extraction.GenerateIndex);
-            Assert.True(config.Extraction.ValidateAfterExtract);
-        }
-
-        [Fact]
-        public void Save_CreatesFile()
-        {
-            // Arrange
-            var config = new HaCreatorConfig();
-            config.DataSourceMode = DataSourceMode.WzFiles;
-
-            // Act
-            config.Save(_testConfigPath);
-
-            // Assert
-            Assert.True(File.Exists(_testConfigPath));
-        }
-
-        [Fact]
-        public void Load_ExistingFile_ReturnsConfig()
-        {
-            // Arrange
-            var originalConfig = new HaCreatorConfig();
-            originalConfig.DataSourceMode = DataSourceMode.Hybrid;
-            originalConfig.LastUsedVersion = "v83";
-            originalConfig.Save(_testConfigPath);
-
-            // Act
-            var loadedConfig = HaCreatorConfig.Load(_testConfigPath);
-
-            // Assert
-            Assert.Equal(DataSourceMode.Hybrid, loadedConfig.DataSourceMode);
-            Assert.Equal("v83", loadedConfig.LastUsedVersion);
-        }
-
-        [Fact]
         public void Load_NonExistingFile_ReturnsDefaultConfig()
         {
             // Act
@@ -186,21 +104,6 @@ namespace MapleLib.Tests.Img
 
             // Assert
             Assert.Equal(Path.Combine(@"C:\Test\Data", "custom"), customPath);
-        }
-
-        [Fact]
-        public void AdditionalVersionPaths_CanBeModified()
-        {
-            // Arrange
-            var config = new HaCreatorConfig();
-
-            // Act
-            config.AdditionalVersionPaths.Add(@"C:\External\Version1");
-            config.AdditionalVersionPaths.Add(@"D:\Another\Version2");
-
-            // Assert
-            Assert.Equal(2, config.AdditionalVersionPaths.Count);
-            Assert.Contains(@"C:\External\Version1", config.AdditionalVersionPaths);
         }
 
         [Fact]

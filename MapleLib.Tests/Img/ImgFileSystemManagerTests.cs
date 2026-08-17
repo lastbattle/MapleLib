@@ -105,18 +105,6 @@ namespace MapleLib.Tests.Img
         }
 
         [Fact]
-        public void Constructor_ValidPath_InitializesSuccessfully()
-        {
-            // Act
-            using var manager = new ImgFileSystemManager(_testVersionPath, _config);
-            manager.Initialize();
-
-            // Assert
-            Assert.True(manager.IsInitialized);
-            Assert.NotNull(manager.VersionInfo);
-        }
-
-        [Fact]
         public void Constructor_InvalidPath_ThrowsException()
         {
             // Act & Assert

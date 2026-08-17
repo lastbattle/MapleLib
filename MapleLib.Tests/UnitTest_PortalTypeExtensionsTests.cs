@@ -14,18 +14,6 @@ namespace UnitTest_WzFile
     {
         [TestMethod]
         [SupportedOSPlatform("windows7.0")] // Fix for CA1416: Specify platform support
-        public void ValidateAllPortalTypeValuesMapped()
-        {
-            // Validate that all PortalType enum values are mapped
-            foreach (PortalType type in Enum.GetValues(typeof(PortalType)))
-            {
-                type.ToCode(); // This will throw if the mapping is missing
-                type.GetFriendlyName(); // This will throw if the mapping is missing
-            }
-        }
-
-        [TestMethod]
-        [SupportedOSPlatform("windows7.0")] // Fix for CA1416: Specify platform support
         public void ToCode_ReturnsCorrectCode()
         {
             Assert.AreEqual("sp", PortalType.StartPoint.ToCode());

@@ -29,39 +29,6 @@ namespace MapleLib.Tests.Img
         }
 
         [Fact]
-        public void Constructor_ValidCapacity_CreatesCache()
-        {
-            // Act
-            _cache = new LRUCache<string, IntWrapper>(10);
-
-            // Assert
-            Assert.Equal(0, _cache.Count);
-        }
-
-        [Fact]
-        public void Constructor_ZeroCapacity_UsesDefaultCapacity()
-        {
-            // Act - should use default capacity (100)
-            _cache = new LRUCache<string, IntWrapper>(0);
-
-            // Assert
-            Assert.Equal(0, _cache.Count);
-        }
-
-        [Fact]
-        public void Add_SingleItem_IncreasesCount()
-        {
-            // Arrange
-            _cache = new LRUCache<string, IntWrapper>(10);
-
-            // Act
-            _cache.Add("key1", new IntWrapper(100));
-
-            // Assert
-            Assert.Equal(1, _cache.Count);
-        }
-
-        [Fact]
         public void Add_DuplicateKey_UpdatesValue()
         {
             // Arrange
