@@ -1,13 +1,14 @@
 ﻿using System;
-using System.Collections.Generic;
+using System.Buffers;
 using System.Linq;
 using System.Runtime.CompilerServices;
-using System.Text;
 
 namespace MapleLib.Helpers
 {
     public static class ByteUtils
     {
+        private static readonly SearchValues<char> PlainHexDigits = SearchValues.Create("0123456789ABCDEFabcdef");
+
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static bool CompareBytearrays(byte[] a, byte[] b)
         {
@@ -36,10 +37,13 @@ namespace MapleLib.Helpers
                 return Array.Empty<byte>();
             }
 
+            if ((pValue.Length & 1) == 0 && pValue.AsSpan().IndexOfAnyExcept(PlainHexDigits) < 0)
+                return Convert.FromHexString(pValue);
+
             // Keep the accepted wire notation intentionally small: optional 0x
             // prefixes, whitespace, and conventional byte separators. Any other
             // character is rejected instead of silently disappearing.
-            List<char> digits = new(pValue.Length);
+            int digitCount = 0;
             bool atTokenStart = true;
             bool sawHexDigit = false;
             for (int i = 0; i < pValue.Length; i++)
@@ -64,21 +68,47 @@ namespace MapleLib.Helpers
                     throw new FormatException($"Invalid hexadecimal character '{c}'.");
                 }
 
-                digits.Add(char.ToUpperInvariant(c));
+                digitCount++;
                 atTokenStart = false;
                 sawHexDigit = true;
             }
 
-            if (!sawHexDigit || digits.Count % 2 != 0)
+            if (!sawHexDigit || digitCount % 2 != 0)
             {
                 throw new FormatException("The hexadecimal string must contain an even number of digits.");
             }
 
-            byte[] bytes = new byte[digits.Count / 2];
-            for (int i = 0, j = 0; i < bytes.Length; i++, j += 2)
+            byte[] bytes = new byte[digitCount / 2];
+            int byteIndex = 0;
+            char high = '\0';
+            bool hasHigh = false;
+            atTokenStart = true;
+            for (int i = 0; i < pValue.Length; i++)
             {
-                char high = digits[j];
-                char low = digits[j + 1];
+                char c = pValue[i];
+                if (char.IsWhiteSpace(c) || c is '-' or ':' or ',')
+                {
+                    atTokenStart = true;
+                    continue;
+                }
+
+                if (atTokenStart && c == '0' && i + 1 < pValue.Length &&
+                    (pValue[i + 1] == 'x' || pValue[i + 1] == 'X'))
+                {
+                    i++;
+                    atTokenStart = false;
+                    continue;
+                }
+
+                atTokenStart = false;
+                if (!hasHigh)
+                {
+                    high = c;
+                    hasHigh = true;
+                    continue;
+                }
+
+                char low = c;
                 if (high == '*' || low == '*')
                 {
                     if (high != '*' || low != '*')
@@ -86,12 +116,13 @@ namespace MapleLib.Helpers
                         throw new FormatException("A wildcard byte must be written as '**'.");
                     }
 
-                    bytes[i] = (byte)Random.Shared.Next(0, byte.MaxValue + 1);
+                    bytes[byteIndex++] = (byte)Random.Shared.Next(0, byte.MaxValue + 1);
                 }
                 else
                 {
-                    bytes[i] = HexToByte(new string(new[] { high, low }));
+                    bytes[byteIndex++] = (byte)((HexDigitValue(high) << 4) | HexDigitValue(low));
                 }
+                hasHigh = false;
             }
 
             return bytes;
@@ -106,12 +137,18 @@ namespace MapleLib.Helpers
         public static string BytesToHex(byte[] bytes, string header = "")
         {
             ArgumentNullException.ThrowIfNull(bytes);
-            StringBuilder builder = new StringBuilder(header);
-            foreach (byte c in bytes)
+            string prefix = header ?? string.Empty;
+            return string.Create(checked(prefix.Length + bytes.Length * 3), (bytes, prefix), static (destination, state) =>
             {
-                builder.AppendFormat("{0:X2} ", c);
-            }
-            return builder.ToString();
+                state.prefix.AsSpan().CopyTo(destination);
+                int offset = state.prefix.Length;
+                foreach (byte value in state.bytes)
+                {
+                    destination[offset++] = ToUpperHex(value >> 4);
+                    destination[offset++] = ToUpperHex(value & 0x0F);
+                    destination[offset++] = ' ';
+                }
+            });
         }
 
         /// <summary>
@@ -141,6 +178,17 @@ namespace MapleLib.Helpers
             byte newByte = byte.Parse(hex, System.Globalization.NumberStyles.HexNumber);
             return newByte;
         }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private static int HexDigitValue(char value)
+        {
+            if (value <= '9')
+                return value - '0';
+            return (value | 0x20) - 'a' + 10;
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private static char ToUpperHex(int value) => (char)(value < 10 ? '0' + value : 'A' + value - 10);
 
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]

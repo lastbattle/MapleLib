@@ -7,6 +7,7 @@
  */
 
 using System.IO;
+using System.Globalization;
 using System.Text.Json;
 using MapleLib.Img;
 using MapleLib.WzLib;
@@ -386,6 +387,30 @@ namespace MapleLib.Tests.Img
             // Assert
             Assert.NotNull(stats);
             Assert.True(stats.CategoryCount >= 3); // At least String, Map, Mob
+        }
+
+        [Theory]
+        [InlineData("en-US", "STRING", "Map/IMAGE.img")]
+        [InlineData("tr-TR", "STRING", "ITEM/Iİıi.img")]
+        [InlineData("de-DE", "STRAẞE", "GRÖẞE.img")]
+        [InlineData("el-GR", "ΟΣ", "ΣΊΓΜΑ.img")]
+        public void CreateCacheKey_MatchesExistingCurrentCultureNormalization(
+            string cultureName,
+            string category,
+            string relativePath)
+        {
+            CultureInfo originalCulture = CultureInfo.CurrentCulture;
+            try
+            {
+                CultureInfo.CurrentCulture = CultureInfo.GetCultureInfo(cultureName);
+                string expected = $"{category.ToLower()}/{relativePath.ToLower()}";
+
+                Assert.Equal(expected, ImgFileSystemManager.CreateCacheKey(category, relativePath));
+            }
+            finally
+            {
+                CultureInfo.CurrentCulture = originalCulture;
+            }
         }
 
         [Fact]

@@ -112,7 +112,9 @@ namespace MapleLib.Helpers
             bool isGrayscale = true;
             const int grayscaleTolerance = 8; // Allow small deviation for near-grayscale images
             HashSet<uint> rgbSet = []; // Unique RGB colors
-            HashSet<byte> alphaSet = []; // Unique alpha values
+            Span<ulong> alphaValues = stackalloc ulong[4];
+            alphaValues.Clear();
+            int uniqueAlphaValues = 0;
             long alphaSum = 0;
             long alphaSumSquares = 0;
             long alphaGradientSum = 0;
@@ -132,7 +134,13 @@ namespace MapleLib.Helpers
                     if (a < 255) hasAlpha = true;
                     if (a > 5 && a < 250) hasPartialAlpha = true; // Tolerance for near-0/near-255
                     maxAlpha = Math.Max(maxAlpha, a);
-                    alphaSet.Add(a);
+                    ulong alphaMask = 1UL << (a & 63);
+                    ref ulong alphaBucket = ref alphaValues[a >> 6];
+                    if ((alphaBucket & alphaMask) == 0)
+                    {
+                        alphaBucket |= alphaMask;
+                        uniqueAlphaValues++;
+                    }
                     alphaSum += a;
                     alphaSumSquares += (long)a * a;
 
@@ -169,7 +177,7 @@ namespace MapleLib.Helpers
             double alphaVariance = ((double)alphaSumSquares / pixelCount) - (meanAlpha * meanAlpha);
             double avgAlphaGradient = gradientCount > 0 ? (double)alphaGradientSum / gradientCount : 0;
 
-            return (rgbSet.Count, alphaSet.Count, hasAlpha, hasPartialAlpha, maxAlpha, avgAlphaGradient, alphaVariance, isGrayscale);
+            return (rgbSet.Count, uniqueAlphaValues, hasAlpha, hasPartialAlpha, maxAlpha, avgAlphaGradient, alphaVariance, isGrayscale);
         }
 
         /// <summary>

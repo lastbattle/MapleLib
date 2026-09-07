@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Buffers;
 using System.IO;
 using System.Text.RegularExpressions;
 using System;
@@ -758,9 +759,16 @@ namespace MapleLib.WzLib
                 return GetObjectsFromDirectory(WzDirectory);
 
             var objList = new List<WzObject>();
-            var pathSegments = new List<string>(8) { name };
-            TraverseSearchImages(WzDirectory.WzImages, pathSegments, false, path, null, objList);
-            TraverseSearchDirectories(wzDir.WzDirectories, pathSegments, path, null, objList);
+            var searchPath = new SearchPathBuilder(name);
+            try
+            {
+                TraverseSearchImages(WzDirectory.WzImages, ref searchPath, false, path, null, objList);
+                TraverseSearchDirectories(wzDir.WzDirectories, ref searchPath, path, null, objList);
+            }
+            finally
+            {
+                searchPath.Dispose();
+            }
             return objList;
         }
 
@@ -771,9 +779,16 @@ namespace MapleLib.WzLib
 
             Regex regex = new Regex(path);
             var objList = new List<WzObject>();
-            var pathSegments = new List<string>(8) { name };
-            TraverseSearchImages(WzDirectory.WzImages, pathSegments, false, null, regex, objList);
-            TraverseSearchDirectories(wzDir.WzDirectories, pathSegments, null, regex, objList);
+            var searchPath = new SearchPathBuilder(name);
+            try
+            {
+                TraverseSearchImages(WzDirectory.WzImages, ref searchPath, false, null, regex, objList);
+                TraverseSearchDirectories(wzDir.WzDirectories, ref searchPath, null, regex, objList);
+            }
+            finally
+            {
+                searchPath.Dispose();
+            }
             return objList;
         }
 
@@ -788,7 +803,7 @@ namespace MapleLib.WzLib
         /// </summary>
         private void TraverseSearchImages(
             IEnumerable<WzImage> images,
-            List<string> pathSegments,
+            ref SearchPathBuilder searchPath,
             bool includeImage,
             string wildcardPath,
             Regex regexPath,
@@ -796,18 +811,18 @@ namespace MapleLib.WzLib
         {
             foreach (WzImage image in images)
             {
-                pathSegments.Add(image.Name);
+                int imagePathLength = searchPath.Append(image.Name);
                 if (includeImage)
-                    AddSearchMatch(pathSegments, image, wildcardPath, regexPath, results);
+                    AddSearchMatch(ref searchPath, image, wildcardPath, regexPath, results);
 
                 foreach (WzImageProperty property in image.WzProperties)
                 {
-                    pathSegments.Add(property.Name);
-                    TraverseSearchProperty(property, pathSegments, true, wildcardPath, regexPath, results);
-                    pathSegments.RemoveAt(pathSegments.Count - 1);
+                    int propertyPathLength = searchPath.Append(property.Name);
+                    TraverseSearchProperty(property, ref searchPath, true, wildcardPath, regexPath, results);
+                    searchPath.Restore(propertyPathLength);
                 }
 
-                pathSegments.RemoveAt(pathSegments.Count - 1);
+                searchPath.Restore(imagePathLength);
             }
         }
 
@@ -817,20 +832,20 @@ namespace MapleLib.WzLib
         /// </summary>
         private void TraverseSearchDirectories(
             IEnumerable<WzDirectory> directories,
-            List<string> pathSegments,
+            ref SearchPathBuilder searchPath,
             string wildcardPath,
             Regex regexPath,
             List<WzObject> results)
         {
             foreach (WzDirectory directory in directories)
             {
-                pathSegments.Add(directory.Name);
-                AddSearchMatch(pathSegments, directory, wildcardPath, regexPath, results);
+                int directoryPathLength = searchPath.Append(directory.Name);
+                AddSearchMatch(ref searchPath, directory, wildcardPath, regexPath, results);
 
-                TraverseSearchImages(directory.WzImages, pathSegments, true, wildcardPath, regexPath, results);
-                TraverseSearchDirectories(directory.WzDirectories, pathSegments, wildcardPath, regexPath, results);
+                TraverseSearchImages(directory.WzImages, ref searchPath, true, wildcardPath, regexPath, results);
+                TraverseSearchDirectories(directory.WzDirectories, ref searchPath, wildcardPath, regexPath, results);
 
-                pathSegments.RemoveAt(pathSegments.Count - 1);
+                searchPath.Restore(directoryPathLength);
             }
         }
 
@@ -841,73 +856,125 @@ namespace MapleLib.WzLib
         /// </summary>
         private void TraverseSearchProperty(
             WzImageProperty property,
-            List<string> pathSegments,
+            ref SearchPathBuilder searchPath,
             bool includeProperty,
             string wildcardPath,
             Regex regexPath,
             List<WzObject> results)
         {
             if (includeProperty)
-                AddSearchMatch(pathSegments, property, wildcardPath, regexPath, results);
+                AddSearchMatch(ref searchPath, property, wildcardPath, regexPath, results);
 
             switch (property.PropertyType)
             {
                 case WzPropertyType.Canvas:
-                    pathSegments.Add("PNG");
-                    AddSearchMatch(pathSegments, ((WzCanvasProperty)property).PngProperty, wildcardPath, regexPath, results);
-                    pathSegments.RemoveAt(pathSegments.Count - 1);
+                    int pngPathLength = searchPath.Append("PNG");
+                    AddSearchMatch(ref searchPath, ((WzCanvasProperty)property).PngProperty, wildcardPath, regexPath, results);
+                    searchPath.Restore(pngPathLength);
 
                     foreach (WzImageProperty child in ((WzCanvasProperty)property).WzProperties)
                     {
-                        pathSegments.Add(child.Name);
-                        TraverseSearchProperty(child, pathSegments, false, wildcardPath, regexPath, results);
-                        pathSegments.RemoveAt(pathSegments.Count - 1);
+                        int childPathLength = searchPath.Append(child.Name);
+                        TraverseSearchProperty(child, ref searchPath, false, wildcardPath, regexPath, results);
+                        searchPath.Restore(childPathLength);
                     }
                     break;
 
                 case WzPropertyType.Convex:
                     foreach (WzImageProperty child in ((WzConvexProperty)property).WzProperties)
                     {
-                        pathSegments.Add(child.Name);
-                        TraverseSearchProperty(child, pathSegments, false, wildcardPath, regexPath, results);
-                        pathSegments.RemoveAt(pathSegments.Count - 1);
+                        int childPathLength = searchPath.Append(child.Name);
+                        TraverseSearchProperty(child, ref searchPath, false, wildcardPath, regexPath, results);
+                        searchPath.Restore(childPathLength);
                     }
                     break;
 
                 case WzPropertyType.SubProperty:
                     foreach (WzImageProperty child in ((WzSubProperty)property).WzProperties)
                     {
-                        pathSegments.Add(child.Name);
-                        TraverseSearchProperty(child, pathSegments, false, wildcardPath, regexPath, results);
-                        pathSegments.RemoveAt(pathSegments.Count - 1);
+                        int childPathLength = searchPath.Append(child.Name);
+                        TraverseSearchProperty(child, ref searchPath, false, wildcardPath, regexPath, results);
+                        searchPath.Restore(childPathLength);
                     }
                     break;
 
                 case WzPropertyType.Vector:
                     WzVectorProperty vector = (WzVectorProperty)property;
-                    pathSegments.Add("X");
-                    AddSearchMatch(pathSegments, vector.X, wildcardPath, regexPath, results);
-                    pathSegments.RemoveAt(pathSegments.Count - 1);
+                    int vectorPathLength = searchPath.Append("X");
+                    AddSearchMatch(ref searchPath, vector.X, wildcardPath, regexPath, results);
+                    searchPath.Restore(vectorPathLength);
 
-                    pathSegments.Add("Y");
-                    AddSearchMatch(pathSegments, vector.Y, wildcardPath, regexPath, results);
-                    pathSegments.RemoveAt(pathSegments.Count - 1);
+                    vectorPathLength = searchPath.Append("Y");
+                    AddSearchMatch(ref searchPath, vector.Y, wildcardPath, regexPath, results);
+                    searchPath.Restore(vectorPathLength);
                     break;
             }
         }
 
         private void AddSearchMatch(
-            List<string> pathSegments,
+            ref SearchPathBuilder searchPath,
             WzObject value,
             string wildcardPath,
             Regex regexPath,
             List<WzObject> results)
         {
-            string candidatePath = string.Join("/", pathSegments);
-            if ((wildcardPath != null && StringMatch(wildcardPath, candidatePath)) ||
+            ReadOnlySpan<char> candidatePath = searchPath.WrittenSpan;
+            if ((wildcardPath != null && StringMatch(wildcardPath.AsSpan(), candidatePath)) ||
                 (regexPath != null && regexPath.IsMatch(candidatePath)))
             {
                 results.Add(value);
+            }
+        }
+
+        private struct SearchPathBuilder : IDisposable
+        {
+            private char[] _buffer;
+            private int _length;
+
+            public SearchPathBuilder(string rootName)
+            {
+                rootName ??= string.Empty;
+                _buffer = ArrayPool<char>.Shared.Rent(Math.Max(256, rootName.Length));
+                rootName.AsSpan().CopyTo(_buffer);
+                _length = rootName.Length;
+            }
+
+            public readonly ReadOnlySpan<char> WrittenSpan => _buffer.AsSpan(0, _length);
+
+            public int Append(string segment)
+            {
+                segment ??= string.Empty;
+                int previousLength = _length;
+                EnsureCapacity(_length + 1 + segment.Length);
+                _buffer[_length++] = '/';
+                segment.AsSpan().CopyTo(_buffer.AsSpan(_length));
+                _length += segment.Length;
+                return previousLength;
+            }
+
+            public void Restore(int length)
+            {
+                _length = length;
+            }
+
+            private void EnsureCapacity(int requiredLength)
+            {
+                if (requiredLength <= _buffer.Length)
+                    return;
+
+                char[] newBuffer = ArrayPool<char>.Shared.Rent(Math.Max(requiredLength, _buffer.Length * 2));
+                _buffer.AsSpan(0, _length).CopyTo(newBuffer);
+                ArrayPool<char>.Shared.Return(_buffer);
+                _buffer = newBuffer;
+            }
+
+            public void Dispose()
+            {
+                char[] buffer = _buffer;
+                _buffer = null;
+                _length = 0;
+                if (buffer != null)
+                    ArrayPool<char>.Shared.Return(buffer);
             }
         }
 
@@ -1247,6 +1314,13 @@ namespace MapleLib.WzLib
 
 
         internal bool StringMatch(string strWildCard, string strCompare)
+        {
+            _ = strWildCard.Length;
+            _ = strCompare.Length;
+            return StringMatch(strWildCard.AsSpan(), strCompare.AsSpan());
+        }
+
+        private static bool StringMatch(ReadOnlySpan<char> strWildCard, ReadOnlySpan<char> strCompare)
         {
             int wildCardIndex = 0;
             int compareIndex = 0;

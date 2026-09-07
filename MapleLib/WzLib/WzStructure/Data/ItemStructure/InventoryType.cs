@@ -27,7 +27,9 @@ namespace MapleLib.WzLib.WzStructure.Data.ItemStructure
 
         public static InventoryType? GetByType(byte type)
         {
-            return Enum.GetValues<InventoryType>().FirstOrDefault(t => (byte)t == type);
+            return type <= (byte)InventoryType.CASH || type == (byte)InventoryType.EQUIPPED
+                ? (InventoryType)type
+                : InventoryType.NONE;
         }
 
         public static InventoryType? GetByWZName(string name)

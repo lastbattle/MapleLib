@@ -1,14 +1,11 @@
 ﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
 
 namespace MapleLib.PacketLib
 {
     public static class HexTool
     {
-        private static char[] HEX = { '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'A', 'B', 'C', 'D', 'E', 'F' };
+        private const string UpperHex = "0123456789ABCDEF";
+        private const string LowerHex = "0123456789abcdef";
 
         /// <summary>
         /// Converts a byte value to readable hex representation
@@ -17,9 +14,11 @@ namespace MapleLib.PacketLib
         /// <returns></returns>
         public static String ToString(byte byteValue)
         {
-            int tmp = byteValue << 8;
-            char[] retstr = new char[] { HEX[(tmp >> 12) & 0x0F], HEX[(tmp >> 8) & 0x0F] };
-            return new string(retstr);
+            return string.Create(2, byteValue, static (destination, value) =>
+            {
+                destination[0] = UpperHex[value >> 4];
+                destination[1] = UpperHex[value & 0x0F];
+            });
         }
 
         /// <summary>
@@ -29,13 +28,7 @@ namespace MapleLib.PacketLib
         /// <returns></returns>
         public static String ToString(byte[] bytes)
         {
-            StringBuilder hexed = new StringBuilder();
-            for (int i = 0; i < bytes.Length; i++)
-            {
-                hexed.Append(ToString(bytes[i]));
-                hexed.Append(' ');
-            }
-            return hexed.ToString();
+            return FormatBytes(bytes, UpperHex);
         }
 
 
@@ -49,13 +42,7 @@ namespace MapleLib.PacketLib
         {
             byte[] bytes = reader.ToArray();
 
-            StringBuilder hexed = new StringBuilder();
-            for (int i = 0; i < bytes.Length; i++)
-            {
-                hexed.Append(ToString(bytes[i]));
-                hexed.Append(' ');
-            }
-            return hexed.ToString();
+            return FormatBytes(bytes, UpperHex);
         }
 
         /// <summary>
@@ -68,21 +55,27 @@ namespace MapleLib.PacketLib
         {
             byte[] bytes = writer.ToArray();
 
-            StringBuilder hexed = new StringBuilder();
-            for (int i = 0; i < bytes.Length; i++)
-            {
-                hexed.Append(ToString(bytes[i]));
-                hexed.Append(' ');
-            }
-            return hexed.ToString();
+            return FormatBytes(bytes, UpperHex);
         }
 
         public static string ByteArrayToString(byte[] ba)
         {
-            StringBuilder hex = new StringBuilder(ba.Length * 3);
-            foreach (byte b in ba)
-                hex.AppendFormat("{0:x2} ", b);
-            return hex.ToString();
+            return FormatBytes(ba, LowerHex);
+        }
+
+        private static string FormatBytes(byte[] bytes, string alphabet)
+        {
+            int length = bytes.Length;
+            return string.Create(checked(length * 3), (bytes, alphabet), static (destination, state) =>
+            {
+                int offset = 0;
+                foreach (byte value in state.bytes)
+                {
+                    destination[offset++] = state.alphabet[value >> 4];
+                    destination[offset++] = state.alphabet[value & 0x0F];
+                    destination[offset++] = ' ';
+                }
+            });
         }
     }
 }

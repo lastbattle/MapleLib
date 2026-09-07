@@ -31,7 +31,6 @@ namespace MapleLib.Img
             public TKey Key { get; set; }
             public TValue Value { get; set; }
             public long Size { get; set; }
-            public DateTime LastAccess { get; set; }
         }
 
         /// <summary>
@@ -72,6 +71,7 @@ namespace MapleLib.Img
                 _lock.EnterReadLock();
                 try
                 {
+                    ThrowIfDisposed();
                     return _cache.Count;
                 }
                 finally
@@ -119,23 +119,15 @@ namespace MapleLib.Img
         public bool TryGet(TKey key, out TValue value)
         {
             ThrowIfDisposed();
-            _lock.EnterUpgradeableReadLock();
+            _lock.EnterWriteLock();
             try
             {
+                ThrowIfDisposed();
                 if (_cache.TryGetValue(key, out var node))
                 {
                     // Move to front (most recently used)
-                    _lock.EnterWriteLock();
-                    try
-                    {
-                        _lruList.Remove(node);
-                        _lruList.AddFirst(node);
-                        node.Value.LastAccess = DateTime.UtcNow;
-                    }
-                    finally
-                    {
-                        _lock.ExitWriteLock();
-                    }
+                    _lruList.Remove(node);
+                    _lruList.AddFirst(node);
 
                     Interlocked.Increment(ref _hitCount);
                     value = node.Value.Value;
@@ -148,7 +140,7 @@ namespace MapleLib.Img
             }
             finally
             {
-                _lock.ExitUpgradeableReadLock();
+                _lock.ExitWriteLock();
             }
         }
 
@@ -169,11 +161,11 @@ namespace MapleLib.Img
             _lock.EnterWriteLock();
             try
             {
+                ThrowIfDisposed();
                 if (_cache.TryGetValue(key, out var existingNode))
                 {
                     _lruList.Remove(existingNode);
                     _lruList.AddFirst(existingNode);
-                    existingNode.Value.LastAccess = DateTime.UtcNow;
                     Interlocked.Increment(ref _hitCount);
                     return existingNode.Value.Value;
                 }
@@ -207,6 +199,7 @@ namespace MapleLib.Img
             _lock.EnterWriteLock();
             try
             {
+                ThrowIfDisposed();
                 AddCore(key, value, itemSize);
             }
             finally
@@ -224,6 +217,7 @@ namespace MapleLib.Img
             _lock.EnterWriteLock();
             try
             {
+                ThrowIfDisposed();
                 if (_cache.TryGetValue(key, out var node))
                 {
                     _currentSize -= node.Value.Size;
@@ -248,6 +242,7 @@ namespace MapleLib.Img
             _lock.EnterReadLock();
             try
             {
+                ThrowIfDisposed();
                 return _cache.ContainsKey(key);
             }
             finally
@@ -265,6 +260,7 @@ namespace MapleLib.Img
             _lock.EnterReadLock();
             try
             {
+                ThrowIfDisposed();
                 // Create a snapshot to avoid holding lock during enumeration
                 var snapshot = new List<KeyValuePair<TKey, TValue>>(_cache.Count);
                 foreach (var node in _lruList)
@@ -288,6 +284,7 @@ namespace MapleLib.Img
             _lock.EnterReadLock();
             try
             {
+                ThrowIfDisposed();
                 // Create a snapshot to avoid holding lock during enumeration
                 var snapshot = new List<TValue>(_cache.Count);
                 foreach (var node in _lruList)
@@ -311,6 +308,7 @@ namespace MapleLib.Img
             _lock.EnterWriteLock();
             try
             {
+                ThrowIfDisposed();
                 _cache.Clear();
                 _lruList.Clear();
                 _currentSize = 0;
@@ -391,8 +389,7 @@ namespace MapleLib.Img
             {
                 Key = key,
                 Value = value,
-                Size = itemSize,
-                LastAccess = DateTime.UtcNow
+                Size = itemSize
             };
             var node = new LinkedListNode<CacheItem>(cacheItem);
             _lruList.AddFirst(node);

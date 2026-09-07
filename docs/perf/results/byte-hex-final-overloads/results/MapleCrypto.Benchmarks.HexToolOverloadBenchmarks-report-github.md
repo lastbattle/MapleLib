@@ -1,0 +1,17 @@
+```
+
+  [Host]     : .NET 10.0.11 (10.0.11, 10.0.1126.37416), X64 RyuJIT x86-64-v4
+  Job-IJPESX : .NET 10.0.11 (10.0.11, 10.0.1126.37416), X64 RyuJIT x86-64-v4
+
+IterationCount=5  LaunchCount=1  WarmupCount=3
+
+```
+| Method                | Mean         | Error      | StdDev    | Min          | Max          | Gen0   | Gen1   | Allocated |
+|---------------------- |-------------:|-----------:|----------:|-------------:|-------------:|-------:|-------:|----------:|
+| SingleByte            |     1.949 ns |  0.1644 ns | 0.0254 ns |     1.919 ns |     1.979 ns | 0.0006 |      - |      32 B |
+| LegacySingleByte      |     3.612 ns |  0.0831 ns | 0.0216 ns |     3.578 ns |     3.636 ns | 0.0006 |      - |      32 B |
+| PacketReader          |   190.406 ns |  2.1990 ns | 0.3403 ns |   190.033 ns |   190.852 ns | 0.0365 |      - |    1840 B |
+| LegacyPacketReader    | 1,451.153 ns |  3.9810 ns | 0.6161 ns | 1,450.247 ns | 1,451.623 ns | 0.2499 | 0.0019 |   12584 B |
+| PacketWriter          |   191.503 ns |  3.4583 ns | 0.5352 ns |   190.880 ns |   192.052 ns | 0.0365 |      - |    1840 B |
+| LegacyPacketWriter    | 1,470.066 ns | 33.2253 ns | 5.1417 ns | 1,463.897 ns | 1,476.314 ns | 0.2499 | 0.0019 |   12584 B |
+| HexEncodingDigitCheck |     1.085 ns |  0.0145 ns | 0.0022 ns |     1.083 ns |     1.088 ns |      - |      - |         - |

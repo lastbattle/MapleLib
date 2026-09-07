@@ -851,5 +851,136 @@ namespace UnitTest_WzFile
             Assert.AreEqual(MapleLib.WzLib.WzProperties.WzPngFormat.Format3, fmt);
         }
         #endregion
+
+        [TestMethod]
+        public void DxtColorIndices_SeededBlocksMatchOrderedScalarOracle()
+        {
+            var method = typeof(PngUtility).GetMethod("ComputeColorIndices",
+                System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static)
+                ?? throw new MissingMethodException(typeof(PngUtility).FullName, "ComputeColorIndices");
+            var random = new Random(0x5EEDC0DE);
+
+            for (int iteration = 0; iteration < 2048; iteration++)
+            {
+                Color[] block = Enumerable.Range(0, 16)
+                    .Select(_ => Color.FromArgb(random.Next()))
+                    .ToArray();
+                Color[] palette = Enumerable.Range(0, 4)
+                    .Select(_ => Color.FromArgb(random.Next()))
+                    .ToArray();
+                if ((iteration & 15) == 0)
+                {
+                    palette[1] = palette[0];
+                    block[0] = palette[0];
+                }
+
+                byte[] actual = new byte[4];
+                method.Invoke(null, new object[] { block, palette, actual });
+
+                byte[] expected = ReferenceColorIndices(block, palette);
+                CollectionAssert.AreEqual(expected, actual, $"Mismatch at seeded block {iteration}.");
+            }
+        }
+
+        [TestMethod]
+        public void Dxt5AlphaIndices_SeededBlocksMatchOrderedScalarOracle()
+        {
+            var method = typeof(PngUtility).GetMethod("CompressBlockAlphaDXT5",
+                System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static)
+                ?? throw new MissingMethodException(typeof(PngUtility).FullName, "CompressBlockAlphaDXT5");
+            var random = new Random(0x0A1FA123);
+
+            for (int iteration = 0; iteration < 2048; iteration++)
+            {
+                Color[] block = Enumerable.Range(0, 16)
+                    .Select(_ => Color.FromArgb(random.Next(256), random.Next(256), random.Next(256), random.Next(256)))
+                    .ToArray();
+                if ((iteration & 15) == 0)
+                {
+                    int alpha = random.Next(256);
+                    for (int i = 0; i < block.Length; i++)
+                        block[i] = Color.FromArgb(alpha, block[i]);
+                }
+
+                byte[] actualTable = new byte[8];
+                int[] actualIndices = new int[16];
+                object[] arguments = { block, actualTable, actualIndices, (byte)0, (byte)0 };
+                method.Invoke(null, arguments);
+
+                ReferenceAlphaIndices(block, out byte expectedA0, out byte expectedA1,
+                    out byte[] expectedTable, out int[] expectedIndices);
+                Assert.AreEqual(expectedA0, (byte)arguments[3]);
+                Assert.AreEqual(expectedA1, (byte)arguments[4]);
+                CollectionAssert.AreEqual(expectedTable, actualTable, $"Alpha table mismatch at seeded block {iteration}.");
+                CollectionAssert.AreEqual(expectedIndices, actualIndices, $"Alpha indices mismatch at seeded block {iteration}.");
+            }
+        }
+
+        private static byte[] ReferenceColorIndices(Color[] block, Color[] palette)
+        {
+            byte[] indices = new byte[4];
+            for (int y = 0; y < 4; y++)
+            {
+                for (int x = 0; x < 4; x++)
+                {
+                    Color pixel = block[y * 4 + x];
+                    int bestIndex = 0;
+                    int minDistance = int.MaxValue;
+                    for (int index = 0; index < palette.Length; index++)
+                    {
+                        int dr = pixel.R - palette[index].R;
+                        int dg = pixel.G - palette[index].G;
+                        int db = pixel.B - palette[index].B;
+                        int distance = dr * dr + dg * dg + db * db;
+                        if (distance < minDistance)
+                        {
+                            minDistance = distance;
+                            bestIndex = index;
+                        }
+                    }
+                    indices[y] |= (byte)(bestIndex << (x * 2));
+                }
+            }
+            return indices;
+        }
+
+        private static void ReferenceAlphaIndices(Color[] block, out byte a0, out byte a1,
+            out byte[] table, out int[] indices)
+        {
+            a0 = block.Max(color => color.A);
+            a1 = block.Min(color => color.A);
+            table = new byte[8];
+            table[0] = a0;
+            table[1] = a1;
+            if (a0 > a1)
+            {
+                for (int i = 2; i < 8; i++)
+                    table[i] = (byte)(((8 - i) * a0 + (i - 1) * a1 + 3) / 7);
+            }
+            else
+            {
+                for (int i = 2; i < 6; i++)
+                    table[i] = (byte)(((6 - i) * a0 + (i - 1) * a1 + 2) / 5);
+                table[6] = 0;
+                table[7] = 255;
+            }
+
+            indices = new int[16];
+            for (int i = 0; i < block.Length; i++)
+            {
+                int bestIndex = 0;
+                int minDifference = int.MaxValue;
+                for (int index = 0; index < table.Length; index++)
+                {
+                    int difference = Math.Abs(block[i].A - table[index]);
+                    if (difference < minDifference)
+                    {
+                        minDifference = difference;
+                        bestIndex = index;
+                    }
+                }
+                indices[i] = bestIndex;
+            }
+        }
     }
 }

@@ -9,6 +9,7 @@ using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
+using System.Globalization;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -312,7 +313,7 @@ namespace MapleLib.Img
         /// <returns>The loaded WzImage or null if not found</returns>
         public WzImage LoadImage(string category, string relativePath)
         {
-            string cacheKey = $"{category.ToLower()}/{relativePath.ToLower()}";
+            string cacheKey = CreateCacheKey(category, relativePath);
 
             // Check LRU cache first
             if (_imageCache.TryGet(cacheKey, out var cachedImage))
@@ -793,7 +794,28 @@ namespace MapleLib.Img
             if (parts.Length < 2)
                 return null;
 
-            return $"{parts[0].ToLower()}/{parts[1].ToLower()}";
+            return CreateCacheKey(parts[0], parts[1]);
+        }
+
+        internal static string CreateCacheKey(string category, string relativePath)
+        {
+            CultureInfo culture = CultureInfo.CurrentCulture;
+            return string.Create(
+                category.Length + 1 + relativePath.Length,
+                (Category: category, RelativePath: relativePath, Culture: culture),
+                static (destination, state) =>
+                {
+                    int categoryLength = state.Category.AsSpan().ToLower(destination, state.Culture);
+                    if (categoryLength < 0)
+                        throw new InvalidOperationException("The normalized category exceeded the cache-key buffer.");
+
+                    destination[categoryLength] = '/';
+                    int relativeLength = state.RelativePath.AsSpan().ToLower(
+                        destination[(categoryLength + 1)..],
+                        state.Culture);
+                    if (relativeLength < 0 || categoryLength + 1 + relativeLength != destination.Length)
+                        throw new InvalidOperationException("The normalized path did not fit the cache-key buffer.");
+                });
         }
 
         /// <summary>
@@ -918,7 +940,7 @@ namespace MapleLib.Img
         /// </summary>
         public void RemoveFromCache(string category, string relativePath)
         {
-            string cacheKey = $"{category.ToLower()}/{relativePath.ToLower()}";
+            string cacheKey = CreateCacheKey(category, relativePath);
             // LRU cache handles disposal of IDisposable items internally
             _imageCache.Remove(cacheKey);
         }
@@ -1366,7 +1388,7 @@ namespace MapleLib.Img
         /// <param name="relativePath">The relative path within the category</param>
         public void InvalidateCache(string category, string relativePath)
         {
-            string cacheKey = $"{category.ToLower()}/{relativePath.ToLower()}";
+            string cacheKey = CreateCacheKey(category, relativePath);
             _imageCache.Remove(cacheKey);
 
             // Also invalidate the directory cache for this category

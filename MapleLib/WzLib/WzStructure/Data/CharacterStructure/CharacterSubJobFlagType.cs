@@ -47,7 +47,7 @@ namespace MapleLib.WzLib.WzStructure.Data.CharacterStructure
         /// <returns></returns>
         public static CharacterSubJobFlagType ToEnum(int value)
         {
-            if (Enum.IsDefined(typeof(CharacterSubJobFlagType), value))
+            if (Enum.IsDefined((CharacterSubJobFlagType)value))
             {
                 return (CharacterSubJobFlagType)value;
             }

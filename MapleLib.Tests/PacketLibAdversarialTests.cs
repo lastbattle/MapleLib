@@ -4,6 +4,7 @@ using System.Net;
 using System.Net.Sockets;
 using System.IO;
 using System.Reflection;
+using System.Globalization;
 using System.Text;
 using MapleLib.MapleCryptoLib;
 using MapleLib.PacketLib;
@@ -121,6 +122,64 @@ public sealed class PacketLibAdversarialTests
     public void HexEncoding_RejectsNullAsciiInput()
     {
         Assert.Throws<ArgumentNullException>(() => HexEncoding.ToStringFromAscii(null!));
+    }
+
+    [Fact]
+    public void HexFormatting_PreservesCaseSpacingAndEmptyArrays()
+    {
+        byte[] bytes = [0x00, 0x0A, 0xAF, 0xFF];
+
+        Assert.Equal("00 0A AF FF ", HexTool.ToString(bytes));
+        Assert.Equal("00 0a af ff ", HexTool.ByteArrayToString(bytes));
+        Assert.Equal("", HexTool.ToString([]));
+        Assert.Equal("", HexTool.ByteArrayToString([]));
+        Assert.Equal("AF", HexTool.ToString((byte)0xAF));
+    }
+
+    [Fact]
+    public void HexFormatting_PreservesNullFailures()
+    {
+        Assert.Throws<NullReferenceException>(() => HexTool.ToString((byte[])null!));
+        Assert.Throws<NullReferenceException>(() => HexTool.ByteArrayToString(null!));
+        Assert.Throws<ArgumentNullException>(() => HexEncoding.GetBytes(null!));
+    }
+
+    [Fact]
+    public void HexEncoding_PreservesHexAndAsciiRules()
+    {
+        Assert.True(HexEncoding.IsHexDigit('0'));
+        Assert.True(HexEncoding.IsHexDigit('a'));
+        Assert.True(HexEncoding.IsHexDigit('F'));
+        Assert.False(HexEncoding.IsHexDigit('*'));
+        Assert.False(HexEncoding.IsHexDigit('Ｇ'));
+
+        Assert.Equal("... A\u007f\u0080ÿ", HexEncoding.ToStringFromAscii([0, 1, 31, 32, 65, 127, 128, 255]));
+        Assert.Equal("", HexEncoding.ToStringFromAscii([]));
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("tr-TR")]
+    public void HexEncodingDigitCheckMatchesFrozenCultureSensitiveBaseline(string cultureName)
+    {
+        CultureInfo previous = CultureInfo.CurrentCulture;
+        try
+        {
+            CultureInfo.CurrentCulture = string.IsNullOrEmpty(cultureName)
+                ? CultureInfo.InvariantCulture
+                : CultureInfo.GetCultureInfo(cultureName);
+            for (int value = char.MinValue; value <= char.MaxValue; value++)
+            {
+                char candidate = (char)value;
+                int upper = Convert.ToInt32(char.ToUpper(candidate));
+                bool expected = (upper >= 'A' && upper < 'A' + 6) || (upper >= '0' && upper < '0' + 10);
+                Assert.Equal(expected, HexEncoding.IsHexDigit(candidate));
+            }
+        }
+        finally
+        {
+            CultureInfo.CurrentCulture = previous;
+        }
     }
 
     [Fact]

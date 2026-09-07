@@ -23,8 +23,10 @@ public class WzSearchBenchmarks
     private WzFile _file = null!;
     private string _wildcardPath = null!;
     private string _regexPath = null!;
+    private string _wildcardMissPath = null!;
+    private string _regexMissPath = null!;
 
-    [Params(64, 256, 1_024)]
+    [Params(256)]
     public int ImageCount { get; set; }
 
     [GlobalSetup]
@@ -58,6 +60,8 @@ public class WzSearchBenchmarks
 
         _wildcardPath = "Synthetic/*/*/*/*";
         _regexPath = @"^Synthetic/Image\d{6}\.img/root/value_\d{2}/[XY]$";
+        _wildcardMissPath = "Synthetic/*/missing-terminal";
+        _regexMissPath = @"^Synthetic/.*/missing-terminal$";
 
         // Ensure the setup exercises real matches.  This also catches changes
         // to the manager registration contract before BenchmarkDotNet starts.
@@ -66,6 +70,10 @@ public class WzSearchBenchmarks
             throw new InvalidOperationException("Wildcard fixture did not resolve all vector terminals.");
         if (_file.GetObjectsFromRegexPath(_regexPath).Count != expectedTerminalCount)
             throw new InvalidOperationException("Regex fixture did not resolve all vector terminals.");
+        if (_file.GetObjectsFromWildcardPath(_wildcardMissPath).Count != 0)
+            throw new InvalidOperationException("Wildcard miss fixture unexpectedly matched.");
+        if (_file.GetObjectsFromRegexPath(_regexMissPath).Count != 0)
+            throw new InvalidOperationException("Regex miss fixture unexpectedly matched.");
     }
 
     [GlobalCleanup]
@@ -85,6 +93,18 @@ public class WzSearchBenchmarks
     public int RegexTraversal()
     {
         return _file.GetObjectsFromRegexPath(_regexPath).Count;
+    }
+
+    [Benchmark]
+    public int WildcardTraversalNoMatches()
+    {
+        return _file.GetObjectsFromWildcardPath(_wildcardMissPath).Count;
+    }
+
+    [Benchmark]
+    public int RegexTraversalNoMatches()
+    {
+        return _file.GetObjectsFromRegexPath(_regexMissPath).Count;
     }
 
     private static void RegisterSyntheticFileList(WzFileManager manager)

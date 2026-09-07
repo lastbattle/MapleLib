@@ -1272,35 +1272,102 @@ namespace MapleLib.Helpers
 
         private static void ComputeColorIndices(Color[] block, Color[] colors, byte[] indices)
         {
+            if (Sse41.IsSupported)
+            {
+                ComputeColorIndicesSse41(block, colors, indices);
+                return;
+            }
+
+            ComputeColorIndicesScalar(block, colors, indices);
+        }
+
+        private static void ComputeColorIndicesSse41(Color[] block, Color[] colors, byte[] indices)
+        {
+            Vector128<int> paletteR = Vector128.Create((int)colors[0].R, colors[1].R, colors[2].R, colors[3].R);
+            Vector128<int> paletteG = Vector128.Create((int)colors[0].G, colors[1].G, colors[2].G, colors[3].G);
+            Vector128<int> paletteB = Vector128.Create((int)colors[0].B, colors[1].B, colors[2].B, colors[3].B);
+
             for (int j = 0; j < 4; j++)
             {
                 byte row = 0;
                 for (int i = 0; i < 4; i++)
                 {
                     Color pixel = block[j * 4 + i];
+                    Vector128<int> dr = Sse2.Subtract(Vector128.Create((int)pixel.R), paletteR);
+                    Vector128<int> dg = Sse2.Subtract(Vector128.Create((int)pixel.G), paletteG);
+                    Vector128<int> db = Sse2.Subtract(Vector128.Create((int)pixel.B), paletteB);
+                    Vector128<int> distances = Sse2.Add(
+                        Sse2.Add(Sse41.MultiplyLow(dr, dr), Sse41.MultiplyLow(dg, dg)),
+                        Sse41.MultiplyLow(db, db));
+
                     int bestIndex = 0;
-                    int minDist = int.MaxValue;
-                    for (int k = 0; k < 4; k++)
+                    int minDist = distances.GetElement(0);
+                    int dist = distances.GetElement(1);
+                    if (dist < minDist)
                     {
-                        int dist = ColorDistance(pixel, colors[k]);
-                        if (dist < minDist)
-                        {
-                            minDist = dist;
-                            bestIndex = k;
-                        }
+                        minDist = dist;
+                        bestIndex = 1;
                     }
+                    dist = distances.GetElement(2);
+                    if (dist < minDist)
+                    {
+                        minDist = dist;
+                        bestIndex = 2;
+                    }
+                    dist = distances.GetElement(3);
+                    if (dist < minDist)
+                        bestIndex = 3;
+
                     row |= (byte)(bestIndex << (i * 2));
                 }
                 indices[j] = row;
             }
         }
 
-        private static int ColorDistance(Color c1, Color c2)
+        private static void ComputeColorIndicesScalar(Color[] block, Color[] colors, byte[] indices)
         {
-            int dr = c1.R - c2.R;
-            int dg = c1.G - c2.G;
-            int db = c1.B - c2.B;
-            return dr * dr + dg * dg + db * db; // Simple Euclidean distance (RGB only)
+            int c0R = colors[0].R, c0G = colors[0].G, c0B = colors[0].B;
+            int c1R = colors[1].R, c1G = colors[1].G, c1B = colors[1].B;
+            int c2R = colors[2].R, c2G = colors[2].G, c2B = colors[2].B;
+            int c3R = colors[3].R, c3G = colors[3].G, c3B = colors[3].B;
+
+            for (int j = 0; j < 4; j++)
+            {
+                byte row = 0;
+                for (int i = 0; i < 4; i++)
+                {
+                    Color pixel = block[j * 4 + i];
+                    int r = pixel.R, g = pixel.G, b = pixel.B;
+                    int bestIndex = 0;
+                    int dr = r - c0R, dg = g - c0G, db = b - c0B;
+                    int minDist = dr * dr + dg * dg + db * db;
+
+                    dr = r - c1R; dg = g - c1G; db = b - c1B;
+                    int dist = dr * dr + dg * dg + db * db;
+                    if (dist < minDist)
+                    {
+                        minDist = dist;
+                        bestIndex = 1;
+                    }
+
+                    dr = r - c2R; dg = g - c2G; db = b - c2B;
+                    dist = dr * dr + dg * dg + db * db;
+                    if (dist < minDist)
+                    {
+                        minDist = dist;
+                        bestIndex = 2;
+                    }
+
+                    dr = r - c3R; dg = g - c3G; db = b - c3B;
+                    dist = dr * dr + dg * dg + db * db;
+                    if (dist < minDist)
+                    {
+                        bestIndex = 3;
+                    }
+                    row |= (byte)(bestIndex << (i * 2));
+                }
+                indices[j] = row;
+            }
         }
 
         /// <summary>
@@ -1325,20 +1392,61 @@ namespace MapleLib.Helpers
 
             ExpandAlphaTableDXT5(alphaTable, a0, a1);
 
+            int t0 = alphaTable[0], t1 = alphaTable[1], t2 = alphaTable[2], t3 = alphaTable[3];
+            int t4 = alphaTable[4], t5 = alphaTable[5], t6 = alphaTable[6], t7 = alphaTable[7];
+
             for (int i = 0; i < 16; i++)
             {
-                byte alpha = block[i].A;
+                int alpha = block[i].A;
                 int bestIndex = 0;
-                int minDiff = int.MaxValue;
-                for (int j = 0; j < 8; j++)
+                int minDiff = Math.Abs(alpha - t0);
+
+                int diff = Math.Abs(alpha - t1);
+                if (diff < minDiff)
                 {
-                    int diff = Math.Abs(alpha - alphaTable[j]);
-                    if (diff < minDiff)
-                    {
-                        minDiff = diff;
-                        bestIndex = j;
-                    }
+                    minDiff = diff;
+                    bestIndex = 1;
                 }
+
+                diff = Math.Abs(alpha - t2);
+                if (diff < minDiff)
+                {
+                    minDiff = diff;
+                    bestIndex = 2;
+                }
+
+                diff = Math.Abs(alpha - t3);
+                if (diff < minDiff)
+                {
+                    minDiff = diff;
+                    bestIndex = 3;
+                }
+
+                diff = Math.Abs(alpha - t4);
+                if (diff < minDiff)
+                {
+                    minDiff = diff;
+                    bestIndex = 4;
+                }
+
+                diff = Math.Abs(alpha - t5);
+                if (diff < minDiff)
+                {
+                    minDiff = diff;
+                    bestIndex = 5;
+                }
+
+                diff = Math.Abs(alpha - t6);
+                if (diff < minDiff)
+                {
+                    minDiff = diff;
+                    bestIndex = 6;
+                }
+
+                diff = Math.Abs(alpha - t7);
+                if (diff < minDiff)
+                    bestIndex = 7;
+
                 indices[i] = bestIndex;
             }
         }

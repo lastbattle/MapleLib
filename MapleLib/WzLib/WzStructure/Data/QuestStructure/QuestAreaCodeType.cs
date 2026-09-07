@@ -330,7 +330,7 @@ namespace MapleLib.WzLib.WzStructure.Data.QuestStructure
         /// <returns></returns>
         public static QuestAreaCodeType ToEnum(int value)
         {
-            if (Enum.IsDefined(typeof(QuestAreaCodeType), value))
+            if (Enum.IsDefined((QuestAreaCodeType)value))
             {
                 return (QuestAreaCodeType)value;
             }

@@ -21,7 +21,6 @@ SOFTWARE.
 
 using System.Collections.Generic;
 using System.Linq;
-using System.Text.RegularExpressions;
 
 namespace MapleLib.WzLib.WzStructure.Data.CharacterStructure
 {
@@ -191,7 +190,7 @@ namespace MapleLib.WzLib.WzStructure.Data.CharacterStructure
             string jobName = job.ToString();
 
             // Add spaces between words
-            jobName = string.Concat(jobName.Select(x => char.IsUpper(x) ? " " + x : x.ToString())).Trim();
+            jobName = CharacterJobExtensions.AddSpacesBeforeUppercase(jobName);
 
             return jobName;
         }

@@ -1,4 +1,5 @@
 using System;
+using System.Buffers;
 using System.Collections;
 using System.IO;
 using System.Text;
@@ -9,29 +10,27 @@ namespace MapleLib.WzLib.Util
 	public class XmlUtil
 	{
 
-		private static readonly char[] specialCharacters = {'"', '\'', '&', '<', '>'};
-		private static readonly string[] replacementStrings = {"&quot;", "&apos;", "&amp;", "&lt;", "&gt;"};
+		private static readonly SearchValues<char> specialCharacters = SearchValues.Create("\"'&<>");
 
 		public static string SanitizeText(string text)
 		{
-			StringBuilder fixedText = new StringBuilder("");
-			bool charFixed;
-			for (int i = 0; i < text.Length; i++)
-			{
-				charFixed = false;
-				for (int k = 0; k < specialCharacters.Length; k++)
-				{
+			int length = text.Length; // Preserve the existing NullReferenceException for null input.
+			int firstSpecialCharacter = text.AsSpan().IndexOfAny(specialCharacters);
+			if (firstSpecialCharacter < 0)
+				return text;
 
-					if (text[i] == specialCharacters[k])
-					{
-						fixedText.Append(replacementStrings[k]);
-						charFixed = true;
-						break;
-					}
-				}
-				if (!charFixed)
+			StringBuilder fixedText = new StringBuilder(length + 8);
+			fixedText.Append(text.AsSpan(0, firstSpecialCharacter));
+			for (int i = firstSpecialCharacter; i < length; i++)
+			{
+				switch (text[i])
 				{
-					fixedText.Append(text[i]);
+					case '"': fixedText.Append("&quot;"); break;
+					case '\'': fixedText.Append("&apos;"); break;
+					case '&': fixedText.Append("&amp;"); break;
+					case '<': fixedText.Append("&lt;"); break;
+					case '>': fixedText.Append("&gt;"); break;
+					default: fixedText.Append(text[i]); break;
 				}
 			}
 			return fixedText.ToString();

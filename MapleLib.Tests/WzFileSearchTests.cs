@@ -4,6 +4,7 @@ using Microsoft.VisualStudio.TestTools.UnitTesting;
 using System.Collections.Generic;
 using System.Linq;
 using System.Runtime.Versioning;
+using System.Text.RegularExpressions;
 
 namespace UnitTest_WzFile;
 
@@ -77,8 +78,83 @@ public class WzFileSearchTests
             out _);
 
         Assert.IsEmpty(file.GetObjectsFromWildcardPath("synthetic.wz/**"));
+        Assert.IsEmpty(file.GetObjectsFromWildcardPath("Synthetic.wz/**/position/*"));
         Assert.IsEmpty(file.GetObjectsFromRegexPath(
             @"^synthetic\.wz/First\.img/Position/[XY]$"));
+        Assert.IsEmpty(file.GetObjectsFromRegexPath(
+            @"^Synthetic\.wz/First\.img/position/[XY]$"));
+    }
+
+    [TestMethod]
+    public void WildcardStarCanMatchAcrossPathSeparators()
+    {
+        using WzFile file = CreateSearchFixture(
+            out _,
+            out _,
+            out _,
+            out WzVectorProperty position,
+            out _,
+            out _,
+            out _,
+            out WzIntProperty childValue);
+
+        CollectionAssert.AreEqual(
+            new WzObject[] { position.X },
+            file.GetObjectsFromWildcardPath("Synthetic.wz/*/X"));
+        CollectionAssert.AreEqual(
+            new WzObject[] { childValue },
+            file.GetObjectsFromWildcardPath("Synthetic.wz/*/ChildValue"));
+    }
+
+    [TestMethod]
+    public void SearchMatchesLongCandidatePaths()
+    {
+        using WzFile file = new WzFile(1, WzMapleVersion.BMS) { Name = "Synthetic.wz" };
+        file.WzDirectory.Name = file.Name;
+
+        string longImageName = new string('A', 300) + ".img";
+        WzImage image = new WzImage(longImageName);
+        WzIntProperty value = new WzIntProperty("Value", 1);
+        image.AddProperty(value);
+        file.WzDirectory.AddImage(image);
+
+        CollectionAssert.AreEqual(
+            new WzObject[] { value },
+            file.GetObjectsFromWildcardPath($"Synthetic.wz/{longImageName}/*"));
+        CollectionAssert.AreEqual(
+            new WzObject[] { value },
+            file.GetObjectsFromRegexPath(
+                $"^Synthetic\\.wz/{Regex.Escape(longImageName)}/Value$"));
+    }
+
+    [TestMethod]
+    public void WildcardMatcherPreservesNullArgumentFailures()
+    {
+        using WzFile file = new WzFile(1, WzMapleVersion.BMS);
+
+        Assert.Throws<NullReferenceException>(() => file.StringMatch(null!, "value"));
+        Assert.Throws<NullReferenceException>(() => file.StringMatch("*", null!));
+    }
+
+    [TestMethod]
+    public void SearchPreservesEmptyAndNullSegmentsAcrossSiblings()
+    {
+        using WzFile file = new WzFile(1, WzMapleVersion.BMS) { Name = string.Empty };
+        file.WzDirectory.Name = file.Name;
+
+        WzImage image = new WzImage(null!);
+        WzIntProperty emptyName = new WzIntProperty(string.Empty, 1);
+        WzIntProperty sibling = new WzIntProperty("Sibling", 2);
+        image.AddProperty(emptyName);
+        image.AddProperty(sibling);
+        file.WzDirectory.AddImage(image);
+
+        CollectionAssert.AreEqual(
+            new WzObject[] { emptyName },
+            file.GetObjectsFromRegexPath("^//$"));
+        CollectionAssert.AreEqual(
+            new WzObject[] { sibling },
+            file.GetObjectsFromRegexPath("^//Sibling$"));
     }
 
     private static WzFile CreateSearchFixture(

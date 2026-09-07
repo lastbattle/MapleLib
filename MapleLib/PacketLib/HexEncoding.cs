@@ -55,13 +55,11 @@ namespace MapleLib.PacketLib
         public static string ToStringFromAscii(byte[] bytes)
         {
             ArgumentNullException.ThrowIfNull(bytes);
-            char[] ret = new char[bytes.Length];
-            for (int x = 0; x < bytes.Length; x++)
+            return string.Create(bytes.Length, bytes, static (destination, source) =>
             {
-                // Use a ternary operator to avoid an if statement
-                ret[x] = (bytes[x] < 32 && bytes[x] >= 0) ? '.' : (char)((short)bytes[x] & 0xFF);
-            }
-            return new string(ret);
+                for (int index = 0; index < source.Length; index++)
+                    destination[index] = source[index] < 32 ? '.' : (char)source[index];
+            });
         }
     }
 }

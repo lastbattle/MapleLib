@@ -20,8 +20,6 @@ SOFTWARE.
 */
 
 using System;
-using System.Linq;
-using System.Text.RegularExpressions;
 
 namespace MapleLib.WzLib.WzStructure.Data.CharacterStructure
 {
@@ -49,16 +47,43 @@ namespace MapleLib.WzLib.WzStructure.Data.CharacterStructure
 
             // Remove number at the end (for job progressions)
             if (bRemoveJobProgressionNumber)
-                jobName = Regex.Replace(jobName, @"\d+$", "");
+            {
+                int end = jobName.Length;
+                while (end > 0 && char.IsDigit(jobName[end - 1]))
+                    end--;
+                if (end != jobName.Length)
+                    jobName = jobName[..end];
+            }
 
             // Add spaces between words
-            jobName = string.Concat(jobName.Select(x => char.IsUpper(x) ? " " + x : x.ToString())).Trim();
+            jobName = AddSpacesBeforeUppercase(jobName);
 
             // Handle "Beginner" special cases
             if (jobName.EndsWith(" Beginner"))
                 jobName = jobName.Replace(" Beginner", "") + " (Beginner)";
 
             return jobName;
+        }
+
+        internal static string AddSpacesBeforeUppercase(string value)
+        {
+            ReadOnlySpan<char> trimmed = value.AsSpan().Trim();
+            int spaces = 0;
+            for (int index = 1; index < trimmed.Length; index++)
+                if (char.IsUpper(trimmed[index])) spaces++;
+
+            return string.Create(trimmed.Length + spaces, value, static (destination, source) =>
+            {
+                ReadOnlySpan<char> input = source.AsSpan().Trim();
+                int output = 0;
+                for (int index = 0; index < input.Length; index++)
+                {
+                    char current = input[index];
+                    if (index > 0 && char.IsUpper(current))
+                        destination[output++] = ' ';
+                    destination[output++] = current;
+                }
+            });
         }
     }
 

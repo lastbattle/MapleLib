@@ -66,7 +66,7 @@ namespace MapleLib.WzLib.WzStructure.Data.QuestStructure
         /// <returns></returns>
         public static QuestMedalType ToEnum(int value)
         {
-            if (Enum.IsDefined(typeof(QuestMedalType), value))
+            if (Enum.IsDefined((QuestMedalType)value))
             {
                 return (QuestMedalType)value;
             }

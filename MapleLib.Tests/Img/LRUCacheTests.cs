@@ -309,6 +309,25 @@ namespace MapleLib.Tests.Img
         }
 
         [Fact]
+        public void PublicOperations_ThrowAfterDispose()
+        {
+            var cache = new LRUCache<string, IntWrapper>(10);
+            cache.Add("key1", new IntWrapper(100));
+            cache.Dispose();
+
+            Assert.Throws<ObjectDisposedException>(() => cache.TryGet("key1", out _));
+            Assert.Throws<ObjectDisposedException>(() => cache.Add("key2", new IntWrapper(2)));
+            Assert.Throws<ObjectDisposedException>(() => cache.Remove("key1"));
+            Assert.Throws<ObjectDisposedException>(() => cache.ContainsKey("key1"));
+            Assert.Throws<ObjectDisposedException>(() => cache.Clear());
+            Assert.Throws<ObjectDisposedException>(() => cache.ResetStatistics());
+            Assert.Throws<ObjectDisposedException>(() => cache.GetStatistics());
+            Assert.Throws<ObjectDisposedException>(() => _ = cache.Count);
+            Assert.Throws<ObjectDisposedException>(() => cache.GetAllItems());
+            Assert.Throws<ObjectDisposedException>(() => cache.GetAllValues());
+        }
+
+        [Fact]
         public void SizeBasedEviction_EvictsWhenSizeExceeded()
         {
             // Arrange - Create cache with size-based eviction
@@ -331,6 +350,20 @@ namespace MapleLib.Tests.Img
             {
                 cache.Dispose();
             }
+        }
+
+        [Fact]
+        public void GetAllItems_ReturnsMostRecentlyUsedFirst()
+        {
+            _cache = new LRUCache<string, IntWrapper>(3);
+            _cache.Add("key1", new IntWrapper(1));
+            _cache.Add("key2", new IntWrapper(2));
+            _cache.Add("key3", new IntWrapper(3));
+            _cache.TryGet("key1", out _);
+
+            Assert.Equal(
+                new[] { "key1", "key3", "key2" },
+                _cache.GetAllItems().Select(static item => item.Key));
         }
 
         [Fact]
