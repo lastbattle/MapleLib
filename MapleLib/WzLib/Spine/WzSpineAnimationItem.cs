@@ -35,7 +35,7 @@ using static MapleLib.WzDataReader;
 
 namespace MapleLib.WzLib.Spine
 {
-    public class WzSpineAnimationItem
+    public class WzSpineAnimationItem : IDisposable
     {
         // Spine 
 
@@ -53,6 +53,7 @@ namespace MapleLib.WzLib.Spine
         // pre-loading
         private readonly WzStringProperty wzSpineAtlasPropertyNode;
         private readonly string skeletonPropertyName;
+        private WzSpineTextureLoader ownedTextureLoader;
 
         /// <summary>
         /// SpineAnimationItem Constructor
@@ -71,11 +72,23 @@ namespace MapleLib.WzLib.Spine
         /// <param name="graphicsDevice"></param>
         public void LoadResources(GraphicsDevice graphicsDevice)
         {
+            Dispose();
             var textureLoader = new WzSpineTextureLoader(wzSpineAtlasPropertyNode.Parent, graphicsDevice);
+            ownedTextureLoader = textureLoader;
 
-            SkeletonData skeletonData = WzSpineAtlasLoader.LoadSkeleton(wzSpineAtlasPropertyNode, textureLoader, skeletonPropertyName);
+            SkeletonData skeletonData;
+            try
+            {
+                skeletonData = WzSpineAtlasLoader.LoadSkeleton(wzSpineAtlasPropertyNode, textureLoader, skeletonPropertyName);
+            }
+            catch
+            {
+                Dispose();
+                throw;
+            }
             if (skeletonData == null)
             {
+                Dispose();
                 return;
             }
 
@@ -88,6 +101,13 @@ namespace MapleLib.WzLib.Spine
             this.SkeletonData = skeletonData;
             this.PremultipliedAlpha = pma; //  whether the renderer will assume that colors have premultiplied alpha. Default is true.
 
+        }
+
+        public void Dispose()
+        {
+            ownedTextureLoader?.Dispose();
+            ownedTextureLoader = null;
+            SkeletonData = null;
         }
     }
 }

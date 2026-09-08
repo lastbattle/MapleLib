@@ -32,10 +32,11 @@ using System.Runtime.InteropServices;
 
 namespace MapleLib.WzLib.Spine
 {
-    public class WzSpineTextureLoader : TextureLoader
+    public class WzSpineTextureLoader : TextureLoader, System.IDisposable
     {
         public WzObject ParentNode { get; private set; }
         private readonly GraphicsDevice graphicsDevice;
+        private readonly HashSet<Texture2D> ownedTextures = new();
 
         /// <summary>
         /// Constructor for the spine texture loader
@@ -86,6 +87,7 @@ namespace MapleLib.WzLib.Spine
                 WzPngProperty pngProperty = linkImgProperty.PngProperty;
 
                 Texture2D tex = new Texture2D(graphicsDevice, pngProperty.Width, pngProperty.Height, false, WzPngFormatExtensions.GetXNASurfaceFormat(linkImgProperty.PngProperty.Format));
+                ownedTextures.Add(tex);
 
                 pngProperty.ParsePng(true, tex);
 
@@ -102,6 +104,13 @@ namespace MapleLib.WzLib.Spine
         public void Unload(object texture)
         {
             (texture as Texture2D)?.Dispose();
+            if (texture is Texture2D owned) ownedTextures.Remove(owned);
+        }
+
+        public void Dispose()
+        {
+            foreach (Texture2D texture in ownedTextures) texture.Dispose();
+            ownedTextures.Clear();
         }
     }
 }

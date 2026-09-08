@@ -37,6 +37,10 @@ namespace MapleLib.WzLib
         internal bool wz_withEncryptVersionHeader = true;  // KMS update after Q4 2021, ver 1.2.357 does not contain any wz enc header information
 
         internal byte[] WzIv;
+        // The manager that owns this archive.  Keeping this association on the
+        // parsed file lets detached runtime sessions resolve outlinks without
+        // consulting the process-wide legacy WzFileManager.fileManager.
+        internal WzFileManager OwnerManager { get; set; }
         // Retained after a successful parse because lazy WzImage instances
         // read directly from the directory's shared stream.  On a failed
         // parse this reader is disposed immediately so file handles do not
@@ -94,6 +98,12 @@ namespace MapleLib.WzLib
         public WzMapleVersion MapleVersion { get { return maplepLocalVersion; } set { maplepLocalVersion = value; } }
 
         /// <summary>
+        /// Returns the four-byte IV used by this archive.  A copy is returned
+        /// so a runtime session cannot mutate the parser's key material.
+        /// </summary>
+        public byte[] EncryptionIv => WzIv?.ToArray();
+
+        /// <summary>
         /// The detected MapleStory locale version from 'MapleStory.exe' client.
         /// KMST, GMS, EMS, MSEA, CMS, TWMS, etc.
         /// </summary>
@@ -124,6 +134,7 @@ namespace MapleLib.WzLib
             path = null;
             name = null;
             _pathCache.Clear();
+            OwnerManager = null;
             wzDir?.Dispose();
         }
 
@@ -1131,7 +1142,8 @@ namespace MapleLib.WzLib
 
             if (checkFirstDirectoryName)
             {
-                if (WzFileManager.fileManager == null)
+                WzFileManager manager = OwnerManager ?? WzFileManager.fileManager;
+                if (manager == null)
                 {
                     return null;
                 }
@@ -1144,7 +1156,7 @@ namespace MapleLib.WzLib
                     {
                         beforeCanvasPath = beforeCanvasPath + "\\" + WzFileManager.CANVAS_DIRECTORY_NAME.ToLowerInvariant();
                     }
-                    List<WzDirectory> wzDir = WzFileManager.fileManager.GetWzDirectoriesFromBase(beforeCanvasPath, true);  // all of the possible "._Canvas_000.wz" file that the image may be in
+                    List<WzDirectory> wzDir = manager.GetWzDirectoriesFromBase(beforeCanvasPath, true);  // all of the possible "._Canvas_000.wz" file that the image may be in
 
                     // path = "Map/_Canvas/MapHelper.img/mark/Hilla"
                     string canvasMarker = $"/{WzFileManager.CANVAS_DIRECTORY_NAME}/"; 
@@ -1177,7 +1189,7 @@ namespace MapleLib.WzLib
                 }
                 else
                 {
-                    List<WzDirectory> wzDir = WzFileManager.fileManager.GetWzDirectoriesFromBase(separatedPath[0], true); 
+                    List<WzDirectory> wzDir = manager.GetWzDirectoriesFromBase(separatedPath[0], true);
                     WzDirectory wzInnerDir = null;
                     foreach (WzDirectory dir in wzDir)
                     {
@@ -1200,14 +1212,14 @@ namespace MapleLib.WzLib
                     }
                     else if (separatedPath.Length >= 2)  // Map/Obj/xxx.img -> Obj.wz
                     {
-                        curObj = WzFileManager.fileManager.FindWzImageByName(separatedPath[0], separatedPath[1]);  // Map/xxx.img
+                        curObj = manager.FindWzImageByName(separatedPath[0], separatedPath[1]);  // Map/xxx.img
                         if (curObj != null)
                         {
                             pathIndex = 2;
                         }
                         else if (separatedPath.Length >= 3)
                         {
-                            curObj = WzFileManager.fileManager.FindWzImageByName(separatedPath[0] + Path.DirectorySeparatorChar + separatedPath[1], separatedPath[2]);
+                            curObj = manager.FindWzImageByName(separatedPath[0] + Path.DirectorySeparatorChar + separatedPath[1], separatedPath[2]);
                             if (curObj != null)
                             {
                                 pathIndex = 3;

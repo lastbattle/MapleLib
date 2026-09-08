@@ -370,14 +370,15 @@ namespace MapleLib.WzLib.WzProperties {
                         // If its a 64-bit wz file format, with "_Canvas".
                         // parse that instead, the canvas will never be in the data wz directory.
                         // TODO: Move this into the loader instead.
-                        if (WzFileManager.fileManager != null && WzFileManager.fileManager.Is64Bit) {
+                        WzFileManager ownerManager = wzFileParent?.OwnerManager ?? WzFileManager.fileManager;
+                        if (ownerManager != null && ownerManager.Is64Bit) {
                             // _outlink = 'Map/Back/_Canvas/snowyDarkrock.img/back/0'
                             bool bIsCanvasDir = WzFileManager.ContainsCanvasDirectory(_outlink);
                             if (bIsCanvasDir)
                             {
                                 string canvasFolderBase = WzFileManager.NormaliseWzCanvasDirectory(_outlink);  // "map", "map/back"
 
-                                WzFileManager.fileManager.LoadCanvasSection(canvasFolderBase, wzFileParent.MapleVersion);
+                                ownerManager.LoadCanvasSection(canvasFolderBase, wzFileParent.MapleVersion);
                             }
                             else
                             {

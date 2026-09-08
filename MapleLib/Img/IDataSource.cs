@@ -5,6 +5,30 @@ using System.Collections.Generic;
 namespace MapleLib.Img
 {
     /// <summary>
+    /// Optional capability for hosts that need an isolated preview of a custom
+    /// <see cref="IDataSource"/> implementation.  The returned lease owns the
+    /// source exposed by <see cref="IDataSourcePreviewLease.DataSource"/> and
+    /// remains active until it is disposed.  Implementations may use the lease
+    /// to pin a cache generation, hold a read lock, or return a detached
+    /// snapshot.  A caller must never assume that an arbitrary IDataSource can
+    /// be borrowed safely while the editor is saving or hot-swapping data.
+    /// </summary>
+    public interface IDataSourcePreviewLeaseProvider
+    {
+        IDataSourcePreviewLease AcquirePreviewLease();
+    }
+
+    /// <summary>Owns one isolated data-source view for a runtime preview.</summary>
+    public interface IDataSourcePreviewLease : IDisposable
+    {
+        /// <summary>
+        /// The source used by the preview.  It must remain valid until this
+        /// lease is disposed and must not be the provider's live editor source.
+        /// </summary>
+        IDataSource DataSource { get; }
+    }
+
+    /// <summary>
     /// Abstraction interface for accessing MapleStory data.
     /// Provides a unified API regardless of whether data comes from WZ files or IMG filesystem.
     /// </summary>

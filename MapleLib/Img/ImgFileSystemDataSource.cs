@@ -193,39 +193,128 @@ namespace MapleLib.Img
         private readonly WzFileManager _wzManager;
         private readonly string _wzPath;
         private readonly HaCreatorConfig _config;
+        private readonly bool _ownsManager;
+        private readonly object _initializationGate = new();
+        private WzMapleVersion _defaultMapleVersion;
+        private readonly byte[] _customIv;
         private bool _disposed;
         private bool _initialized;
 
-        public string Name => Path.GetFileName(_wzPath);
+        public string Name => Path.GetFileName(Path.TrimEndingDirectorySeparator(_wzPath));
         public bool IsInitialized => _initialized;
-        public VersionInfo VersionInfo => null; // WZ files don't have version info in the same way
+        public VersionInfo VersionInfo => new()
+        {
+            Version = Path.GetFileName(Path.TrimEndingDirectorySeparator(_wzPath)),
+            DisplayName = Path.GetFileName(Path.TrimEndingDirectorySeparator(_wzPath)),
+            Encryption = _defaultMapleVersion.ToString(),
+            Is64Bit = _wzManager.Is64Bit,
+            IsPreBB = _wzManager.IsPreBBDataWzFormat,
+            IsPreBBDataWzFormat = _wzManager.IsPreBBDataWzFormat,
+            IsBetaMs = _wzManager.IsBetaDataWzFormat,
+            DirectoryPath = _wzPath
+        }; // WZ files do not carry a manifest, so expose detected manager metadata.
 
         /// <summary>
         /// Creates a new WzFileDataSource for a MapleStory installation directory
         /// </summary>
-        public WzFileDataSource(string wzPath, HaCreatorConfig config = null)
+        public WzFileDataSource(
+            string wzPath,
+            HaCreatorConfig config = null,
+            bool registerAsGlobal = true,
+            WzMapleVersion mapleVersion = WzMapleVersion.BMS,
+            byte[] customIv = null)
+            : this(
+                new WzFileManager(wzPath, false, registerAsGlobal),
+                config,
+                ownsManager: true,
+                mapleVersion: mapleVersion,
+                customIv: customIv)
         {
-            _wzPath = wzPath;
+        }
+
+        /// <summary>
+        /// Adapts an already initialized legacy manager without taking ownership of it.
+        /// This is the bridge used by HaCreator while its editor-owned WzFileManager is
+        /// still shared with other editor services.
+        /// </summary>
+        /// <param name="wzManager">The existing legacy manager.</param>
+        /// <param name="config">Optional data-source configuration.</param>
+        /// <param name="ownsManager">Set to false for a borrowed editor manager.</param>
+        public WzFileDataSource(
+            WzFileManager wzManager,
+            HaCreatorConfig config = null,
+            bool ownsManager = false,
+            WzMapleVersion mapleVersion = WzMapleVersion.BMS,
+            byte[] customIv = null)
+        {
+            _wzManager = wzManager ?? throw new ArgumentNullException(nameof(wzManager));
+            _wzPath = _wzManager.BaseDirectory ?? string.Empty;
             _config = config ?? new HaCreatorConfig();
-            _wzManager = new WzFileManager(wzPath, false);
+            _ownsManager = ownsManager;
+            _defaultMapleVersion = mapleVersion;
+            if (customIv != null && customIv.Length != 4)
+                throw new ArgumentException("A WZ IV must contain exactly four bytes.", nameof(customIv));
+            _customIv = customIv?.ToArray();
         }
 
         /// <summary>
         /// Initializes by loading the WZ file list (does not load WZ files themselves)
         /// </summary>
-        public void Initialize()
+        public void Initialize(WzMapleVersion? mapleVersion = null)
         {
             if (_initialized) return;
-            _wzManager.BuildWzFileList();
-            _initialized = true;
+            lock (_initializationGate)
+            {
+                if (_initialized) return;
+                if (mapleVersion.HasValue)
+                    _defaultMapleVersion = mapleVersion.Value;
+
+                // An editor can adapt a manager populated in memory (for
+                // example by HaRepacker or a test fixture) and with no
+                // installation directory. Rebuilding the file list in that
+                // case tries to enumerate an empty path and loses the
+                // preloaded-manager compatibility promised by this adapter.
+                if (string.IsNullOrWhiteSpace(_wzPath) && _wzManager.WzFileList.Count != 0)
+                {
+                    _initialized = true;
+                    return;
+                }
+
+                _wzManager.BuildWzFileList();
+                _initialized = true;
+            }
         }
 
         public WzImage GetImage(string category, string imageName)
         {
-            var dir = GetDirectory(category);
-            if (dir == null) return null;
+            if (string.IsNullOrWhiteSpace(category) || string.IsNullOrWhiteSpace(imageName))
+                return null;
 
-            return dir[imageName] as WzImage;
+            string normalizedCategory = NormalizePath(category);
+            string normalizedImageName = NormalizePath(imageName);
+            foreach (WzDirectory directory in GetDirectories(normalizedCategory))
+            {
+                if (FindImage(directory, normalizedImageName) is WzImage image)
+                    return image;
+            }
+
+            // Some 64-bit clients split nested folders into their own WZ files
+            // (for example Character/Face/Face_000.wz). The legacy manager keys
+            // those files by the full directory prefix, while callers retain the
+            // public category/image form used by Program.FindImage.
+            string[] imageSegments = normalizedImageName.Split('/', StringSplitOptions.RemoveEmptyEntries);
+            for (int split = 1; split < imageSegments.Length; split++)
+            {
+                string nestedCategory = normalizedCategory + "/" + string.Join("/", imageSegments, 0, split);
+                string nestedImageName = string.Join("/", imageSegments, split, imageSegments.Length - split);
+                foreach (WzDirectory directory in GetDirectories(nestedCategory))
+                {
+                    if (FindImage(directory, nestedImageName) is WzImage image)
+                        return image;
+                }
+            }
+
+            return null;
         }
 
         public WzImage GetImageByPath(string relativePath)
@@ -348,12 +437,54 @@ namespace MapleLib.Img
 
         public WzDirectory GetDirectory(string category)
         {
-            return _wzManager[category.ToLower()];
+            return GetDirectories(category).FirstOrDefault();
         }
 
         public IEnumerable<WzDirectory> GetDirectories(string baseCategory)
         {
-            return _wzManager.GetWzDirectoriesFromBase(baseCategory.ToLower());
+            if (string.IsNullOrWhiteSpace(baseCategory))
+                return Enumerable.Empty<WzDirectory>();
+
+            string normalizedCategory = NormalizePath(baseCategory);
+            EnsureCategoryLoaded(normalizedCategory);
+            var directories = new List<WzDirectory>();
+            foreach (WzDirectory directory in _wzManager.GetWzDirectoriesFromBase(normalizedCategory.ToLowerInvariant()))
+            {
+                if (directory != null && !directories.Contains(directory))
+                    directories.Add(directory);
+            }
+
+            // A manager created by the legacy editor can have a loaded, unsplit
+            // directory without an entry in _wzFilesList. Preserve the old
+            // WzManager[index] lookup as a fallback for that case.
+            WzDirectory directDirectory = _wzManager[normalizedCategory];
+            if (directDirectory != null && !directories.Contains(directDirectory))
+                directories.Add(directDirectory);
+
+            return directories;
+        }
+
+        private void EnsureCategoryLoaded(string category)
+        {
+            if (!_initialized)
+                Initialize();
+
+            lock (_initializationGate)
+            {
+                if (_wzManager.IsBetaDataWzFormat)
+                {
+                    if (!_wzManager.IsWzFileLoaded("Data"))
+                        _wzManager.LoadLegacyDataWzFile("Data", _defaultMapleVersion, _customIv);
+                    return;
+                }
+
+                foreach (string wzName in _wzManager.GetWzFileNameListFromBase(category))
+                {
+                    if (string.IsNullOrWhiteSpace(wzName) || _wzManager.IsWzFileLoaded(wzName))
+                        continue;
+                    _wzManager.LoadWzFile(wzName, _defaultMapleVersion, _customIv);
+                }
+            }
         }
 
         public void PreloadCategory(string category)
@@ -398,11 +529,63 @@ namespace MapleLib.Img
         /// </summary>
         public WzFileManager WzManager => _wzManager;
 
+        /// <summary>Gets the installation root used by the wrapped manager.</summary>
+        public string WzRootPath => _wzManager.BaseDirectory;
+
+        /// <summary>Gets the encryption version used when lazily loading WZ files.</summary>
+        public WzMapleVersion MapleVersion =>
+            _wzManager.WzFileList.FirstOrDefault()?.MapleVersion ?? _defaultMapleVersion;
+
+        /// <summary>
+        /// Returns a copy of the explicit custom IV, or the IV captured by a
+        /// borrowed CUSTOM archive when adapting an already loaded editor
+        /// manager.
+        /// </summary>
+        public byte[] CustomIv
+        {
+            get
+            {
+                if (_customIv != null)
+                    return _customIv.ToArray();
+                WzFile loadedFile = _wzManager.WzFileList.FirstOrDefault();
+                if (_defaultMapleVersion != WzMapleVersion.CUSTOM
+                    && loadedFile?.MapleVersion != WzMapleVersion.CUSTOM)
+                    return null;
+                return loadedFile?.EncryptionIv;
+            }
+        }
+
         public void Dispose()
         {
             if (_disposed) return;
-            _wzManager?.Dispose();
+            if (_ownsManager)
+                _wzManager.Dispose();
             _disposed = true;
+        }
+
+        private static WzObject FindImage(WzDirectory directory, string imageName)
+        {
+            string normalizedPath = NormalizePath(imageName);
+            if (normalizedPath.Length == 0)
+                return null;
+
+            WzObject current = directory;
+            foreach (string segment in normalizedPath.Split('/', StringSplitOptions.RemoveEmptyEntries))
+            {
+                if (current is not WzDirectory currentDirectory)
+                    return null;
+
+                current = currentDirectory[segment];
+                if (current == null)
+                    return null;
+            }
+
+            return current is WzImage ? current : null;
+        }
+
+        private static string NormalizePath(string path)
+        {
+            return path.Replace('\\', '/').Trim('/');
         }
     }
 
@@ -425,7 +608,12 @@ namespace MapleLib.Img
         /// <summary>
         /// Creates a HybridDataSource that prioritizes IMG filesystem but falls back to WZ files
         /// </summary>
-        public HybridDataSource(string path, HaCreatorConfig config = null)
+        public HybridDataSource(
+            string path,
+            HaCreatorConfig config = null,
+            bool registerWzManagerAsGlobal = true,
+            WzMapleVersion mapleVersion = WzMapleVersion.BMS,
+            byte[] customIv = null)
         {
             config ??= new HaCreatorConfig();
 
@@ -447,8 +635,13 @@ namespace MapleLib.Img
             {
                 try
                 {
-                    _wzSource = new WzFileDataSource(config.Legacy.WzFilePath, config);
-                    _wzSource.Initialize();
+                    _wzSource = new WzFileDataSource(
+                        config.Legacy.WzFilePath,
+                        config,
+                        registerWzManagerAsGlobal,
+                        mapleVersion,
+                        customIv);
+                    _wzSource.Initialize(mapleVersion);
                     _hasWzSource = true;
                 }
                 catch { }
@@ -457,8 +650,13 @@ namespace MapleLib.Img
             {
                 try
                 {
-                    _wzSource = new WzFileDataSource(path, config);
-                    _wzSource.Initialize();
+                    _wzSource = new WzFileDataSource(
+                        path,
+                        config,
+                        registerWzManagerAsGlobal,
+                        mapleVersion,
+                        customIv);
+                    _wzSource.Initialize(mapleVersion);
                     _hasWzSource = true;
                 }
                 catch { }

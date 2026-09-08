@@ -55,6 +55,13 @@ namespace MapleLib {
             private set { }
         }
 
+        /// <summary>
+        /// Gets the installation directory supplied to this manager.  Unlike
+        /// <see cref="WzBaseDirectory"/>, this remains the installation root for
+        /// 64-bit clients whose archives live below a Data directory.
+        /// </summary>
+        public string BaseDirectory => baseDir;
+
         private readonly bool _bIsStandAloneWzFile;
 
         private readonly bool _bInitAs64Bit;
@@ -146,7 +153,7 @@ namespace MapleLib {
         /// </summary>
         /// <param name="directory"></param>
         /// <param name="bIsStandAloneWzFile"></param>
-        public WzFileManager(string directory, bool bIsStandAloneWzFile) {
+        public WzFileManager(string directory, bool bIsStandAloneWzFile, bool registerAsGlobal = true) {
             this.baseDir = directory;
             this._bIsStandAloneWzFile = bIsStandAloneWzFile;
 
@@ -164,7 +171,8 @@ namespace MapleLib {
                 this._bIsBetaDataWzFormat = WzFileManager.DetectBetaDataWzFormat(this.baseDir);
                 this._bIsMapleStoryClassicWorlds = _bInitAs64Bit && !_bIsPreBBDataWzFormat;
             }
-            fileManager = this;
+            if (registerAsGlobal)
+                fileManager = this;
         }
         #endregion
 
@@ -575,7 +583,16 @@ namespace MapleLib {
                         string fileName = Path.GetFileName(partialWzFilePath);
                         string fileName2 = fileName.Replace(".wz", "");
 
-                        string wzDirectoryNameOfWzFile = path.Replace(baseDir, "").ToLower();
+                        // Keep the index independent of whether the caller
+                        // supplied a trailing separator on the installation
+                        // root.  The previous Replace-based form produced a
+                        // leading slash for canonical paths without one and
+                        // made lazy standalone sessions miss every split
+                        // category in 64-bit clients.
+                        string wzDirectoryNameOfWzFile = Path.GetRelativePath(baseDir, path)
+                            .Replace('\\', '/')
+                            .Trim('/')
+                            .ToLowerInvariant();
 
                         if (EXCLUDED_DIRECTORY_FROM_WZ_LIST.Any(item =>
                             fileName2.Contains(item, StringComparison.OrdinalIgnoreCase)))
@@ -776,11 +793,35 @@ namespace MapleLib {
         /// <param name="encVersion"></param>
         /// <returns></returns>
         /// <exception cref="Exception"></exception>
-        public WzFile LoadWzFile(string baseName, WzMapleVersion encVersion) {
+        public WzFile LoadWzFile(string baseName, WzMapleVersion encVersion)
+        {
+            return LoadWzFile(baseName, encVersion, customIv: null);
+        }
+
+        /// <summary>
+        /// Loads an ordinary WZ file using an explicitly supplied IV.  The
+        /// overload keeps custom/private-server sessions independent from the
+        /// process-wide configuration used by <see cref="MapleLib.WzLib.Util.WzTool"/> when the
+        /// enum value is <see cref="WzMapleVersion.CUSTOM"/>.
+        /// </summary>
+        public WzFile LoadWzFile(
+            string baseName,
+            WzMapleVersion encVersion,
+            byte[] customIv)
+        {
             string filePath = GetWzFilePath(baseName);
             if (filePath == null)
                 return null;
-            WzFile wzf = new WzFile(filePath, encVersion);
+            if (customIv != null && customIv.Length != 4)
+                throw new ArgumentException("A WZ IV must contain exactly four bytes.", nameof(customIv));
+
+            WzFile wzf = customIv == null
+                ? new WzFile(filePath, encVersion)
+                : new WzFile(filePath, customIv.ToArray());
+            // Set ownership before parsing.  WZ properties can be parsed
+            // lazily during or immediately after LoadWzFile, and outlinks must
+            // resolve against this manager rather than the global editor slot.
+            wzf.OwnerManager = this;
 
             WzFileParseStatus parseStatus;
             try
@@ -818,6 +859,7 @@ namespace MapleLib {
         /// <exception cref="Exception"></exception>
         public WzFile LoadWzFile(string baseName, WzFile wzf)
         {
+            wzf.OwnerManager = this;
             string fileName_ = GetWzKey(baseName);
 
             // write lock to begin adding to the dictionary
@@ -890,9 +932,27 @@ namespace MapleLib {
         /// </summary>
         /// <param name="baseName"></param>
         /// <returns></returns>
-        public bool LoadLegacyDataWzFile(string baseName, WzMapleVersion encVersion) {
+        public bool LoadLegacyDataWzFile(string baseName, WzMapleVersion encVersion)
+        {
+            return LoadLegacyDataWzFile(baseName, encVersion, customIv: null);
+        }
+
+        /// <summary>Loads the legacy Data.wz archive with an optional explicit IV.</summary>
+        public bool LoadLegacyDataWzFile(
+            string baseName,
+            WzMapleVersion encVersion,
+            byte[] customIv)
+        {
             string filePath = GetWzFilePath(baseName);
-            WzFile wzf = new WzFile(filePath, encVersion);
+            if (filePath == null)
+                return false;
+            if (customIv != null && customIv.Length != 4)
+                throw new ArgumentException("A WZ IV must contain exactly four bytes.", nameof(customIv));
+
+            WzFile wzf = customIv == null
+                ? new WzFile(filePath, encVersion)
+                : new WzFile(filePath, customIv.ToArray());
+            wzf.OwnerManager = this;
 
             WzFileParseStatus parseStatus;
             try
@@ -1205,15 +1265,27 @@ namespace MapleLib {
         /// <param name="baseName"></param>
         /// <returns></returns>
         public List<string> GetWzFileNameListFromBase(string baseName) {
+            string suppliedBaseName = baseName?.Trim('/','\\').ToLowerInvariant() ?? string.Empty;
+            baseName = suppliedBaseName.Replace('\\', '/');
             if (_bIsBetaDataWzFormat) {
                 if (!_wzFilesList.ContainsKey("data"))
                     return new List<string>(); // return as an empty list if none
                 return _wzFilesList["data"];
             }
             else {
-                if (!_wzFilesList.ContainsKey(baseName))
-                    return new List<string>(); // return as an empty list if none
-                return _wzFilesList[baseName];
+                if (_wzFilesList.TryGetValue(baseName, out List<string> normalizedFiles))
+                    return normalizedFiles;
+
+                // Keep compatibility with managers/tests that populated the
+                // private index before path keys were normalized. BuildWzFileList
+                // writes forward-slash keys, while legacy callers may still
+                // provide backslash keys.
+                if (_wzFilesList.TryGetValue(suppliedBaseName, out List<string> suppliedFiles))
+                    return suppliedFiles;
+                string legacyBaseName = baseName.Replace('/', '\\');
+                if (_wzFilesList.TryGetValue(legacyBaseName, out List<string> legacyFiles))
+                    return legacyFiles;
+                return new List<string>(); // return as an empty list if none
             }
         }
 
