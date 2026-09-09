@@ -223,7 +223,11 @@ namespace MapleLib.WzLib
                 bIsImageChanged = true
             };
             foreach (WzImageProperty prop in properties)
-                clone.AddProperty(prop.DeepClone());
+                // Deep cloning source data must preserve duplicate names.
+                // WzPropertyCollection intentionally supports them for
+                // malformed/legacy exports, while AddProperty is the strict
+                // authoring API and rejects duplicates.
+                clone.WzProperties.Add(prop.DeepClone());
             return clone;
         }
 

@@ -216,6 +216,24 @@ public class WzCoreOptimizationTests
     }
 
     [TestMethod]
+    public void DeepClone_PreservesDuplicateSourcePropertyNames()
+    {
+        var source = new WzImage("100000000.img");
+        source.WzProperties.Add(new WzIntProperty("wedding", 0));
+        source.WzProperties.Add(new WzIntProperty("wedding", 1));
+
+        using WzImage clone = source.DeepClone();
+
+        Assert.HasCount(2, clone.WzProperties);
+        Assert.AreEqual("wedding", clone.WzProperties[0].Name);
+        Assert.AreEqual(0, clone.WzProperties[0].GetInt());
+        Assert.AreEqual("wedding", clone.WzProperties[1].Name);
+        Assert.AreEqual(1, clone.WzProperties[1].GetInt());
+        Assert.AreSame(clone, clone.WzProperties[0].Parent);
+        Assert.AreSame(clone, clone.WzProperties[1].Parent);
+    }
+
+    [TestMethod]
     public void PropertyCollectionIndex_ReindexesReverseAndRangeMutations()
     {
         var property = new WzSubProperty("Group");
