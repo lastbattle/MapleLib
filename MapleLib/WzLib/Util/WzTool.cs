@@ -3,7 +3,7 @@ using System.Buffers;
 using System.Collections;
 using System.Diagnostics;
 using System.IO;
-using System.Linq;
+using System.Numerics;
 using System.Runtime.CompilerServices;
 using MapleLib.Configuration;
 using MapleLib.MapleCryptoLib;
@@ -20,12 +20,12 @@ namespace MapleLib.WzLib.Util
 
         public static UInt32 RotateLeft(UInt32 x, byte n)
         {
-            return (UInt32)(((x) << (n)) | ((x) >> (32 - (n))));
+            return BitOperations.RotateLeft(x, n);
         }
 
         public static UInt32 RotateRight(UInt32 x, byte n)
         {
-            return (UInt32)(((x) >> (n)) | ((x) << (32 - (n))));
+            return BitOperations.RotateRight(x, n);
         }
 
         public static int GetCompressedIntLength(int i)
@@ -40,15 +40,9 @@ namespace MapleLib.WzLib.Util
             if (string.IsNullOrEmpty(s))
                 return 1;
 
-            bool unicode = false;
             int length = s.Length;
 
-            foreach (char c in s) {
-                if (c > 255) {
-                    unicode = true;
-                    break;
-                }
-            }
+            bool unicode = s.AsSpan().IndexOfAnyInRange((char)256, char.MaxValue) >= 0;
             int prefixLength = length > (unicode ? 126 : 127) ? 5 : 1;
             int encodedLength = unicode ? length * 2 : length;
 
@@ -98,8 +92,17 @@ namespace MapleLib.WzLib.Util
             }
         }
 
-        private static int GetRecognizedCharacters(string source) {
-            return source.Count(c => c >= 0x20 && c <= 0x7E);
+        internal static int GetRecognizedCharacters(string source) {
+            int recognized = 0;
+            foreach (char c in source)
+            {
+                if (c >= 0x20 && c <= 0x7E)
+                {
+                    recognized++;
+                }
+            }
+
+            return recognized;
         }
 
         /// <summary>

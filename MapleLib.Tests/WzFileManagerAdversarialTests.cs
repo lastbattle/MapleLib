@@ -11,6 +11,14 @@ namespace MapleLib.Tests;
 public sealed class WzFileManagerAdversarialTests
 {
     [Fact]
+    public void GetPacksFileKey_PreservesNamesWithoutNumericSuffix()
+    {
+        Assert.Equal("Character", WzFileManager.GetPacksFileKey("Character"));
+        Assert.Equal("Character_000", WzFileManager.GetPacksFileKey("Character_00012"));
+        Assert.Equal("Character", WzFileManager.GetPacksFileKey("Character_"));
+    }
+
+    [Fact]
     public void Dispose_ReleasesImagesAndMsFilesAndClearsRegistries()
     {
         var manager = new WzFileManager();

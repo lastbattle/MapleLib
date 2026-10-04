@@ -16,11 +16,20 @@ namespace MapleLib.WzLib.Serializer
 {
     internal static class Extension
     {
+        private static readonly byte[] ZeroPadding = new byte[8];
+
         public static void EnsureMultiple(this Stream s, int multiple)
         {
             int skip = (int)(multiple - s.Position % multiple);
             if (skip == multiple)
                 return;
+            if (skip <= 8)
+            {
+                s.Write(ZeroPadding, 0, skip);
+                return;
+            }
+
+            // Preserve support for unusually large alignment values.
             s.Write(new byte[skip], 0, skip);
         }
 
@@ -59,8 +68,9 @@ namespace MapleLib.WzLib.Serializer
                 ulong stringOffset;
                 uint stringCount = (uint)state.Strings.Count;
                 {
-                    Dictionary<uint, string> strings = state.Strings.ToDictionary(kvp => kvp.Value,
-                        kvp => kvp.Key);
+                    string[] strings = new string[checked((int)stringCount)];
+                    foreach (KeyValuePair<string, uint> pair in state.Strings)
+                        strings[checked((int)pair.Value)] = pair.Key;
                     ulong[] offsets = new ulong[stringCount];
                     for (uint idx = 0; idx < stringCount; ++idx)
                     {
@@ -152,17 +162,22 @@ namespace MapleLib.WzLib.Serializer
             byte[] rgbValues = new byte[inLen];
             Marshal.Copy(bd.Scan0, rgbValues, 0, inLen);
 
-            var compressed = LZ4Codec.WrapHC(rgbValues);
-
-            return compressed.SubArray(8, compressed.Length - 8);
+            return LZ4Codec.WrapHC(rgbValues);
         }
 
         private void WriteBitmap(WzCanvasProperty node, BinaryWriter bw)
         {
             Bitmap b = node.PngProperty.GetBitmap();
             byte[] compressed = GetCompressedBitmap(b);
-            bw.Write((uint)compressed.Length);
-            bw.Write(compressed);
+            int payloadLength = compressed.Length - 8;
+            if (payloadLength < 0)
+            {
+                // Preserve the previous SubArray exception behavior for malformed
+                // compressor output while avoiding its normal-path copy.
+                compressed.SubArray(8, payloadLength);
+            }
+            bw.Write((uint)payloadLength);
+            bw.Write(compressed, 8, payloadLength);
         }
 
         private void WriteMP3(WzBinaryProperty node, BinaryWriter bw)
@@ -179,19 +194,37 @@ namespace MapleLib.WzLib.Serializer
             if (encodedLength > ushort.MaxValue)
                 throw new InvalidDataException("NX UTF-8 string exceeds the 16-bit length field.");
 
-            bool flag = s.Any(new Func<char, bool>(char.IsControl));
+            bool flag = false;
+            foreach (char character in s)
+            {
+                if (char.IsControl(character))
+                {
+                    flag = true;
+                    break;
+                }
+            }
             if (flag)
             {
                 Console.WriteLine("Warning; control character in string. Perhaps toggle /wzn?");
             }
-            byte[] toWrite = Encoding.UTF8.GetBytes(s);
             bw.Write((ushort)encodedLength);
-            bw.Write(toWrite);
+            if (encodedLength <= 256)
+            {
+                Span<byte> utf8 = stackalloc byte[encodedLength];
+                Encoding.UTF8.GetBytes(s.AsSpan(), utf8);
+                bw.Write(utf8);
+            }
+            else
+            {
+                byte[] utf8 = Encoding.UTF8.GetBytes(s);
+                bw.Write(utf8);
+            }
         }
 
         private void WriteNodeLevel(ref List<WzObject> nodeLevel, DumpState ds, BinaryWriter bw)
         {
             uint nextChildId = (uint)(ds.GetNextNodeID() + (ulong)(long)nodeLevel.Count);
+            int nextLevelCount = 0;
             foreach (WzObject levelNode in nodeLevel)
             {
                 bool flag = levelNode is WzUOLProperty;
@@ -203,16 +236,35 @@ namespace MapleLib.WzLib.Serializer
                 {
                     WriteNode(levelNode, ds, bw, nextChildId);
                 }
-                nextChildId += (uint)GetChildCount(levelNode);
+                int childCount = GetChildCount(levelNode);
+                nextChildId += (uint)childCount;
+                nextLevelCount = checked(nextLevelCount + childCount);
             }
-            List<WzObject> @out = new List<WzObject>();
+            List<WzObject> @out = new List<WzObject>(nextLevelCount);
             foreach (WzObject levelNode2 in nodeLevel)
             {
-                List<WzObject> childs = GetChildObjects(levelNode2);
-                @out.AddRange(childs);
+                AppendChildObjects(levelNode2, @out);
             }
             nodeLevel.Clear();
             nodeLevel = @out;
+        }
+
+        private static void AppendChildObjects(WzObject node, List<WzObject> destination)
+        {
+            if (node is WzDirectory directory)
+            {
+                destination.AddRange(directory.WzImages);
+                destination.AddRange(directory.WzDirectories);
+            }
+            else if (node is WzImage image)
+            {
+                destination.AddRange(image.WzProperties);
+            }
+            else if (node is WzImageProperty property && node is not WzUOLProperty &&
+                     property.WzProperties is { } properties)
+            {
+                destination.AddRange(properties);
+            }
         }
 
         private void WriteUOL(WzUOLProperty node, DumpState ds, BinaryWriter bw)
@@ -226,38 +278,38 @@ namespace MapleLib.WzLib.Serializer
 
         public List<WzObject> GetChildObjects(WzObject node)
         {
-            List<WzObject> childs = new List<WzObject>();
             bool flag = node is WzDirectory;
             if (flag)
             {
-                childs.AddRange(((WzDirectory)node).WzImages);
-                childs.AddRange(((WzDirectory)node).WzDirectories);
+                WzDirectory directory = (WzDirectory)node;
+                List<WzObject> childs = new List<WzObject>(directory.WzImages.Count + directory.WzDirectories.Count);
+                childs.AddRange(directory.WzImages);
+                childs.AddRange(directory.WzDirectories);
+                return childs;
             }
-            else
+            if (node is WzImage image)
             {
-                bool flag2 = node is WzImage;
-                if (flag2)
-                {
-                    childs.AddRange(((WzImage)node).WzProperties);
-                }
-                else
-                {
-                    bool flag3 = node is WzImageProperty && !(node is WzUOLProperty);
-                    if (flag3)
-                    {
-                        bool flag4 = ((WzImageProperty)node).WzProperties != null;
-                        if (flag4)
-                        {
-                            childs.AddRange(((WzImageProperty)node).WzProperties);
-                        }
-                    }
-                }
+                List<WzObject> childs = new List<WzObject>(image.WzProperties.Count);
+                childs.AddRange(image.WzProperties);
+                return childs;
             }
-            return childs;
+            if (node is WzImageProperty property && node is not WzUOLProperty && property.WzProperties is { } properties)
+            {
+                List<WzObject> childs = new List<WzObject>(properties.Count);
+                childs.AddRange(properties);
+                return childs;
+            }
+            return new List<WzObject>();
         }
         private int GetChildCount(WzObject node)
         {
-            return GetChildObjects(node).Count();
+            if (node is WzDirectory directory)
+                return directory.WzImages.Count + directory.WzDirectories.Count;
+            if (node is WzImage image)
+                return image.WzProperties.Count;
+            if (node is WzImageProperty property && node is not WzUOLProperty)
+                return property.WzProperties?.Count ?? 0;
+            return 0;
         }
         private void WriteNode(WzObject node, DumpState ds, BinaryWriter bw, uint nextChildID)
         {
@@ -326,8 +378,8 @@ namespace MapleLib.WzLib.Serializer
                 bool flag16 = true; // export canvas
                 if (flag16)
                 {
-                    bw.Write((ushort)wzcp.PngProperty.GetBitmap().Width);
-                    bw.Write((ushort)wzcp.PngProperty.GetBitmap().Height);
+                    bw.Write((ushort)wzcp.PngProperty.Width);
+                    bw.Write((ushort)wzcp.PngProperty.Height);
                 }
                 else
                 {
@@ -401,8 +453,8 @@ namespace MapleLib.WzLib.Serializer
                 // represent that valid root name without passing null to the
                 // dictionary comparer.
                 str ??= string.Empty;
-                if (Strings.ContainsKey(str))
-                    return Strings[str];
+                if (Strings.TryGetValue(str, out uint existing))
+                    return existing;
                 uint ret = (uint)Strings.Count;
                 Strings.Add(str, ret);
                 return ret;

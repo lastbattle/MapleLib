@@ -18,6 +18,57 @@ public sealed class ErrorLoggerAdversarialTests : IDisposable
     public void Dispose() => ErrorLogger.ClearErrors();
 
     [Fact]
+    public void SnapshotPreservesFirstSeenGroupOrderAndIndependentLists()
+    {
+        Assert.Empty(ErrorLogger.GetErrorSnapshot());
+        ErrorLogger.Log(ErrorLevel.Critical, "one");
+        ErrorLogger.Log(ErrorLevel.Info, "two");
+        ErrorLogger.Log((ErrorLevel)999, "custom");
+        ErrorLogger.Log(ErrorLevel.Critical, "three");
+        var first = ErrorLogger.GetErrorSnapshot();
+        var second = ErrorLogger.GetErrorSnapshot();
+        Assert.Equal(new[] { ErrorLevel.Critical, ErrorLevel.Info, (ErrorLevel)999 }, first.Keys);
+        Assert.Equal(new[] { "one", "three" }, first[ErrorLevel.Critical].Select(e => e.Message));
+        Assert.Same(first[ErrorLevel.Critical][0], second[ErrorLevel.Critical][0]);
+        first[ErrorLevel.Critical].Clear();
+        first.Clear();
+        ErrorLogger.ClearErrors();
+        ErrorLogger.Log(ErrorLevel.Crash, "later");
+        Assert.Equal(new[] { "one", "three" }, second[ErrorLevel.Critical].Select(e => e.Message));
+        Assert.Equal(3, second.Count);
+    }
+
+    [Fact]
+    public void RemovePersistedErrors_CompactsPrefixAndPreservesAppendedEntries()
+    {
+        var persisted = new List<Error>
+        {
+            new(ErrorLevel.Info, "one", DateTime.UtcNow),
+            new(ErrorLevel.Critical, "two", DateTime.UtcNow)
+        };
+        var appended = new Error(ErrorLevel.Crash, "appended", DateTime.UtcNow);
+        var pending = new List<Error>(persisted) { appended };
+
+        ErrorLogger.RemovePersistedErrors(pending, persisted);
+
+        Assert.Single(pending);
+        Assert.Same(appended, pending[0]);
+    }
+
+    [Fact]
+    public void RemovePersistedErrors_FallbackRemovesByReferenceOnly()
+    {
+        var persisted = new Error(ErrorLevel.Info, "same", DateTime.UtcNow);
+        var equalByValueButDistinct = new Error(ErrorLevel.Info, "same", persisted.Timestamp);
+        var pending = new List<Error> { equalByValueButDistinct, persisted };
+
+        ErrorLogger.RemovePersistedErrors(pending, new[] { persisted });
+
+        Assert.Single(pending);
+        Assert.Same(equalByValueButDistinct, pending[0]);
+    }
+
+    [Fact]
     public void SaveFailurePreservesPendingErrors()
     {
         ErrorLogger.Log(ErrorLevel.Critical, "must survive");

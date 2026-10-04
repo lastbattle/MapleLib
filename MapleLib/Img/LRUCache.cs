@@ -126,8 +126,11 @@ namespace MapleLib.Img
                 if (_cache.TryGetValue(key, out var node))
                 {
                     // Move to front (most recently used)
-                    _lruList.Remove(node);
-                    _lruList.AddFirst(node);
+                    if (node != _lruList.First)
+                    {
+                        _lruList.Remove(node);
+                        _lruList.AddFirst(node);
+                    }
 
                     Interlocked.Increment(ref _hitCount);
                     value = node.Value.Value;

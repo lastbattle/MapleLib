@@ -206,7 +206,10 @@ namespace MapleLib.WzLib.WzProperties
             byte[] unk1 = reader.ReadBytes(1);
             byte[] waveFormatBytes = reader.ReadBytes(wavFormatLen);
 
-            header = soundHeaderBytes.Concat(unk1).Concat(waveFormatBytes).ToArray();
+            header = new byte[soundHeaderBytes.Length + unk1.Length + waveFormatBytes.Length];
+            soundHeaderBytes.AsSpan().CopyTo(header);
+            unk1.AsSpan().CopyTo(header.AsSpan(soundHeaderBytes.Length));
+            waveFormatBytes.AsSpan().CopyTo(header.AsSpan(soundHeaderBytes.Length + unk1.Length));
 
             //Debug.WriteLine(HexTool.ByteArrayToString(soundHeaderBytes));
             //Debug.WriteLine(HexTool.ByteArrayToString(unk1));
@@ -452,9 +455,6 @@ namespace MapleLib.WzLib.WzProperties
             {
                 if (wzReader == null) 
                     return null;
-
-                byte[] wavHeader = new byte[header.Length - soundHeader.Length - 1];
-                Buffer.BlockCopy(header, soundHeader.Length + 1, wavHeader, 0, wavHeader.Length);
 
                 lock (wzReader)
                 {

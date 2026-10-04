@@ -1,9 +1,11 @@
-using System;
+﻿using System;
+using System.Buffers;
+using System.Buffers.Binary;
 using System.Collections;
 using System.Collections.Generic;
 using System.IO;
-using System.Linq;
 using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
 using MapleLib.Helpers;
 using MapleLib.MapleCryptoLib;
 using MapleLib.WzLib.WzStructure.Enums;
@@ -55,20 +57,17 @@ namespace MapleLib.WzLib.Util
         {
             // if length is > 4 and the string cache contains the string
             // writes the offset instead
-            if (str.Length > 4 && StringCache.ContainsKey(str))
+            if (str.Length > 4 && StringCache.TryGetValue(str, out int cachedOffset))
             {
                 Write((byte)withOffset);
-                Write((int)StringCache[str]);
+                Write(cachedOffset);
             }
             else
             {
                 Write((byte)withoutOffset);
                 int sOffset = (int)this.BaseStream.Position;
                 Write(str);
-                if (!StringCache.ContainsKey(str))
-                {
-                    StringCache[str] = sOffset;
-                }
+                StringCache.TryAdd(str, sOffset);
             }
         }
 
@@ -81,14 +80,14 @@ namespace MapleLib.WzLib.Util
         /// <returns>true if the Wz object value is written as an offset in the Wz file, else if not</returns>
         public bool WriteWzObjectValue(string stringObjectValue, WzDirectoryType type)
         {
-            string storeName = string.Format("{0}_{1}", (byte)type, stringObjectValue);
+            string storeName = $"{(byte)type}_{stringObjectValue}";
 
             // if length is > 4 and the string cache contains the string
             // writes the offset instead
-            if (stringObjectValue.Length > 4 && StringCache.ContainsKey(storeName))
+            if (stringObjectValue.Length > 4 && StringCache.TryGetValue(storeName, out int cachedOffset))
             {
                 Write((byte)WzDirectoryType.RetrieveStringFromOffset_2); // 2
-                Write((int)StringCache[storeName]);
+                Write(cachedOffset);
 
                 return true;
             }
@@ -97,10 +96,7 @@ namespace MapleLib.WzLib.Util
                 int sOffset = (int)(this.BaseStream.Position - Header.FStart);
                 Write((byte)type);
                 Write(stringObjectValue);
-                if (!StringCache.ContainsKey(storeName))
-                {
-                    StringCache[storeName] = sOffset;
-                }
+                StringCache.TryAdd(storeName, sOffset);
             }
             return false;
         }
@@ -112,7 +108,7 @@ namespace MapleLib.WzLib.Util
                 Write((byte)0);
                 return;
             }
-            bool unicode = value.Any(c => c > sbyte.MaxValue);
+            bool unicode = value.AsSpan().IndexOfAnyInRange((char)(sbyte.MaxValue + 1), char.MaxValue) >= 0;
 
             if (unicode)
             {
@@ -141,18 +137,46 @@ namespace MapleLib.WzLib.Util
                 Write((sbyte)value.Length);
             }
 
-            ushort mask = 0xAAAA;
-
-            int i = 0;
-            foreach (var character in value)
+            int byteLength = checked(value.Length * 2);
+            byte[]? rented = null;
+            try
             {
-                ushort encryptedChar = (ushort)character;
-                encryptedChar ^= (ushort)((WzKey[i * 2 + 1] << 8) + WzKey[i * 2]);
-                encryptedChar ^= mask;
-                mask++;
-                Write(encryptedChar);
+                Span<byte> encoded = byteLength <= 256
+                    ? stackalloc byte[byteLength]
+                    : (rented = ArrayPool<byte>.Shared.Rent(byteLength)).AsSpan(0, byteLength);
 
-                i++;
+                WzKey.EnsureKeySize(byteLength);
+                ReadOnlySpan<byte> keyBytes = WzKey.GetKeySpan();
+                if (BitConverter.IsLittleEndian)
+                {
+                    Span<ushort> encodedChars = MemoryMarshal.Cast<byte, ushort>(encoded);
+                    ReadOnlySpan<ushort> keyWords = MemoryMarshal.Cast<byte, ushort>(keyBytes);
+                    ushort mask = 0xAAAA;
+                    for (int i = 0; i < value.Length; i++)
+                    {
+                        ushort encryptedChar = value[i];
+                        encryptedChar ^= keyWords[i];
+                        encodedChars[i] = (ushort)(encryptedChar ^ mask++);
+                    }
+                }
+                else
+                {
+                    ushort mask = 0xAAAA;
+                    for (int i = 0; i < value.Length; i++)
+                    {
+                        ushort encryptedChar = value[i];
+                        encryptedChar ^= (ushort)((keyBytes[i * 2 + 1] << 8) + keyBytes[i * 2]);
+                        encryptedChar ^= mask++;
+                        BinaryPrimitives.WriteUInt16LittleEndian(encoded.Slice(i * 2, 2), encryptedChar);
+                    }
+                }
+
+                BaseStream.Write(encoded);
+            }
+            finally
+            {
+                if (rented != null)
+                    ArrayPool<byte>.Shared.Return(rented);
             }
         }
 
@@ -173,29 +197,50 @@ namespace MapleLib.WzLib.Util
                 Write((sbyte)(-value.Length));
             }
 
-            byte mask = 0xAA;
-
-            int i = 0;
-            foreach (char c in value)
+            byte[]? rented = null;
+            try
             {
-                byte encryptedChar = (byte)c;
-                encryptedChar ^= WzKey[i];
-                encryptedChar ^= mask;
-                mask++;
-                Write(encryptedChar);
+                Span<byte> encoded = value.Length <= 256
+                    ? stackalloc byte[value.Length]
+                    : (rented = ArrayPool<byte>.Shared.Rent(value.Length)).AsSpan(0, value.Length);
 
-                i++;
+                WzKey.EnsureKeySize(value.Length);
+                ReadOnlySpan<byte> keyBytes = WzKey.GetKeySpan();
+                byte mask = 0xAA;
+                for (int i = 0; i < value.Length; i++)
+                {
+                    encoded[i] = (byte)((byte)value[i] ^ keyBytes[i] ^ mask++);
+                }
+
+                BaseStream.Write(encoded);
+            }
+            finally
+            {
+                if (rented != null)
+                    ArrayPool<byte>.Shared.Return(rented);
             }
         }
 
         public char[] EncryptString(string stringToEncrypt)
         {
-           return stringToEncrypt.Select((c, i) => (char)(c ^ ((WzKey[i * 2 + 1] << 8) + WzKey[i * 2]))).ToArray();
+            ArgumentNullException.ThrowIfNull(stringToEncrypt, "source");
+            char[] encrypted = new char[stringToEncrypt.Length];
+            WzKey.EnsureKeySize(checked(stringToEncrypt.Length * 2));
+            ReadOnlySpan<byte> keyBytes = WzKey.GetKeySpan();
+            for (int i = 0; i < encrypted.Length; i++)
+                encrypted[i] = (char)(stringToEncrypt[i] ^ ((keyBytes[i * 2 + 1] << 8) + keyBytes[i * 2]));
+            return encrypted;
         }
 
         public char[] EncryptNonUnicodeString(string stringToEncrypt)
         {
-            return stringToEncrypt.Select((c, i) => (char)(c ^ WzKey[i])).ToArray();
+            ArgumentNullException.ThrowIfNull(stringToEncrypt, "source");
+            char[] encrypted = new char[stringToEncrypt.Length];
+            WzKey.EnsureKeySize(stringToEncrypt.Length);
+            ReadOnlySpan<byte> keyBytes = WzKey.GetKeySpan();
+            for (int i = 0; i < encrypted.Length; i++)
+                encrypted[i] = (char)(stringToEncrypt[i] ^ keyBytes[i]);
+            return encrypted;
         }
 
         public void WriteNullTerminatedString(string value)
@@ -206,7 +251,7 @@ namespace MapleLib.WzLib.Util
 
         public void WriteCompressedInt(int value)
         {
-            if (value > sbyte.MaxValue || value <= sbyte.MinValue)
+            if ((uint)(value + 127) > 254u)
             {
                 Write(sbyte.MinValue);
                 Write(value);
@@ -249,6 +294,30 @@ namespace MapleLib.WzLib.Util
             }
         }
 
+        internal bool TryWriteRemainingMemoryStream(MemoryStream source)
+        {
+            if ((GetType() != typeof(WzBinaryWriter) && GetType() != typeof(WzImgFileWriter)) ||
+                (OutStream.GetType() != typeof(MemoryStream) && OutStream.GetType() != typeof(FileStream)) ||
+                !OutStream.CanWrite)
+                return false;
+
+            // Copy without the public writer's BaseStream.Flush callback.
+            source.CopyTo(OutStream);
+            return true;
+        }
+
         #endregion
+    }
+
+    // Owned IMG export reads logical positions without flushing every string.
+    // Its selected stream handles staging, seeks and final file synchronization.
+    // Public writers retain their Flush callbacks.
+    internal sealed class WzImgFileWriter : WzBinaryWriter
+    {
+        internal WzImgFileWriter(Stream output, byte[] wzIv) : base(output, wzIv)
+        {
+        }
+
+        public override Stream BaseStream => OutStream;
     }
 }

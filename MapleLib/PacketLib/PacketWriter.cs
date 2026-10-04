@@ -199,6 +199,15 @@ namespace MapleLib.PacketLib
 		public void WriteString(String @string)
 		{
 			ArgumentNullException.ThrowIfNull(@string);
+			int maxByteCount = _encoding.GetMaxByteCount(@string.Length);
+			if ((uint)maxByteCount <= 256)
+			{
+				Span<byte> buffer = stackalloc byte[maxByteCount];
+				int byteCount = _encoding.GetBytes(@string.AsSpan(), buffer);
+				_binWriter.Write(buffer[..byteCount]);
+				return;
+			}
+
 			_binWriter.Write(_encoding.GetBytes(@string));
 		}
 
@@ -214,6 +223,16 @@ namespace MapleLib.PacketLib
 		public void WriteMapleString(String @string)
 		{
 			ArgumentNullException.ThrowIfNull(@string);
+			int maxByteCount = _encoding.GetMaxByteCount(@string.Length);
+			if ((uint)maxByteCount <= 256)
+			{
+				Span<byte> buffer = stackalloc byte[maxByteCount];
+				int byteCount = _encoding.GetBytes(@string.AsSpan(), buffer);
+				WriteShort(byteCount);
+				_binWriter.Write(buffer[..byteCount]);
+				return;
+			}
+
 			byte[] encoded = _encoding.GetBytes(@string);
 			if (encoded.Length > short.MaxValue)
 				throw new ArgumentOutOfRangeException(nameof(@string), "Encoded Maple string exceeds the signed 16-bit length field.");

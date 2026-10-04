@@ -59,13 +59,15 @@ namespace MapleLib.WzLib.WzStructure.Data.CharacterStructure
 
     public static class MapleJobTypeExtensions
     {
+        private static readonly CharacterClassType[] JobTypes = Enum.GetValues<CharacterClassType>();
+
         /// <summary>
         /// Gets all CharacterJobType enum values except NULL.
         /// </summary>
         /// <returns>An IEnumerable of CharacterJobType containing all enum values except NULL.</returns>
         public static IEnumerable<CharacterClassType> GetAllJobTypes()
         {
-            return Enum.GetValues<CharacterClassType>()
+            return JobTypes
                 .Where(j => j != CharacterClassType.NULL);
         }
 
@@ -78,11 +80,9 @@ namespace MapleLib.WzLib.WzStructure.Data.CharacterStructure
         {
             List<CharacterClassType> ret = new List<CharacterClassType>();
 
-            IEnumerable<CharacterClassType> jobInfo = GetAllJobTypes();
-            foreach (CharacterClassType job in jobInfo)
+            foreach (CharacterClassType job in JobTypes)
             {
-                bool bMatch = IsJobMatching(job, jobBitfield);
-                if (bMatch)
+                if (job != CharacterClassType.NULL && IsJobMatching(job, jobBitfield))
                 {
                     ret.Add(job);
                 }

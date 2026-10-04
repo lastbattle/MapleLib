@@ -2,6 +2,7 @@ using BenchmarkDotNet.Attributes;
 using BenchmarkDotNet.Columns;
 using MapleLib.WzLib;
 using MapleLib.WzLib.Util;
+using MapleLib.WzLib.WzStructure.Enums;
 using System.Buffers;
 using System.Text;
 
@@ -30,6 +31,9 @@ public class WzBinaryIoBenchmarks
     private WzBinaryReader _unicodeReader = null!;
     private WzBinaryReader _offsetReader = null!;
     private long _secondStringOffset;
+    private WzBinaryReader _compressedReader = null!;
+    private MemoryStream _compressedWriteStream = null!;
+    private WzBinaryWriter _compressedWriter = null!;
 
     [Params(32, 127, 128, 4096)]
     public int Length { get; set; }
@@ -39,6 +43,7 @@ public class WzBinaryIoBenchmarks
     {
         _ascii = CreateAscii(Length);
         _unicode = CreateUnicode(Length);
+        WzTool.StringCache["4_" + _ascii] = 1;
         _asciiEncoded = EncodeString(_ascii);
         _unicodeEncoded = EncodeString(_unicode);
 
@@ -60,6 +65,10 @@ public class WzBinaryIoBenchmarks
         _offsetReader = CreateReader(offsetData);
         _offsetReader.BaseStream.Position = 1;
 
+        _compressedReader = CreateReader([42]);
+        _compressedWriteStream = new MemoryStream(8);
+        _compressedWriter = new WzBinaryWriter(_compressedWriteStream, Iv, leaveOpen: true);
+
         _writeStream = new MemoryStream(Math.Max(Length * 2 + 8, 32));
         _writer = new WzBinaryWriter(_writeStream, Iv, leaveOpen: true)
         {
@@ -73,6 +82,9 @@ public class WzBinaryIoBenchmarks
         _asciiReader?.Dispose();
         _unicodeReader?.Dispose();
         _offsetReader?.Dispose();
+        _compressedReader?.Dispose();
+        _compressedWriter?.Dispose();
+        _compressedWriteStream?.Dispose();
         _writer?.Dispose();
         _writeStream?.Dispose();
     }
@@ -116,6 +128,32 @@ public class WzBinaryIoBenchmarks
     }
 
     [Benchmark]
+    public long WriteUnicodeLegacy()
+    {
+        ResetWriter();
+        if (_unicode.Length >= sbyte.MaxValue)
+        {
+            _writer.Write(sbyte.MaxValue);
+            _writer.Write(_unicode.Length);
+        }
+        else
+        {
+            _writer.Write((sbyte)_unicode.Length);
+        }
+
+        ushort mask = 0xAAAA;
+        for (int i = 0; i < _unicode.Length; i++)
+        {
+            ushort encryptedChar = _unicode[i];
+            encryptedChar ^= (ushort)((_writer.WzKey[i * 2 + 1] << 8) + _writer.WzKey[i * 2]);
+            encryptedChar ^= mask++;
+            _writer.Write(encryptedChar);
+        }
+
+        return _writeStream.Position;
+    }
+
+    [Benchmark]
     public long WriteCachedStringValue()
     {
         ResetWriter();
@@ -124,6 +162,54 @@ public class WzBinaryIoBenchmarks
         _writer.WriteStringValue(_ascii, WzImage.WzImageHeaderByte_WithoutOffset,
             WzImage.WzImageHeaderByte_WithOffset);
         return _writeStream.Position;
+    }
+
+    [Benchmark]
+    public long WriteRepeatedCachedStringValue()
+    {
+        ResetWriter();
+        _writer.WriteStringValue(_ascii, WzImage.WzImageHeaderByte_WithoutOffset,
+            WzImage.WzImageHeaderByte_WithOffset);
+        for (int i = 0; i < 63; i++)
+        {
+            _writer.WriteStringValue(_ascii, WzImage.WzImageHeaderByte_WithoutOffset,
+                WzImage.WzImageHeaderByte_WithOffset);
+        }
+
+        return _writeStream.Position;
+    }
+
+    [Benchmark]
+    public long WriteCachedObjectValue()
+    {
+        ResetWriter();
+        _writer.StringCache["4_" + _ascii] = 1;
+        _writer.WriteWzObjectValue(_ascii, WzDirectoryType.WzImage_4);
+        return _writeStream.Position;
+    }
+
+    [Benchmark]
+    public int EncodedStringLength() => WzTool.GetEncodedStringLength(_ascii);
+
+    [Benchmark]
+    public int RecognizedCharacters() => WzTool.GetRecognizedCharacters(_ascii);
+
+    [Benchmark]
+    public int WzObjectValueLength() => WzTool.GetWzObjectValueLength(_ascii, 4);
+
+    [Benchmark]
+    public int ReadCompressedInt()
+    {
+        _compressedReader.BaseStream.Position = 0;
+        return _compressedReader.ReadCompressedInt();
+    }
+
+    [Benchmark]
+    public long WriteCompressedInt()
+    {
+        _compressedWriteStream.Position = 0;
+        _compressedWriter.WriteCompressedInt(42);
+        return _compressedWriteStream.Position;
     }
 
     [Benchmark]

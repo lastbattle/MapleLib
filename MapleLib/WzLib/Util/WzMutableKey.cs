@@ -29,6 +29,8 @@ namespace MapleLib.WzLib.Util
 
         public byte[] GetKeys() => _keys?.ToArray() ?? Array.Empty<byte>();
 
+        internal ReadOnlySpan<byte> GetKeySpan() => _keys ?? ReadOnlySpan<byte>.Empty;
+
         public byte this[int index]
         {
             get
@@ -83,21 +85,17 @@ namespace MapleLib.WzLib.Util
             aes.Padding = PaddingMode.None;   // Ensure no padding is added
 
             using var encryptor = aes.CreateEncryptor();
-            using var ms = new MemoryStream(newKeys, startIndex, newKeys.Length - startIndex, true);
-            using var cs = new CryptoStream(ms, encryptor, CryptoStreamMode.Write);
-
-            Span<byte> block = stackalloc byte[16];
             for (int i = startIndex; i < size; i += 16)
             {
                 if (i == 0)
                 {
-                    for (int j = 0; j < block.Length; j++)
-                        block[j] = _iv[j % 4];
-                    cs.Write(block);
+                    for (int j = 0; j < 16; j++)
+                        newKeys[j] = _iv[j % 4];
+                    encryptor.TransformBlock(newKeys, 0, 16, newKeys, 0);
                 }
                 else
                 {
-                    cs.Write(newKeys.AsSpan(i - 16, 16));
+                    encryptor.TransformBlock(newKeys, i - 16, 16, newKeys, i);
                 }
             }
 

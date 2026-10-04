@@ -65,17 +65,16 @@ namespace MapleLib.WzLib.Serializer
         #region Internal Functions
         internal int CountImgs(XmlElement element)
         {
-            // Count the number of "wzimg" elements and the number of "wzdir" elements
-            int wzimgCount = element.Cast<XmlElement>()
-                .Count(e => e.Name == "wzimg");
+            int count = 0;
+            foreach (XmlElement child in element)
+            {
+                if (child.Name == "wzimg")
+                    count++;
+                else if (child.Name == "wzdir")
+                    count += CountImgs(child);
+            }
 
-            // Recursively count the number of "wzimg" elements in each "wzdir" element
-            int wzimgInWzdirCount = element.Cast<XmlElement>()
-                .Where(e => e.Name == "wzdir")
-                .Sum(e => CountImgs(e));
-
-            // Return the total number of "wzimg" elements
-            return wzimgCount + wzimgInWzdirCount;
+            return count;
         }
 
 

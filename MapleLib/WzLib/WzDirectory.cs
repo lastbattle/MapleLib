@@ -7,6 +7,7 @@ using MapleLib.PacketLib;
 using MapleLib.WzLib.WzStructure.Enums;
 using MapleLib.WzLib.WzProperties;
 using System.Linq;
+using System.Runtime.InteropServices;
 using System.Buffers;
 
 namespace MapleLib.WzLib
@@ -696,9 +697,10 @@ namespace MapleLib.WzLib
                     StringComparison.Ordinal))
                     return nullEntry.Value.First;
 
-                for (int i = 0; i < items.Count; i++)
+                ReadOnlySpan<T> nullItemSpan = CollectionsMarshal.AsSpan(items);
+                for (int i = 0; i < nullItemSpan.Length; i++)
                 {
-                    T item = items[i];
+                    T item = nullItemSpan[i];
                     if (item?.Name == null)
                     {
                         RebuildIndex(items, index, ref nullEntry);
@@ -721,9 +723,10 @@ namespace MapleLib.WzLib
 
             // Name is mutable and has no setter callback into the directory.
             // Repair the index only on a miss; stable hits stay dictionary probes.
-            for (int i = 0; i < items.Count; i++)
+            ReadOnlySpan<T> itemSpan = CollectionsMarshal.AsSpan(items);
+            for (int i = 0; i < itemSpan.Length; i++)
             {
-                T item = items[i];
+                T item = itemSpan[i];
                 if (string.Equals(item?.Name, name, StringComparison.OrdinalIgnoreCase))
                 {
                     RebuildIndex(items, index, ref nullEntry);
@@ -883,8 +886,8 @@ namespace MapleLib.WzLib
         public virtual int CountImages()
         {
             int result = images.Count;
-            foreach (WzDirectory subdir in WzDirectories)
-                result += subdir.CountImages();
+            for (int i = 0; i < subDirs.Count; i++)
+                result += subDirs[i].CountImages();
             return result;
         }
         #endregion

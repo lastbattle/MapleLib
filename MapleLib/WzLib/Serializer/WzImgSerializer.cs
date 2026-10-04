@@ -90,11 +90,44 @@ namespace MapleLib.WzLib.Serializer
 
             using (FileStream stream = File.Create(outPath))
             {
-                using (WzBinaryWriter wzWriter = new WzBinaryWriter(stream, GetOutputIv(img)))
+                byte[] iv = GetOutputIv(img);
+                if (img != null && img.GetType() == typeof(WzImage) && img.Changed &&
+                    (img.reader == null || img.parsed) && img.properties != null &&
+                    CanStageProperties(img.properties, 0))
                 {
+                    using var staging = new WzImgStagingStream(stream);
+                    using var wzWriter = new WzImgFileWriter(staging, iv);
+                    int previousSize = img.BlockSize;
+                    img.SaveImage(wzWriter);
+                    int serializedSize = img.BlockSize;
+                    // SaveImage commits size only after its writes succeed.
+                    // A failed materialization must leave the previous size.
+                    img.BlockSize = previousSize;
+                    staging.Complete();
+                    img.BlockSize = serializedSize;
+                }
+                else
+                {
+                    using var wzWriter = new WzImgFileWriter(stream, iv);
                     img.SaveImage(wzWriter);
                 }
             }
+        }
+
+        private static bool CanStageProperties(WzPropertyCollection properties, int depth)
+        {
+            if (depth > 128)
+                return false;
+            foreach (WzImageProperty property in properties)
+            {
+                // External property extensions may need their FileStream context.
+                if (property == null || property.GetType().Assembly != typeof(WzImageProperty).Assembly)
+                    return false;
+                WzPropertyCollection children = property.WzProperties;
+                if (children != null && !CanStageProperties(children, depth + 1))
+                    return false;
+            }
+            return true;
         }
 
         public void SerializeDirectory(WzDirectory dir, string outPath)

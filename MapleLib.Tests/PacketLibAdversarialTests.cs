@@ -16,6 +16,68 @@ namespace MapleLib.Tests;
 public sealed class PacketLibAdversarialTests
 {
     [Fact]
+    public void HexTool_PacketFormattingMatchesMaterializedBytes()
+    {
+        using var writer = new PacketWriter();
+        for (int i = 0; i < 256; i++)
+            writer.WriteByte(i);
+
+        string expected = HexTool.ToString(writer.ToArray());
+        Assert.Equal(expected, HexTool.ToString(writer));
+
+        using var reader = new PacketReader(writer.ToArray());
+        Assert.Equal(expected, HexTool.ToString(reader));
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(2)]
+    [InlineData(128)]
+    [InlineData(256)]
+    [InlineData(258)]
+    public void PacketReader_StringHandlesPartialReadsAndPreservesTrailingByte(int length)
+    {
+        string expected = new('å', length / 2);
+        byte[] bytes = Encoding.UTF8.GetBytes(expected).Concat(new byte[] { 42 }).ToArray();
+        using var stream = new PartialPacketStream(bytes);
+        using var reader = new PacketReader(stream, Encoding.UTF8);
+        Assert.Equal(expected, reader.ReadString(length));
+        Assert.Equal(length, stream.Position);
+        Assert.Equal(42, reader.ReadByte());
+    }
+
+    [Fact]
+    public void PacketReader_PartialTruncatedStringConsumesAvailableBytes()
+    {
+        using var stream = new PartialPacketStream([65, 66, 67]);
+        using var reader = new PacketReader(stream);
+        Assert.Throws<EndOfStreamException>(() => reader.ReadString(128));
+        Assert.Equal(3, stream.Position);
+    }
+
+    private sealed class PartialPacketStream(byte[] data) : MemoryStream(data, writable: false)
+    {
+        public override int Read(byte[] buffer, int offset, int count) =>
+            base.Read(buffer, offset, Math.Min(count, 1));
+        public override int Read(Span<byte> buffer) =>
+            base.Read(buffer[..Math.Min(buffer.Length, 1)]);
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(1)]
+    [InlineData(256)]
+    [InlineData(257)]
+    public void PacketReader_StringReadAfterDisposeRejectsEvenWithOpenStream(int length)
+    {
+        using var stream = new MemoryStream(new byte[512]);
+        var reader = new PacketReader(stream, Encoding.ASCII, leaveOpen: true);
+        reader.Dispose();
+        Assert.Throws<ObjectDisposedException>(() => reader.ReadString(length));
+        Assert.Equal(0, stream.Position);
+    }
+
+    [Fact]
     public void PacketReader_UsesRequestedEncodingAndRejectsTruncatedString()
     {
         using var stream = new MemoryStream([2, 0, 0xC3, 0xA5]);
@@ -87,6 +149,29 @@ public sealed class PacketLibAdversarialTests
         session.SendPacket(packet);
 
         Assert.Equal(expected, packet);
+    }
+
+    [Fact]
+    public void Session_SendPacketWriterDoesNotMutateWriterBytes()
+    {
+        using var listener = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
+        listener.Bind(new IPEndPoint(IPAddress.Loopback, 0));
+        listener.Listen(1);
+        using var sender = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
+        sender.Connect((IPEndPoint)listener.LocalEndPoint!);
+        using Socket receiver = listener.Accept();
+
+        var session = new Session(sender, SessionType.CLIENT_TO_SERVER)
+        {
+            SIV = new MapleCrypto([1, 2, 3, 4], 95)
+        };
+        using var writer = new PacketWriter();
+        writer.WriteBytes([1, 2, 3, 4, 5]);
+        byte[] expected = writer.ToArray();
+
+        session.SendPacket(writer);
+
+        Assert.Equal(expected, writer.ToArray());
     }
 
     [Fact]

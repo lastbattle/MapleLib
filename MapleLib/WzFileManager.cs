@@ -26,6 +26,28 @@ namespace MapleLib {
         #region Constants
         private static readonly string[] EXCLUDED_DIRECTORY_FROM_WZ_LIST = { "bak", "backup", HaCreatorPaths.BackupsFolderName, "original", "xml", "hshield", "blackcipher", "harepacker", "hacreator" };
 
+        private static bool ContainsExcludedWzPath(string path)
+        {
+            foreach (string excluded in EXCLUDED_DIRECTORY_FROM_WZ_LIST)
+            {
+                if (path.Contains(excluded, StringComparison.OrdinalIgnoreCase))
+                    return true;
+            }
+
+            return false;
+        }
+
+        private static bool IsExcludedWzDirectoryName(string name)
+        {
+            foreach (string excluded in EXCLUDED_DIRECTORY_FROM_WZ_LIST)
+            {
+                if (string.Equals(excluded, name, StringComparison.OrdinalIgnoreCase))
+                    return true;
+            }
+
+            return false;
+        }
+
         public static readonly string[] COMMON_MAPLESTORY_DIRECTORY = new string[] {
             @"C:\Nexon\MapleStory",
             @"D:\Nexon\Maple",
@@ -559,8 +581,7 @@ namespace MapleLib {
                 // parse through "Data" directory and iterate through every folder
                 // Use Where() and Select() to filter and transform the directories
                 var directories = HaCreatorPaths.EnumerateDirectoriesExcludingBackups(baseDir, SearchOption.AllDirectories)
-                                           .Where(dir => !EXCLUDED_DIRECTORY_FROM_WZ_LIST.Any(x =>
-                                               dir.Contains(x, StringComparison.OrdinalIgnoreCase)));
+                                            .Where(dir => !ContainsExcludedWzPath(dir));
 
                 // Iterate over the filtered and transformed directories
                 foreach (string path in directories) {
@@ -577,6 +598,11 @@ namespace MapleLib {
 
                     (string iniFileName, int wzFileIndex) = GetIniWzIndexInfo(path);
 
+                    string wzDirectoryNameOfWzFile = Path.GetRelativePath(baseDir, path)
+                        .Replace('\\', '/')
+                        .Trim('/')
+                        .ToLowerInvariant();
+
                     for (int i = 0; i <= wzFileIndex; i++)
                     {
                         string partialWzFilePath = string.Format(iniFileName.Replace(".ini", "_{0}.wz"), i.ToString("D3")); // 3 padding '0's
@@ -589,40 +615,31 @@ namespace MapleLib {
                         // leading slash for canonical paths without one and
                         // made lazy standalone sessions miss every split
                         // category in 64-bit clients.
-                        string wzDirectoryNameOfWzFile = Path.GetRelativePath(baseDir, path)
-                            .Replace('\\', '/')
-                            .Trim('/')
-                            .ToLowerInvariant();
-
-                        if (EXCLUDED_DIRECTORY_FROM_WZ_LIST.Any(item =>
-                            fileName2.Contains(item, StringComparison.OrdinalIgnoreCase)))
+                        if (ContainsExcludedWzPath(fileName2))
                             continue; // backup files
 
                         //Debug.WriteLine(partialWzFileName);
                         //Debug.WriteLine(wzDirectoryOfWzFile);
 
-                        if (_wzFilesList.ContainsKey(wzDirectoryNameOfWzFile))
-                            _wzFilesList[wzDirectoryNameOfWzFile].Add(fileName2);
-                        else
-                            _wzFilesList.Add(wzDirectoryNameOfWzFile, new List<string> { fileName2 });
+                        if (!_wzFilesList.TryGetValue(wzDirectoryNameOfWzFile, out List<string> wzFileNames))
+                        {
+                            wzFileNames = new List<string>();
+                            _wzFilesList.Add(wzDirectoryNameOfWzFile, wzFileNames);
+                        }
+                        wzFileNames.Add(fileName2);
 
                         // check if its a canvas directory
                         bool bIsCanvasDir = ContainsCanvasDirectory(partialWzFilePath);
                         if (!bIsCanvasDir)
                         {
                             // key looks like this: "skill", "mob_001"
-                            if (!_wzFilesDirectoryList.ContainsKey(fileName2))
-                                _wzFilesDirectoryList.Add(fileName2, path);
-                            else
-                            {
-                            }
+                            _wzFilesDirectoryList.TryAdd(fileName2, path);
                         }
                         else
                         {
                             // key looks like this if its canvas: "character\\_canvas\\_Canvas_000"
                             string canvasDirKeyName = Path.Combine(wzDirectoryNameOfWzFile, fileName2.ToLower()).Replace(@"\", @"/");
-                            if (!_wzFilesDirectoryList.ContainsKey(canvasDirKeyName))
-                                _wzFilesDirectoryList.Add(canvasDirKeyName, path);
+                            _wzFilesDirectoryList.TryAdd(canvasDirKeyName, path);
                         }
                     }
                 }
@@ -631,9 +648,7 @@ namespace MapleLib {
             {
                 var wzFilePathNames = HaCreatorPaths.EnumerateFilesExcludingBackups(baseDir, "*.wz", SearchOption.AllDirectories)
                     .Where(f => !File.GetAttributes(f).HasFlag(FileAttributes.Directory) // exclude directories
-                                && !EXCLUDED_DIRECTORY_FROM_WZ_LIST.Any(x =>
-                                    string.Equals(x, new DirectoryInfo(Path.GetDirectoryName(f)).Name,
-                                        StringComparison.OrdinalIgnoreCase))); // exclude folders
+                                && !IsExcludedWzDirectoryName(new DirectoryInfo(Path.GetDirectoryName(f)).Name)); // exclude folders
                 foreach (string wzFilePathName in wzFilePathNames) {
                     //string folderName = new DirectoryInfo(Path.GetDirectoryName(wzFileName)).Name;
                     string directory = Path.GetDirectoryName(wzFilePathName);
@@ -646,17 +661,32 @@ namespace MapleLib {
 
                     // Mob2, Mob001, Map001, Map002
                     // remove the numbers to get the base name 'map'
-                    string wzBaseFileName = new string(fileName2.ToLower().Where(c => char.IsLetter(c)).ToArray());
+                    string wzBaseFileName = GetWzBaseFileName(fileName2);
 
-                    if (_wzFilesList.ContainsKey(wzBaseFileName))
-                        _wzFilesList[wzBaseFileName].Add(fileName2);
-                    else
-                        _wzFilesList.Add(wzBaseFileName, new List<string> { fileName2 });
+                    if (!_wzFilesList.TryGetValue(wzBaseFileName, out List<string> wzFileNames))
+                    {
+                        wzFileNames = new List<string>();
+                        _wzFilesList.Add(wzBaseFileName, wzFileNames);
+                    }
+                    wzFileNames.Add(fileName2);
 
-                    if (!_wzFilesDirectoryList.ContainsKey(fileName2))
-                        _wzFilesDirectoryList.Add(fileName2, directory);
+                    _wzFilesDirectoryList.TryAdd(fileName2, directory);
                 }
             }
+        }
+
+        private static string GetWzBaseFileName(string fileName)
+        {
+            string lowerName = fileName.ToLower();
+            char[] letters = new char[lowerName.Length];
+            int letterCount = 0;
+            foreach (char character in lowerName)
+            {
+                if (char.IsLetter(character))
+                    letters[letterCount++] = character;
+            }
+
+            return new string(letters, 0, letterCount);
         }
 
         private bool _loadedPacksFiles = false;
@@ -674,8 +704,7 @@ namespace MapleLib {
                 // Use Where() and Select() to filter and transform the directories
                 var directory = HaCreatorPaths.EnumerateDirectoriesExcludingBackups(baseDir, SearchOption.AllDirectories)
                                            .Where(dir => Path.GetFileName(dir).Equals("Packs", StringComparison.OrdinalIgnoreCase))
-                                           .Where(dir => !EXCLUDED_DIRECTORY_FROM_WZ_LIST.Any(x =>
-                                               dir.Contains(x, StringComparison.OrdinalIgnoreCase))).FirstOrDefault();
+                                            .Where(dir => !ContainsExcludedWzPath(dir)).FirstOrDefault();
 
                 if (directory != null)
                 {
@@ -700,7 +729,10 @@ namespace MapleLib {
 
                                 var msFile = new MapleLib.WzLib.MSFile.WzMsFile(memoryStream, msFileName, msFilePath, true);
                                 msFile.ReadEntries();
-                                string msBaseKey = msFileNameLower.Split('_')[0];
+                                int baseSeparator = msFileNameLower.IndexOf('_');
+                                string msBaseKey = baseSeparator >= 0
+                                    ? msFileNameLower[..baseSeparator]
+                                    : msFileNameLower;
                                 _msFiles.Add(msFileNameLower, msFile);
 
                                 // Use the new static method to load as WzFile
@@ -719,9 +751,7 @@ namespace MapleLib {
                                     _wzFilesList[msBaseKey].Add(wzFileKey);
 
                                 // Add to _wzFilesDirectoryList (key: Character_000, value: Packs directory path)
-                                string msPrefix = msFileName_.Split('_')[0];
-                                string msNum = msFileName_.Split('_').Length > 1 ? msFileName_.Split('_')[1] : "";
-                                string msKey = msPrefix + (msNum.Length >= 3 ? "_" + msNum.Substring(0, 3) : "");
+                                string msKey = GetPacksFileKey(msFileName_);
                                 if (!_wzFilesDirectoryList.ContainsKey(msKey))
                                     _wzFilesDirectoryList[msKey] = directory;
                             }
@@ -742,6 +772,26 @@ namespace MapleLib {
                 }
 
             }
+        }
+
+        internal static string GetPacksFileKey(string msFileName)
+        {
+            int underscoreIndex = msFileName.IndexOf('_');
+            if (underscoreIndex < 0)
+                return msFileName;
+
+            int numberStart = underscoreIndex + 1;
+            int nextUnderscoreIndex = numberStart < msFileName.Length
+                ? msFileName.IndexOf('_', numberStart)
+                : -1;
+            int numberLength = nextUnderscoreIndex >= 0
+                ? nextUnderscoreIndex - numberStart
+                : msFileName.Length - numberStart;
+            string msNum = numberLength > 0
+                ? msFileName.Substring(numberStart, numberLength)
+                : "";
+            string msPrefix = msFileName[..underscoreIndex];
+            return msPrefix + (msNum.Length >= 3 ? "_" + msNum.Substring(0, 3) : "");
         }
 
         /// <summary>
@@ -896,7 +946,7 @@ namespace MapleLib {
         {
             lock (_canvasSectionLoadLock)
             {
-                if (_wzCanvasSectionLoaded.ContainsKey(canvasFolder) && _wzCanvasSectionLoaded[canvasFolder] == true)
+                if (_wzCanvasSectionLoaded.TryGetValue(canvasFolder, out bool canvasSectionLoaded) && canvasSectionLoaded)
                     return; // already loaded
 
                 string canvasDirectory = Path.Combine(this.WzBaseDirectory, canvasFolder, CANVAS_DIRECTORY_NAME); // "C://Nexon/MapleStory/Data/Map/Back/_Canvas"
@@ -1117,7 +1167,15 @@ namespace MapleLib {
         /// <param name="wzFile"></param>
         public void UnloadWzImgFile(WzImage wzImage)
         {
-            string baseName = _wzImages.FirstOrDefault(kvp => kvp.Value == wzImage).Key;
+            string baseName = null;
+            foreach (KeyValuePair<string, WzImage> entry in _wzImages)
+            {
+                if (entry.Value == wzImage)
+                {
+                    baseName = entry.Key;
+                    break;
+                }
+            }
 
             if (baseName != null)
             {

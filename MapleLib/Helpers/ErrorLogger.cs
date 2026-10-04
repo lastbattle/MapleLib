@@ -103,10 +103,50 @@ namespace MapleLib.Helpers
                 // logged while the file was being written remain pending.
                 lock (_lock)
                 {
-                    foreach (Error error in errorsCopy)
-                        _errorList.Remove(error);
+                    RemovePersistedErrors(_errorList, errorsCopy);
                 }
             }
+        }
+
+        internal static void RemovePersistedErrors(List<Error> pending, IReadOnlyList<Error> persisted)
+        {
+            if (persisted.Count == 0 || pending.Count == 0)
+                return;
+
+            // Log appends while the file is written, so the normal case is a
+            // persisted prefix. Remove it in one operation after confirming the
+            // references; the fallback preserves identity-based removal if a
+            // concurrent clear/repopulation changed the list meanwhile.
+            if (pending.Count >= persisted.Count)
+            {
+                bool isPrefix = true;
+                for (int i = 0; i < persisted.Count; i++)
+                {
+                    if (!ReferenceEquals(pending[i], persisted[i]))
+                    {
+                        isPrefix = false;
+                        break;
+                    }
+                }
+
+                if (isPrefix)
+                {
+                    pending.RemoveRange(0, persisted.Count);
+                    return;
+                }
+            }
+
+            var persistedSet = new HashSet<Error>(persisted);
+            int writeIndex = 0;
+            for (int readIndex = 0; readIndex < pending.Count; readIndex++)
+            {
+                Error error = pending[readIndex];
+                if (!persistedSet.Contains(error))
+                    pending[writeIndex++] = error;
+            }
+
+            if (writeIndex < pending.Count)
+                pending.RemoveRange(writeIndex, pending.Count - writeIndex);
         }
 
         /// <summary>
@@ -117,12 +157,17 @@ namespace MapleLib.Helpers
         {
             lock (_lock)
             {
-                return _errorList
-                    .GroupBy(e => e.Level)
-                    .ToDictionary(
-                        g => g.Key,
-                        g => g.ToList()
-                    );
+                var snapshot = new Dictionary<ErrorLevel, List<Error>>();
+                foreach (Error error in _errorList)
+                {
+                    if (!snapshot.TryGetValue(error.Level, out List<Error> group))
+                    {
+                        group = new List<Error>();
+                        snapshot.Add(error.Level, group);
+                    }
+                    group.Add(error);
+                }
+                return snapshot;
             }
         }
     }

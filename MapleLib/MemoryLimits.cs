@@ -1,4 +1,4 @@
-﻿
+
 using System;
 using System.IO;
 
@@ -63,8 +63,7 @@ namespace MapleLib
         /// - However, we also need to consider that the stack is used for other purposes too, not just our stackalloc.
         /// a conservative yet effective approach would be to use a stackalloc size that's about 1/4 to 1/2 of the L1 data cache size per core. This leaves room for other stack usage while still benefiting from L1 cache performance.
         ///
-        /// AMD Ryzen 9700x, L1 Cache: 80 KB / core
-        /// AMD Ryzen 5800x, L1 Cache: 64 KB / core
+        /// Typical modern desktop CPUs provide tens of kilobytes of L1 data cache per core.
         /// Intel 13/14th Raptor Lake: 80 KB per P-core (32 KB instructions + 48 KB data), 96 KB per E-core(64 KB instructions + 32 KB data)
         /// </summary>
         public const int STACKALLOC_SIZE_LIMIT_L1 = 10 * 1024;  // optimal size is half of CPU's L1 cache.

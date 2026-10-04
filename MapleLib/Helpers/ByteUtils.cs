@@ -1,6 +1,7 @@
-﻿using System;
+using System;
 using System.Buffers;
 using System.Linq;
+using System.Numerics;
 using System.Runtime.CompilerServices;
 
 namespace MapleLib.Helpers
@@ -194,12 +195,12 @@ namespace MapleLib.Helpers
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static uint RotateLeft(uint x, byte n)
         {
-            return (uint)(((x) << (n)) | ((x) >> (32 - (n))));
+            return BitOperations.RotateLeft(x, n);
         }
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static uint RotateRight(uint x, byte n)
         {
-            return (uint)(((x) >> (n)) | ((x) << (32 - (n))));
+            return BitOperations.RotateRight(x, n);
         }
 
     }

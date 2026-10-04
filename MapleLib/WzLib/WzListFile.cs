@@ -2,6 +2,7 @@ using System.Collections.Generic;
 using System.IO;
 using System;
 using System.Buffers;
+using System.Runtime.InteropServices;
 using MapleLib.WzLib.Util;
 using MapleLib.WzLib.WzProperties;
 
@@ -56,8 +57,14 @@ namespace MapleLib.WzLib
                         charBuffer = ArrayPool<char>.Shared.Rent(len);
                     }
                     Span<char> strChrs = charBuffer.AsSpan(0, len);
-                    for (int i = 0; i < len; i++) {
-                        strChrs[i] = (char)wzParser.ReadInt16();
+                    if (BitConverter.IsLittleEndian)
+                    {
+                        wzParser.BaseStream.ReadExactly(MemoryMarshal.AsBytes(strChrs));
+                    }
+                    else
+                    {
+                        for (int i = 0; i < len; i++)
+                            strChrs[i] = (char)wzParser.ReadInt16();
                     }
                     wzParser.ReadUInt16(); //encrypted null
 
@@ -90,6 +97,8 @@ namespace MapleLib.WzLib
 		public static void SaveToDisk(string path, byte[] WzIv, List<string> listEntries)
 		{
             using WzBinaryWriter wzWriter = new WzBinaryWriter(File.Create(path), WzIv);
+            // BaseStream flushes the writer; capture it before buffering entries.
+            Stream output = wzWriter.BaseStream;
 
             for (int i = 0; i < listEntries.Count; i++)
             {
@@ -99,8 +108,15 @@ namespace MapleLib.WzLib
 
                 wzWriter.Write((int)listEntry.Length);
                 char[] encryptedChars = wzWriter.EncryptString(listEntry + (char)0);
-                for (int j = 0; j < encryptedChars.Length; j++)
-                    wzWriter.Write((short)encryptedChars[j]);
+                if (BitConverter.IsLittleEndian)
+                {
+                    output.Write(MemoryMarshal.AsBytes(encryptedChars.AsSpan()));
+                }
+                else
+                {
+                    for (int j = 0; j < encryptedChars.Length; j++)
+                        wzWriter.Write((short)encryptedChars[j]);
+                }
             }
 		}
     }

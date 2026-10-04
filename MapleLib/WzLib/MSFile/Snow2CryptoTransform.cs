@@ -180,22 +180,28 @@ namespace MapleLib.WzLib.MSFile
             ReadOnlySpan<uint> inputWords = MemoryMarshal.Cast<byte, uint>(input);
             Span<uint> outputWords = MemoryMarshal.Cast<byte, uint>(output);
 
-            for (int i = 0; i < inputWords.Length; i++)
+            if (encrypting)
             {
-                uint plain = inputWords[i];
-                uint keystream = keyStream[curIndex];
-
-                if (encrypting)
-                    plain += keystream;
-                else
-                    plain -= keystream;
-
-                outputWords[i] = plain;
-
-                if (++curIndex >= 16)
+                for (int i = 0; i < inputWords.Length; i++)
                 {
-                    RefreshKeyStream();
-                    curIndex = 0;
+                    outputWords[i] = inputWords[i] + keyStream[curIndex];
+                    if (++curIndex >= 16)
+                    {
+                        RefreshKeyStream();
+                        curIndex = 0;
+                    }
+                }
+            }
+            else
+            {
+                for (int i = 0; i < inputWords.Length; i++)
+                {
+                    outputWords[i] = inputWords[i] - keyStream[curIndex];
+                    if (++curIndex >= 16)
+                    {
+                        RefreshKeyStream();
+                        curIndex = 0;
+                    }
                 }
             }
         }

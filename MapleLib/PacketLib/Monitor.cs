@@ -11,6 +11,7 @@ namespace MapleLib.PacketLib
 		/// The Monitor socket
 		/// </summary>
 		private readonly Socket _socket;
+		private readonly AsyncCallback _receiveCallback;
 
 		/// <summary>
 		/// The Recieved packet crypto manager
@@ -74,6 +75,7 @@ namespace MapleLib.PacketLib
 		public Monitor()
 		{
 			_socket = new Socket(AddressFamily.InterNetwork, SocketType.Raw, ProtocolType.IP);
+			_receiveCallback = OnDataReceived;
 		}
 
 		/// <summary>
@@ -115,7 +117,7 @@ namespace MapleLib.PacketLib
 					socketInfo.Index,
 					socketInfo.DataBuffer.Length - socketInfo.Index,
 					SocketFlags.None,
-					new AsyncCallback(OnDataReceived),
+					_receiveCallback,
 					socketInfo);
 			}
 			catch (Exception se)

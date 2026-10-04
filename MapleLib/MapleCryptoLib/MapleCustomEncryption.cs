@@ -61,7 +61,7 @@ namespace MapleLib.MapleCryptoLib
 					c ^= a;
 					a = c;
 					c ^= 0x13;
-					c = RotateRight3(c);
+					c = RotateRight3Lookup(c);
 					data[j - 1] = c;
 				}
 			}

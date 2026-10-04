@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
-using System.Linq;
 
 namespace MapleLib.Img
 {
@@ -49,19 +48,39 @@ namespace MapleLib.Img
         /// <summary>
         /// Determines whether a path points to the reserved backups directory.
         /// </summary>
-        public static bool IsBackupsDirectory(string directoryPath) =>
-            !string.IsNullOrEmpty(directoryPath) &&
-            IsBackupsDirectoryName(Path.GetFileName(
-                directoryPath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)));
+        public static bool IsBackupsDirectory(string directoryPath)
+        {
+            if (string.IsNullOrEmpty(directoryPath))
+                return false;
+
+            ReadOnlySpan<char> separators = [Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar];
+            ReadOnlySpan<char> name = Path.GetFileName(directoryPath.AsSpan().TrimEnd(separators));
+            return name.Equals(BackupsFolderName, StringComparison.OrdinalIgnoreCase);
+        }
 
         /// <summary>
         /// Determines whether a path contains the reserved backups directory as a path segment.
         /// </summary>
-        public static bool ContainsBackupsDirectory(string path) =>
-            !string.IsNullOrEmpty(path) &&
-            path.Split(new[] { Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar },
-                    StringSplitOptions.RemoveEmptyEntries)
-                .Any(IsBackupsDirectoryName);
+        public static bool ContainsBackupsDirectory(string path)
+        {
+            if (string.IsNullOrEmpty(path))
+                return false;
+
+            ReadOnlySpan<char> pathSpan = path.AsSpan();
+            int segmentStart = 0;
+            for (int i = 0; i <= pathSpan.Length; i++)
+            {
+                if (i < pathSpan.Length && pathSpan[i] != Path.DirectorySeparatorChar &&
+                    pathSpan[i] != Path.AltDirectorySeparatorChar)
+                    continue;
+
+                if (pathSpan[segmentStart..i].Equals(BackupsFolderName, StringComparison.OrdinalIgnoreCase))
+                    return true;
+                segmentStart = i + 1;
+            }
+
+            return false;
+        }
 
         /// <summary>
         /// Enumerates directories without descending into directories named <see cref="BackupsFolderName"/>.

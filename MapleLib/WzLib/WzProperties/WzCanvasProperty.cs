@@ -105,26 +105,47 @@ namespace MapleLib.WzLib.WzProperties {
         /// <param name="path">path to property</param>
         /// <returns>the wz property with the specified name</returns>
         public override WzImageProperty GetFromPath(string path) {
-            string[] segments = path.Split(new char[1] { '/' }, System.StringSplitOptions.RemoveEmptyEntries);
-            if (segments.Length == 0) {
+            if (path is null)
+                throw new NullReferenceException();
+
+            ReadOnlySpan<char> pathSpan = path.AsSpan();
+            int segmentStart = 0;
+            while (segmentStart < pathSpan.Length && pathSpan[segmentStart] == '/')
+                segmentStart++;
+
+            if (segmentStart == pathSpan.Length) {
                 return null;
             }
 
-            if (segments[0] == "..") {
+            int firstSegmentEnd = pathSpan.Slice(segmentStart).IndexOf('/');
+            if (firstSegmentEnd < 0)
+                firstSegmentEnd = pathSpan.Length - segmentStart;
+            if (pathSpan.Slice(segmentStart, firstSegmentEnd).SequenceEqual("..")) {
                 return ((WzImageProperty)Parent)[path.Substring(name.IndexOf('/') + 1)];
             }
 
             WzImageProperty ret = this;
-            foreach (string segment in segments) {
-                if (segment == "PNG")
+            while (segmentStart < pathSpan.Length) {
+                while (segmentStart < pathSpan.Length && pathSpan[segmentStart] == '/')
+                    segmentStart++;
+                if (segmentStart == pathSpan.Length)
+                    break;
+
+                int segmentLength = pathSpan.Slice(segmentStart).IndexOf('/');
+                if (segmentLength < 0)
+                    segmentLength = pathSpan.Length - segmentStart;
+                ReadOnlySpan<char> segment = pathSpan.Slice(segmentStart, segmentLength);
+
+                if (segment.SequenceEqual("PNG"))
                     return imageProp;
 
-                WzImageProperty iwp = FindProperty(ret.WzProperties, segment, StringComparison.Ordinal);
+                WzImageProperty iwp = ret.WzProperties?.Find(segment);
                 if (iwp == null) {
                     return null;
                 }
 
                 ret = iwp;
+                segmentStart += segmentLength;
             }
 
             return ret;

@@ -400,8 +400,17 @@ namespace MapleLib.WzLib
         /// <returns></returns>
         public WzImageProperty GetLinkedWzImageProperty()
         {
-            WzImageProperty thisWzImage = this;
-            HashSet<WzImageProperty> visited = new HashSet<WzImageProperty>();
+            if (this is not WzUOLProperty firstUol)
+                return this;
+
+            if (firstUol.LinkValue is not WzImageProperty firstTarget)
+                return this;
+
+            if (firstTarget is not WzUOLProperty)
+                return firstTarget;
+
+            WzImageProperty thisWzImage = firstTarget;
+            HashSet<WzImageProperty> visited = new HashSet<WzImageProperty> { this };
             while (thisWzImage is WzUOLProperty uol)
             {
                 if (!visited.Add(thisWzImage))

@@ -89,7 +89,25 @@ public class WzSerializationBenchmarks
                 root.AddProperty(branch);
             }
 
-            branch!.AddProperty(new WzIntProperty($"value_{index:D6}", index));
+            string propertyName = $"value_{index:D6}";
+            switch (index % 5)
+            {
+                case 0:
+                    branch!.AddProperty(new WzIntProperty(propertyName, index));
+                    break;
+                case 1:
+                    branch!.AddProperty(new WzShortProperty(propertyName, (short)index));
+                    break;
+                case 2:
+                    branch!.AddProperty(new WzLongProperty(propertyName, index * 1_000_000L));
+                    break;
+                case 3:
+                    branch!.AddProperty(new WzDoubleProperty(propertyName, index + 0.5));
+                    break;
+                default:
+                    branch!.AddProperty(new WzVectorProperty(propertyName, index, -index));
+                    break;
+            }
         }
 
         return image;
