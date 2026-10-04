@@ -159,16 +159,32 @@ namespace MapleLib.Img
                 return Enumerable.Empty<string>();
             }
 
-            var files = HaCreatorPaths.EnumerateFilesExcludingBackups(rootPath, "*", searchOption)
-                .Where(IsPackableImageFile)
-                .ToList();
-            var luaTextFiles = new HashSet<string>(
-                files.Where(IsLuaTextFile).Select(Path.GetFullPath),
-                StringComparer.OrdinalIgnoreCase);
+            var files = new List<string>();
+            var luaTextFiles = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (string path in HaCreatorPaths.EnumerateFilesExcludingBackups(rootPath, "*", searchOption))
+            {
+                if (!IsPackableImageFile(path))
+                    continue;
 
-            return files.Where(path =>
-                !IsLegacyLuaBinaryFile(path) ||
-                !luaTextFiles.Contains(GetLegacyLuaTextPath(path)));
+                files.Add(path);
+                if (IsLuaTextFile(path))
+                    luaTextFiles.Add(Path.GetFullPath(path));
+            }
+
+            return FilterPackableImageFiles(files, luaTextFiles);
+        }
+
+        private static IEnumerable<string> FilterPackableImageFiles(
+            IEnumerable<string> files, HashSet<string> luaTextFiles)
+        {
+            foreach (string path in files)
+            {
+                if (!IsLegacyLuaBinaryFile(path) ||
+                    !luaTextFiles.Contains(GetLegacyLuaTextPath(path)))
+                {
+                    yield return path;
+                }
+            }
         }
 
         private static bool IsLuaTextFile(string filePath)
@@ -1527,14 +1543,9 @@ namespace MapleLib.Img
                     ? image.Name
                     : $"{relativeDirPath}/{image.Name}";
                 string lowerKey = relativePath.ToLowerInvariant();
-                if (!caseMap.ContainsKey(lowerKey))
-                {
-                    caseMap[lowerKey] = relativePath;
-                }
-                if (!imageOrder.ContainsKey(lowerKey))
-                {
-                    imageOrder[lowerKey] = imageIndex++;
-                }
+                caseMap.TryAdd(lowerKey, relativePath);
+                if (imageOrder.TryAdd(lowerKey, imageIndex))
+                    imageIndex++;
             }
 
             foreach (var subDir in directory.WzDirectories)
@@ -1543,10 +1554,8 @@ namespace MapleLib.Img
                     ? subDir.Name
                     : $"{relativeDirPath}/{subDir.Name}";
                 string lowerDirKey = subDirPath.ToLowerInvariant();
-                if (!directoryOrder.ContainsKey(lowerDirKey))
-                {
-                    directoryOrder[lowerDirKey] = dirIndex++;
-                }
+                if (directoryOrder.TryAdd(lowerDirKey, dirIndex))
+                    dirIndex++;
                 CollectReferenceMetadata(
                     subDir,
                     subDirPath,
@@ -1719,6 +1728,7 @@ namespace MapleLib.Img
         private List<string> GetCategoriesToPack(string versionPath)
         {
             var categories = new List<string>();
+            var categorySet = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
             // First add standard categories in order
             foreach (var category in STANDARD_CATEGORIES)
@@ -1738,6 +1748,7 @@ namespace MapleLib.Img
                 if (hasImgFiles || hasListJson)
                 {
                     categories.Add(category);
+                    categorySet.Add(category);
                 }
             }
 
@@ -1747,7 +1758,7 @@ namespace MapleLib.Img
                 string dirName = Path.GetFileName(dirPath);
 
                 // Skip if already added from standard categories
-                if (categories.Contains(dirName, StringComparer.OrdinalIgnoreCase))
+                if (categorySet.Contains(dirName))
                     continue;
 
                 // Skip manifest and other non-category files/folders
@@ -1772,6 +1783,7 @@ namespace MapleLib.Img
                 if (imgCount > 0 || subDirCount > 0 || hasListJson)
                 {
                     categories.Add(dirName);
+                    categorySet.Add(dirName);
                     Debug.WriteLine($"[GetCategoriesToPack] Added category: {dirName}");
                 }
                 else
@@ -2064,9 +2076,14 @@ namespace MapleLib.Img
             }
 
             // Process subdirectories first - create WzDirectory for each
-            foreach (var subDirPath in HaCreatorPaths.EnumerateDirectoriesExcludingBackups(currentPath)
-                .OrderBy(path => ResolveReferenceOrder(path, referenceDirectoryOrder))
-                .ThenBy(path => Path.GetFileName(path), StringComparer.OrdinalIgnoreCase))
+            IEnumerable<string> subDirPaths = HaCreatorPaths.EnumerateDirectoriesExcludingBackups(currentPath);
+            subDirPaths = referenceDirectoryOrder == null
+                ? subDirPaths.OrderBy(path => Path.GetFileName(path), StringComparer.OrdinalIgnoreCase)
+                : subDirPaths
+                    .OrderBy(path => ResolveReferenceOrder(path, referenceDirectoryOrder))
+                    .ThenBy(path => Path.GetFileName(path), StringComparer.OrdinalIgnoreCase);
+
+            foreach (var subDirPath in subDirPaths)
             {
                 string subDirName = Path.GetFileName(subDirPath);
 
@@ -2092,9 +2109,14 @@ namespace MapleLib.Img
             }
 
             // Collect image files in current directory
-            foreach (var imgFilePath in EnumeratePackableImageFiles(currentPath, SearchOption.TopDirectoryOnly)
-                .OrderBy(path => ResolveReferenceOrder(path, referenceImageOrder))
-                .ThenBy(path => Path.GetFileName(path), StringComparer.OrdinalIgnoreCase))
+            IEnumerable<string> imgFilePaths = EnumeratePackableImageFiles(currentPath, SearchOption.TopDirectoryOnly);
+            imgFilePaths = referenceImageOrder == null
+                ? imgFilePaths.OrderBy(path => Path.GetFileName(path), StringComparer.OrdinalIgnoreCase)
+                : imgFilePaths
+                    .OrderBy(path => ResolveReferenceOrder(path, referenceImageOrder))
+                    .ThenBy(path => Path.GetFileName(path), StringComparer.OrdinalIgnoreCase);
+
+            foreach (var imgFilePath in imgFilePaths)
             {
                 string relativePath = imgFilePath.Substring(basePath.Length).TrimStart(Path.DirectorySeparatorChar);
                 var fileInfo = new FileInfo(imgFilePath);

@@ -133,7 +133,7 @@ namespace MapleLib.Img
                     // Load all images - expensive operation!
                     foreach (var name in _names)
                     {
-                        if (!_loadedCache.ContainsKey(name))
+                        if (!_loadedCache.TryGetValue(name, out _))
                         {
                             var image = _loader(name);
                             if (image != null)
@@ -212,9 +212,31 @@ namespace MapleLib.Img
             lock (_lock)
             {
                 int i = arrayIndex;
+                if (_names.Count < 256)
+                {
+                    foreach (var name in _names)
+                        array[i++] = new KeyValuePair<string, WzImage>(name, this[name]);
+                    return;
+                }
+
                 foreach (var name in _names)
                 {
-                    array[i++] = new KeyValuePair<string, WzImage>(name, this[name]);
+                    WzImage image = null;
+                    if (!string.IsNullOrEmpty(name) && !_loadedCache.TryGetValue(name, out image))
+                    {
+                        try
+                        {
+                            image = _loader(name);
+                            if (image != null)
+                                _loadedCache[name] = image;
+                        }
+                        catch
+                        {
+                            image = null;
+                        }
+                    }
+
+                    array[i++] = new KeyValuePair<string, WzImage>(name, image);
                 }
             }
         }
@@ -270,11 +292,26 @@ namespace MapleLib.Img
                     value = null;
                     return false;
                 }
-            }
 
-            // Key exists, try to load value
-            value = this[key];
-            return true; // Return true because key exists, even if value is null
+                if (_loadedCache.TryGetValue(key, out WzImage cached))
+                {
+                    value = cached;
+                    return true;
+                }
+
+                try
+                {
+                    value = _loader(key);
+                    if (value != null)
+                        _loadedCache[key] = value;
+                }
+                catch
+                {
+                    value = null;
+                }
+
+                return true; // Return true because key exists, even if value is null
+            }
         }
 
         IEnumerator IEnumerable.GetEnumerator()

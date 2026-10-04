@@ -74,8 +74,15 @@ namespace MapleLib.WzLib.Serializer
                             serializer.Serialize(writer, jsonObject);
                         }
 
-                        byte[] bsonData = ms.ToArray();
-                        await file.WriteAsync(bsonData, 0, bsonData.Length);
+                        if (ms.TryGetBuffer(out ArraySegment<byte> bsonBuffer))
+                        {
+                            await file.WriteAsync(bsonBuffer.AsMemory(0, checked((int)ms.Length)));
+                        }
+                        else
+                        {
+                            byte[] bsonData = ms.ToArray();
+                            await file.WriteAsync(bsonData, 0, bsonData.Length);
+                        }
                     }
                 }
                 else // JSON serialization

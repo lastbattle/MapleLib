@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Drawing;
 using MapleLib.WzLib.WzProperties;
 
@@ -60,9 +60,9 @@ namespace MapleLib.WzLib
             if (parent == null)
                 return this; // this
 
-            while (parent.Parent != null )
+            while (parent.Parent is WzObject next)
             {
-                parent = parent.Parent;
+                parent = next;
             }
             return parent;
         }
@@ -76,8 +76,8 @@ namespace MapleLib.WzLib
             if (parent == null)
                 return this; // this
 
-            while (parent.Parent != null) {
-                parent = parent.Parent;
+            while (parent.Parent is WzObject next) {
+                parent = next;
                 if (parent is WzImage)
                     return parent;
             }
@@ -105,9 +105,9 @@ namespace MapleLib.WzLib
 
                 int length = Name?.Length ?? 0;
                 WzObject current = this;
-                while (current.Parent != null)
+                while (current.Parent is WzObject next)
                 {
-                    current = current.Parent;
+                    current = next;
                     length += 1 + (current.Name?.Length ?? 0);
                 }
 

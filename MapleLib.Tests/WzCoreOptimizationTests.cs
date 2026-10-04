@@ -8,6 +8,8 @@ using System.IO;
 using System.Linq;
 using System.Reflection;
 using System.Runtime.Versioning;
+using System.Text;
+using MapleLib.WzLib.Util;
 
 namespace UnitTest_WzFile;
 
@@ -78,18 +80,30 @@ public class WzCoreOptimizationTests
     }
 
     [TestMethod]
-    public void ListFileRoundTrip_DoesNotMutateInputOrHoldFileHandle()
+    [DataRow(WzMapleVersion.BMS, "091B5AE23C6FA4C5B2B0B866A9C54F216D260A514CF8238C0353DE7C66DA6D45")]
+    [DataRow(WzMapleVersion.GMS, "02534EE0FD07709EDAFCA0AA6DDDB2AD6364961DC7A07182B0290E03B9E87D20")]
+    public void ListFileRoundTrip_DoesNotMutateInputOrHoldFileHandle(WzMapleVersion version, string expectedWireHash)
     {
         string path = Path.Combine(Path.GetTempPath(), $"wz-list-{Guid.NewGuid():N}.wz");
-        var entries = new List<string> { "Effect/One.img", "Effect/Two.img" };
+        var entries = new List<string>
+        {
+            "Effect/One.img",
+            "地图/怪物/😀\uFFFF.img",
+            "Mob/" + new string('x', 96) + "😀\uFFFF/LongEntry.img"
+        };
         string[] original = entries.ToArray();
         try
         {
-            ListFileParser.SaveToDisk(path, WzMapleVersion.BMS, entries);
+            ListFileParser.SaveToDisk(path, version, entries);
             CollectionAssert.AreEqual(original, entries);
+            // Independent Python/OpenSSL wire vectors protect little-endian
+            // lengths, UTF16 units, encrypted nulls, and the final slash marker.
+            Assert.AreEqual(expectedWireHash,
+                Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(File.ReadAllBytes(path))));
 
             using (File.Open(path, FileMode.Open, FileAccess.ReadWrite, FileShare.None)) { }
-            CollectionAssert.AreEqual(original, ListFileParser.ParseListFile(path, WzMapleVersion.BMS));
+            CollectionAssert.AreEqual(original, ListFileParser.ParseListFile(path, version));
+            using (File.Open(path, FileMode.Open, FileAccess.ReadWrite, FileShare.None)) { }
         }
         finally
         {
@@ -136,6 +150,223 @@ public class WzCoreOptimizationTests
     }
 
     [TestMethod]
+    [DataRow("Group", "Parent",
+        "Diagnostic.img/Group/Parent (_inlink: missing/source)",
+        "Diagnostic.img/Group/Parent/Inner/Child (_outlink: Map/Missing.img/frame)", false)]
+    [DataRow(null, null,
+        "Diagnostic.img// (_inlink: missing/source)",
+        "Diagnostic.img///Inner/Child (_outlink: Map/Missing.img/frame)", false)]
+    [DataRow("", "",
+        "Diagnostic.img// (_inlink: missing/source)",
+        "Diagnostic.img///Inner/Child (_outlink: Map/Missing.img/frame)", false)]
+    [DataRow("Group/Branch", "Parent/Frame",
+        "Diagnostic.img/Group/Branch/Parent/Frame (_inlink: missing/source)",
+        "Diagnostic.img/Group/Branch/Parent/Frame/Inner/Child (_outlink: Map/Missing.img/frame)", false)]
+    [DataRow("Group", "Parent",
+        "Diagnostic.img/Group/Parent (_inlink: missing/source)",
+        "Diagnostic.img/Group/Parent/Inner/Child (_outlink: Map/Missing.img/frame)", true)]
+    public void LinkResolver_NestedFailuresPreserveDiagnosticPathsPayloadsAndReset(
+        string? groupName, string? parentName, string expectedInlinkFailure, string expectedOutlinkFailure,
+        bool renameDuringTraversal)
+    {
+        using var image = new WzImage("Diagnostic.img");
+        byte[] sourceBytes = [0x78, 0x9C, 0x52, 0xA4, 0xFE];
+        byte[] parentBytes = [0x78, 0x9C, 0x11, 0xA1];
+        byte[] childBytes = [0x78, 0x9C, 0x22, 0xB2];
+        image.AddProperty(CreateResolverCanvas("Source", sourceBytes));
+        // Public Name setters/constructors permit null, empty and slash names.
+        // Logging retains these segments literally rather than normalizing them.
+        var group = new RenamingResolverGroup(groupName!);
+        var parent = CreateResolverCanvas(parentName!, parentBytes);
+        var parentLink = new WzStringProperty(WzCanvasProperty.InlinkPropertyName, "missing/source");
+        parent.AddProperty(parentLink);
+        parent.AddProperty(new WzStringProperty("metadata", "unrelated"));
+        var inner = new WzSubProperty("Inner");
+        var child = CreateResolverCanvas("Child", childBytes);
+        var childLink = new WzStringProperty(WzCanvasProperty.OutlinkPropertyName, "Map/Missing.img/frame");
+        child.AddProperty(childLink);
+        inner.AddProperty(child);
+        parent.AddProperty(inner);
+        group.AddProperty(parent);
+        var success = CreateCanvas("Success");
+        success.AddProperty(new WzStringProperty(WzCanvasProperty.InlinkPropertyName, "Source"));
+        group.AddProperty(success);
+        image.AddProperty(group);
+        group.RenameWhenReadingChildren = renameDuringTraversal;
+        var resolver = new WzLinkResolver();
+
+        Assert.AreEqual(1, resolver.ResolveLinksInImage(image));
+        Assert.AreEqual(1, resolver.LinksResolved);
+        Assert.AreEqual(2, resolver.LinksFailed);
+        CollectionAssert.AreEqual(new[] { expectedInlinkFailure, expectedOutlinkFailure }, resolver.FailedLinks);
+        Assert.AreSame(parentLink, parent[WzCanvasProperty.InlinkPropertyName]);
+        Assert.AreSame(childLink, child[WzCanvasProperty.OutlinkPropertyName]);
+        Assert.AreEqual("missing/source", parentLink.Value);
+        Assert.AreEqual("Map/Missing.img/frame", childLink.Value);
+        CollectionAssert.AreEqual(parentBytes, parent.PngProperty.GetCompressedBytes(false));
+        CollectionAssert.AreEqual(childBytes, child.PngProperty.GetCompressedBytes(false));
+        Assert.IsFalse(success.ContainsInlinkProperty());
+        CollectionAssert.AreEqual(sourceBytes, success.PngProperty.GetCompressedBytes(false));
+        Assert.AreEqual(renameDuringTraversal ? "Renamed" : groupName, group.Name);
+
+        resolver.Reset();
+        Assert.AreEqual(0, resolver.LinksResolved);
+        Assert.AreEqual(0, resolver.LinksFailed);
+        Assert.IsEmpty(resolver.FailedLinks);
+        // Reset clears session diagnostics without rewriting remaining failures.
+        group.Name = groupName!;
+        group.RenameWhenReadingChildren = renameDuringTraversal;
+        Assert.AreEqual(0, resolver.ResolveLinksInImage(image));
+        Assert.AreEqual(0, resolver.LinksResolved);
+        Assert.AreEqual(2, resolver.LinksFailed);
+        CollectionAssert.AreEqual(new[] { expectedInlinkFailure, expectedOutlinkFailure }, resolver.FailedLinks);
+    }
+
+    [TestMethod]
+    [DataRow(0)]
+    [DataRow(1)]
+    [DataRow(2)]
+    [DataRow(4)]
+    [DataRow(-1)]
+    [DataRow(5)]
+    public void LinkResolver_NumericOutlinkFallbackUsesNestedCanvasPreorder(int index)
+    {
+        using var shard = new WzFile(95, WzMapleVersion.BMS)
+        {
+            Name = "fixture/Map/Back/_Canvas/_Canvas_000.wz"
+        };
+        var target = new WzImage("Shared.img");
+        var branch = new WzSubProperty("branch");
+        byte[][] expected =
+        [
+            [0x78, 0x9C, 0x10, 0xA1], [0x78, 0x9C, 0x20, 0xB2],
+            [0x78, 0x9C, 0x30, 0xC3], [0x78, 0x9C, 0x40, 0xD4],
+            [0x78, 0x9C, 0x50, 0xE5]
+        ];
+        var parent = CreateResolverCanvas("parent", expected[0]);
+        parent.AddProperty(CreateResolverCanvas("child", expected[1]));
+        var deeper = new WzSubProperty("deeper");
+        deeper.AddProperty(CreateResolverCanvas("grandchild", expected[2]));
+        parent.AddProperty(deeper);
+        branch.AddProperty(parent);
+        branch.AddProperty(CreateResolverCanvas("sibling", expected[3]));
+        target.AddProperty(branch);
+        var tail = new WzSubProperty("tail");
+        tail.AddProperty(CreateResolverCanvas("last", expected[4]));
+        target.AddProperty(tail);
+        shard.WzDirectory.AddImage(target);
+
+        using var linked = new WzImage("Linked.img");
+        var destination = CreateCanvas("destination");
+        byte[] original = [0x78, 0x9C, 0x03, 0x00];
+        // No source canvas has a numeric name or the requested parent path,
+        // so only the ordered numeric fallback can select a destination.
+        destination.AddProperty(new WzStringProperty(WzCanvasProperty.OutlinkPropertyName,
+            $"Map/Back/_Canvas/Shared.img/missing/{index}"));
+        linked.AddProperty(destination);
+        var resolver = new WzLinkResolver();
+        resolver.SetCategoryWzFiles([shard], "Map");
+
+        if (index < 0 || index >= expected.Length)
+        {
+            Assert.AreEqual(0, resolver.ResolveLinksInImage(linked));
+            Assert.IsTrue(destination.ContainsOutlinkProperty());
+            Assert.AreEqual(1, resolver.LinksFailed);
+            CollectionAssert.AreEqual(original, destination.PngProperty.GetCompressedBytes(false));
+        }
+        else
+        {
+            Assert.AreEqual(1, resolver.ResolveLinksInImage(linked));
+            Assert.IsFalse(destination.ContainsOutlinkProperty());
+            CollectionAssert.AreEqual(expected[index], destination.PngProperty.GetCompressedBytes(false));
+        }
+    }
+
+    [TestMethod]
+    public void LinkResolver_OutOfRangeNumericOrdinalContinuesToLaterShard()
+    {
+        using var shortShard = new WzFile(95, WzMapleVersion.BMS)
+        {
+            Name = "fixture/Map/Back/_Canvas/_Canvas_000.wz"
+        };
+        var shortImage = new WzImage("Shared.img");
+        var shortBranch = new WzSubProperty("branch");
+        shortBranch.AddProperty(CreateResolverCanvas("only", [0x78, 0x9C, 0x11]));
+        shortImage.AddProperty(shortBranch);
+        shortShard.WzDirectory.AddImage(shortImage);
+
+        using var adequateShard = new WzFile(95, WzMapleVersion.BMS)
+        {
+            Name = "fixture/Map/Back/_Canvas/_Canvas_001.wz"
+        };
+        byte[] expected = [0x78, 0x9C, 0x52, 0xA4, 0xFE];
+        var adequateImage = new WzImage("Shared.img");
+        var parent = CreateResolverCanvas("parent", [0x78, 0x9C, 0x22]);
+        parent.AddProperty(CreateResolverCanvas("nested", expected));
+        adequateImage.AddProperty(parent);
+        adequateShard.WzDirectory.AddImage(adequateImage);
+
+        using var linked = new WzImage("Linked.img");
+        var destination = CreateCanvas("destination");
+        destination.AddProperty(new WzStringProperty(WzCanvasProperty.OutlinkPropertyName,
+            "Map/Back/_Canvas/Shared.img/missing/1"));
+        linked.AddProperty(destination);
+        var resolver = new WzLinkResolver();
+        resolver.SetCategoryWzFiles([shortShard, adequateShard], "Map");
+
+        Assert.AreEqual(1, resolver.ResolveLinksInImage(linked));
+        Assert.AreEqual(0, resolver.LinksFailed);
+        Assert.IsFalse(destination.ContainsOutlinkProperty());
+        CollectionAssert.AreEqual(expected, destination.PngProperty.GetCompressedBytes(false));
+    }
+
+    [TestMethod]
+    public void LinkResolver_SkipsForeignFolderAndEmptyShardBeforeFirstUsableCanvas()
+    {
+        byte[] expected = [0x78, 0x9C, 0x42, 0x91, 0xFE];
+        using var foreign = CreateResolverShard("fixture/Map/Obj/_Canvas/_Canvas_000.wz", [0x78, 0x9C, 0x11]);
+        using var placeholder = CreateResolverShard("fixture/Map/Back/_Canvas/_Canvas_001.wz", []);
+        using var usable = CreateResolverShard("fixture/Map/Back/_Canvas/_Canvas_002.wz", expected);
+        using var later = CreateResolverShard("fixture/Map/Back/_Canvas/_Canvas_003.wz", [0x78, 0x9C, 0x99]);
+        using var linked = new WzImage("Linked.img");
+        var destination = CreateCanvas("destination");
+        destination.AddProperty(new WzStringProperty(WzCanvasProperty.OutlinkPropertyName,
+            "Map/Back/_Canvas/Shared.img/group/frame"));
+        linked.AddProperty(destination);
+        var resolver = new WzLinkResolver();
+        resolver.SetCategoryWzFiles([foreign, placeholder, usable, later], "Map");
+
+        Assert.AreEqual(1, resolver.ResolveLinksInImage(linked));
+        Assert.IsFalse(destination.ContainsOutlinkProperty());
+        CollectionAssert.AreEqual(expected, destination.PngProperty.GetCompressedBytes(false));
+    }
+
+    [TestMethod]
+    public void PropertyCollectionInsertRange_BatchesIndexRebuildAndPreservesOrder()
+    {
+        var parent = new WzSubProperty("Parent");
+        var properties = new WzPropertyCollection(parent);
+        var first = new WzIntProperty("First", 1);
+        var duplicate = new WzIntProperty("Duplicate", 2);
+        var inserted = new WzIntProperty("Inserted", 3);
+        var nullNamed = new WzIntProperty(null!, 4);
+        properties.Add(first);
+        properties.Add(duplicate);
+
+        properties.InsertRange(1, new[] { inserted, nullNamed, duplicate });
+
+        Assert.HasCount(5, properties);
+        Assert.AreSame(first, properties[0]);
+        Assert.AreSame(inserted, properties[1]);
+        Assert.AreSame(nullNamed, properties[2]);
+        Assert.AreSame(duplicate, properties[3]);
+        Assert.AreSame(duplicate, properties.FindByName("DUPLICATE"));
+        Assert.AreSame(nullNamed, properties.FindByName(null!));
+        Assert.AreSame(parent, inserted.Parent);
+        Assert.AreSame(parent, nullNamed.Parent);
+    }
+
+    [TestMethod]
     public void GetObjectFromPath_SearchesAllMatchingCanvasShardImages()
     {
         using var manager = new WzFileManager();
@@ -170,6 +401,30 @@ public class WzCoreOptimizationTests
         file.Dispose();
 
         Assert.IsTrue(file.IsUnloaded);
+    }
+
+    [TestMethod]
+    public void NullTerminatedString_DoesNotConsumeBytesAfterTerminator()
+    {
+        byte[] payload = Encoding.UTF8.GetBytes("hello\0tail");
+        using var reader = new WzBinaryReader(
+            new MemoryStream(payload, writable: false),
+            WzTool.GetIvByMapleVersion(WzMapleVersion.BMS));
+
+        Assert.AreEqual("hello", reader.ReadNullTerminatedString());
+        Assert.AreEqual((byte)'t', reader.ReadByte());
+    }
+
+    [TestMethod]
+    public void ImageChecksum_RestoresOriginalStreamPosition()
+    {
+        using var image = new WzImage("checksum.img");
+        using var stream = new MemoryStream(Encoding.UTF8.GetBytes("checksum data"), writable: false);
+        stream.Position = 4;
+
+        image.CalculateAndSetImageChecksum(stream);
+
+        Assert.AreEqual(4, stream.Position);
     }
 
     [TestMethod]
@@ -245,6 +500,8 @@ public class WzCoreOptimizationTests
         property.WzProperties.Add(third);
 
         Assert.AreSame(first, property["SAME"]);
+        Assert.AreSame(first, property.WzProperties.Find("Same", StringComparison.Ordinal));
+        Assert.IsNull(property.WzProperties.Find("SAME", StringComparison.Ordinal));
         property.WzProperties.Reverse();
         Assert.AreSame(second, property["same"]);
 
@@ -372,6 +629,24 @@ public class WzCoreOptimizationTests
         Assert.AreSame(root, image.Parent);
     }
 
+    private sealed class RenamingResolverGroup(string name) : WzSubProperty(name)
+    {
+        public bool RenameWhenReadingChildren { get; set; }
+
+        public override WzPropertyCollection WzProperties
+        {
+            get
+            {
+                if (RenameWhenReadingChildren)
+                {
+                    RenameWhenReadingChildren = false;
+                    Name = "Renamed";
+                }
+                return base.WzProperties;
+            }
+        }
+    }
+
     private static WzFile CreateCanvasShard(string name, bool includeTarget)
     {
         var file = CreateInMemoryCanvasEraWzFile();
@@ -407,6 +682,24 @@ public class WzCoreOptimizationTests
         };
         canvas.PngProperty.SetCompressedBytes([0x78, 0x9C, 0x03, 0x00], 1, 1, WzPngFormat.Format2);
         return canvas;
+    }
+
+    private static WzCanvasProperty CreateResolverCanvas(string name, byte[] bytes)
+    {
+        var canvas = new WzCanvasProperty(name) { PngProperty = new WzPngProperty() };
+        canvas.PngProperty.SetCompressedBytes(bytes, 1, 1, WzPngFormat.Format2);
+        return canvas;
+    }
+
+    private static WzFile CreateResolverShard(string name, byte[] bytes)
+    {
+        var file = new WzFile(95, WzMapleVersion.BMS) { Name = name };
+        var image = new WzImage("Shared.img");
+        var group = new WzSubProperty("group");
+        group.AddProperty(CreateResolverCanvas("frame", bytes));
+        image.AddProperty(group);
+        file.WzDirectory.AddImage(image);
+        return file;
     }
 
     private static void RegisterWzFileList(WzFileManager manager, string baseName, params string[] fileNames)

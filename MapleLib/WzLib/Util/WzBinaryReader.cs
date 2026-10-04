@@ -146,18 +146,29 @@ namespace MapleLib.WzLib.Util
                 // Decode in place so no second temporary buffer is needed.
                 int keyLength = checked(length * sizeof(ushort));
                 WzKey.EnsureKeySize(keyLength);
+                ReadOnlySpan<byte> keyBytes = WzKey.GetKeySpan();
                 Span<ushort> encryptedChars = MemoryMarshal.Cast<char, ushort>(chars);
                 BaseStream.ReadExactly(MemoryMarshal.AsBytes(encryptedChars));
 
                 ushort mask = 0xAAAA;
 
-                for (int i = 0; i < length; i++)
+                if (BitConverter.IsLittleEndian)
                 {
-                    ushort encryptedChar = encryptedChars[i];
-                    encryptedChar ^= mask;
-                    encryptedChar ^= (ushort)((WzKey[(i * 2 + 1)] << 8) + WzKey[(i * 2)]);
-                    encryptedChars[i] = encryptedChar;
-                    mask++;
+                    ReadOnlySpan<ushort> keyWords = MemoryMarshal.Cast<byte, ushort>(keyBytes);
+                    for (int i = 0; i < length; i++)
+                        encryptedChars[i] = (ushort)(encryptedChars[i] ^ keyWords[i] ^ mask++);
+                }
+                else
+                {
+                    int keyIndex = 0;
+                    for (int i = 0; i < length; i++, keyIndex += 2)
+                    {
+                        ushort encryptedChar = encryptedChars[i];
+                        encryptedChar ^= mask;
+                        encryptedChar ^= (ushort)((keyBytes[keyIndex + 1] << 8) + keyBytes[keyIndex]);
+                        encryptedChars[i] = encryptedChar;
+                        mask++;
+                    }
                 }
 
                 return new string(chars);
@@ -190,6 +201,7 @@ namespace MapleLib.WzLib.Util
                 // key growth outside the loop preserves the original key stream
                 // while avoiding one stream call per byte.
                 WzKey.EnsureKeySize(length);
+                ReadOnlySpan<byte> keyBytes = WzKey.GetKeySpan();
                 BaseStream.ReadExactly(bytes);
 
                 byte mask = 0xAA;
@@ -198,7 +210,7 @@ namespace MapleLib.WzLib.Util
                 {
                     byte encryptedChar = bytes[i];
                     encryptedChar ^= mask;
-                    encryptedChar ^= (byte)WzKey[i];
+                    encryptedChar ^= keyBytes[i];
                     bytes[i] = encryptedChar;
                     mask++;
                 }
@@ -262,6 +274,60 @@ namespace MapleLib.WzLib.Util
         }
 
         public string ReadNullTerminatedString()
+        {
+            if (BaseStream.CanSeek)
+                return ReadNullTerminatedStringSeekable();
+
+            return ReadNullTerminatedStringScalar();
+        }
+
+        private string ReadNullTerminatedStringSeekable()
+        {
+            const int initialBufferSize = 256;
+            byte[] buffer = s_bytePool.Rent(initialBufferSize);
+            int position = 0;
+            try
+            {
+                while (position < MemoryLimits.MAX_NULL_TERMINATED_STRING_BYTES)
+                {
+                    if (position == buffer.Length)
+                    {
+                        int nextLength = Math.Min(buffer.Length * 2, MemoryLimits.MAX_NULL_TERMINATED_STRING_BYTES);
+                        byte[] nextBuffer = s_bytePool.Rent(nextLength);
+                        buffer.AsSpan(0, position).CopyTo(nextBuffer);
+                        s_bytePool.Return(buffer);
+                        buffer = nextBuffer;
+                    }
+
+                    int readLength = Math.Min(
+                        buffer.Length - position,
+                        MemoryLimits.MAX_NULL_TERMINATED_STRING_BYTES - position);
+                    int bytesRead = BaseStream.Read(buffer, position, readLength);
+                    if (bytesRead == 0)
+                        throw new EndOfStreamException();
+
+                    int terminator = buffer.AsSpan(position, bytesRead).IndexOf((byte)0);
+                    if (terminator >= 0)
+                    {
+                        int terminatorPosition = position + terminator;
+                        int bytesAfterTerminator = bytesRead - terminator - 1;
+                        if (bytesAfterTerminator != 0)
+                            BaseStream.Position -= bytesAfterTerminator;
+                        return Encoding.UTF8.GetString(buffer, 0, terminatorPosition);
+                    }
+
+                    position += bytesRead;
+                }
+
+                throw new InvalidDataException("Null-terminated string exceeds the supported limit.");
+            }
+            finally
+            {
+                s_bytePool.Return(buffer);
+            }
+        }
+
+        private string ReadNullTerminatedStringScalar()
         {
             const int initialBufferSize = 256;
             byte[]? pooledArray = null;
@@ -370,6 +436,7 @@ namespace MapleLib.WzLib.Util
             int keyLength = stringToDecrypt.Length * sizeof(ushort);
 
             WzKey.EnsureKeySize(keyLength);
+            ReadOnlySpan<byte> keyBytes = WzKey.GetKeySpan();
 
             char[]? pooledArray = null;
             try
@@ -381,11 +448,12 @@ namespace MapleLib.WzLib.Util
                 ref char outputRef = ref MemoryMarshal.GetReference(outputChars);
                 ref char inputRef = ref MemoryMarshal.GetReference(stringToDecrypt);
 
-                for (int i = 0; i < stringToDecrypt.Length; i++)
+                int keyIndex = 0;
+                for (int i = 0; i < stringToDecrypt.Length; i++, keyIndex += 2)
                 {
                     Unsafe.Add(ref outputRef, i) = (char)(
                         Unsafe.Add(ref inputRef, i) ^
-                        ((char)((WzKey[i * 2 + 1] << 8) + WzKey[i * 2]))
+                        ((char)((keyBytes[keyIndex + 1] << 8) + keyBytes[keyIndex]))
                     );
                 }
 
@@ -406,6 +474,7 @@ namespace MapleLib.WzLib.Util
                 throw new InvalidDataException("Encrypted string exceeds the supported limit.");
 
             WzKey.EnsureKeySize(stringToDecrypt.Length);
+            ReadOnlySpan<byte> keyBytes = WzKey.GetKeySpan();
 
             char[]? pooledArray = null;
             try
@@ -419,7 +488,7 @@ namespace MapleLib.WzLib.Util
 
                 for (int i = 0; i < stringToDecrypt.Length; i++)
                 {
-                    Unsafe.Add(ref outputRef, i) = (char)(Unsafe.Add(ref inputRef, i) ^ WzKey[i]);
+                    Unsafe.Add(ref outputRef, i) = (char)(Unsafe.Add(ref inputRef, i) ^ keyBytes[i]);
                 }
 
                 return new string(outputChars);

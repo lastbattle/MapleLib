@@ -147,9 +147,23 @@ public class MapleCryptoTests
     }
 
     [Fact]
+    public void ServerHeaderPreservesNegativeVersionFailure()
+    {
+        var crypto = new MapleCrypto((byte[])Iv.Clone(), -1);
+        Assert.Throws<OverflowException>(() => crypto.GetHeaderToServer(1460));
+    }
+
+    [Fact]
     public void IvShuffleAndPacketHeadersRemainStable()
     {
-        Assert.Equal("9374b162", Convert.ToHexStringLower(MapleCrypto.GetNewIV(Iv)));
+        byte[] input = [.. Iv, 0xAA, 0x55];
+        byte[] saved = (byte[])input.Clone();
+        byte[] actualIv = MapleCrypto.GetNewIV(input);
+
+        Assert.Equal("9374b162", Convert.ToHexStringLower(actualIv));
+        Assert.Equal(saved, input);
+        Assert.NotSame(input, actualIv);
+        Assert.Equal(4, actualIv.Length);
 
         var crypto = new MapleCrypto((byte[])Iv.Clone(), 95);
         byte[] clientHeader = crypto.GetHeaderToClient(1460);

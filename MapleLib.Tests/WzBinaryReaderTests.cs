@@ -14,7 +14,8 @@ public class WzBinaryReaderTests
         foreach (int length in new[] { 0, 1, 126, 127, 128, 4096 })
         {
             AssertRoundTrip(CreateAscii(length), WzAESConstant.WZ_BMSCLASSIC);
-            AssertRoundTrip(CreateUnicode(length), WzAESConstant.WZ_GMSIV);
+            foreach (byte[] iv in new[] { WzAESConstant.WZ_BMSCLASSIC, WzAESConstant.WZ_GMSIV })
+                AssertRoundTrip(CreateUnicode(length), iv);
         }
     }
 
@@ -73,8 +74,31 @@ public class WzBinaryReaderTests
     private static byte[] Encode(string value, byte[] iv)
     {
         using var stream = new MemoryStream();
-        using (var writer = new WzBinaryWriter(stream, iv, leaveOpen: true))
-            writer.Write(value);
+        using (var writer = new BinaryWriter(stream, System.Text.Encoding.UTF8, leaveOpen: true))
+        {
+            bool unicode = value.Any(character => character > 127);
+            if (value.Length == 0)
+                writer.Write((sbyte)0);
+            else if (unicode)
+            {
+                writer.Write(value.Length >= 127 ? (sbyte)127 : (sbyte)value.Length);
+                if (value.Length >= 127)
+                    writer.Write(value.Length);
+                WzMutableKey key = WzKeyGenerator.GenerateWzKey(iv);
+                for (int i = 0; i < value.Length; i++)
+                    writer.Write((ushort)(value[i] ^ (ushort)(0xAAAA + i) ^
+                        (ushort)(key[i * 2] | key[i * 2 + 1] << 8)));
+            }
+            else
+            {
+                writer.Write(value.Length >= 128 ? (sbyte)-128 : (sbyte)-value.Length);
+                if (value.Length >= 128)
+                    writer.Write(value.Length);
+                WzMutableKey key = WzKeyGenerator.GenerateWzKey(iv);
+                for (int i = 0; i < value.Length; i++)
+                    writer.Write((byte)(value[i] ^ (byte)(0xAA + i) ^ key[i]));
+            }
+        }
         return stream.ToArray();
     }
 
@@ -98,7 +122,7 @@ public class WzBinaryReaderTests
         return string.Create(length, 0, static (chars, _) =>
         {
             for (int i = 0; i < chars.Length; i++)
-                chars[i] = (char)('\u0100' + (i % 64));
+                chars[i] = "Ā中\uD83D\uDE00A\uFFFF"[i % 6];
         });
     }
 }

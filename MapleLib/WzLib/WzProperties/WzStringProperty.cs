@@ -134,15 +134,7 @@ namespace MapleLib.WzLib.WzProperties
         /// <param name="value"></param>
         public void SetDateValue(DateTime value)
         {
-            StringBuilder sb = new StringBuilder();
-            sb.Append(value.Year.ToString().PadLeft(4, '0'));
-            sb.Append(value.Month.ToString().PadLeft(2, '0'));
-            sb.Append(value.Day.ToString().PadLeft(2, '0'));
-            sb.Append(value.Hour.ToString().PadLeft(2, '0'));
-            if (value.Minute != 0)
-                sb.Append(value.Minute.ToString().PadLeft(2, '0'));
-
-            Value = sb.ToString(); // 2010100700
+            Value = value.ToString(value.Minute == 0 ? "yyyyMMddHH" : "yyyyMMddHHmm", System.Globalization.CultureInfo.CurrentCulture);
         }
         #endregion
 

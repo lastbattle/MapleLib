@@ -341,11 +341,12 @@ namespace MapleLib.Img
         public IEnumerable<WzImage> GetImagesInDirectory(string category, string subDirectory)
         {
             var dirs = GetDirectories(category);
+            string[] parts = null;
             foreach (var dir in dirs)
             {
                 // Navigate to subdirectory
                 var current = dir;
-                string[] parts = subDirectory.Split(new[] { '/', '\\' }, StringSplitOptions.RemoveEmptyEntries);
+                parts ??= subDirectory.Split('/', '\\', StringSplitOptions.RemoveEmptyEntries);
 
                 foreach (var part in parts)
                 {
@@ -366,11 +367,12 @@ namespace MapleLib.Img
         public IEnumerable<string> GetImageNamesInDirectory(string category, string subDirectory)
         {
             var dirs = GetDirectories(category);
+            string[] parts = null;
             foreach (var dir in dirs)
             {
                 // Navigate to subdirectory
                 var current = dir;
-                string[] parts = subDirectory.Split(new[] { '/', '\\' }, StringSplitOptions.RemoveEmptyEntries);
+                parts ??= subDirectory.Split('/', '\\', StringSplitOptions.RemoveEmptyEntries);
 
                 foreach (var part in parts)
                 {

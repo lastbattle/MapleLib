@@ -145,23 +145,46 @@ namespace MapleLib.WzLib.MSFile
                 QuarterRound(ref x3, ref x4, ref x9, ref x14);
             }
 
-            Span<byte> output = keyBlock;
-            BinaryPrimitives.WriteUInt32LittleEndian(output[..4], x0 + state[0]);
-            BinaryPrimitives.WriteUInt32LittleEndian(output.Slice(4, 4), x1 + state[1]);
-            BinaryPrimitives.WriteUInt32LittleEndian(output.Slice(8, 4), x2 + state[2]);
-            BinaryPrimitives.WriteUInt32LittleEndian(output.Slice(12, 4), x3 + state[3]);
-            BinaryPrimitives.WriteUInt32LittleEndian(output.Slice(16, 4), x4 + state[4]);
-            BinaryPrimitives.WriteUInt32LittleEndian(output.Slice(20, 4), x5 + state[5]);
-            BinaryPrimitives.WriteUInt32LittleEndian(output.Slice(24, 4), x6 + state[6]);
-            BinaryPrimitives.WriteUInt32LittleEndian(output.Slice(28, 4), x7 + state[7]);
-            BinaryPrimitives.WriteUInt32LittleEndian(output.Slice(32, 4), x8 + state[8]);
-            BinaryPrimitives.WriteUInt32LittleEndian(output.Slice(36, 4), x9 + state[9]);
-            BinaryPrimitives.WriteUInt32LittleEndian(output.Slice(40, 4), x10 + state[10]);
-            BinaryPrimitives.WriteUInt32LittleEndian(output.Slice(44, 4), x11 + state[11]);
-            BinaryPrimitives.WriteUInt32LittleEndian(output.Slice(48, 4), x12 + state[12]);
-            BinaryPrimitives.WriteUInt32LittleEndian(output.Slice(52, 4), x13 + state[13]);
-            BinaryPrimitives.WriteUInt32LittleEndian(output.Slice(56, 4), x14 + state[14]);
-            BinaryPrimitives.WriteUInt32LittleEndian(output.Slice(60, 4), x15 + state[15]);
+            if (BitConverter.IsLittleEndian)
+            {
+                Span<uint> output = MemoryMarshal.Cast<byte, uint>(keyBlock.AsSpan());
+                output[0] = x0 + state[0];
+                output[1] = x1 + state[1];
+                output[2] = x2 + state[2];
+                output[3] = x3 + state[3];
+                output[4] = x4 + state[4];
+                output[5] = x5 + state[5];
+                output[6] = x6 + state[6];
+                output[7] = x7 + state[7];
+                output[8] = x8 + state[8];
+                output[9] = x9 + state[9];
+                output[10] = x10 + state[10];
+                output[11] = x11 + state[11];
+                output[12] = x12 + state[12];
+                output[13] = x13 + state[13];
+                output[14] = x14 + state[14];
+                output[15] = x15 + state[15];
+            }
+            else
+            {
+                Span<byte> output = keyBlock;
+                BinaryPrimitives.WriteUInt32LittleEndian(output[..4], x0 + state[0]);
+                BinaryPrimitives.WriteUInt32LittleEndian(output.Slice(4, 4), x1 + state[1]);
+                BinaryPrimitives.WriteUInt32LittleEndian(output.Slice(8, 4), x2 + state[2]);
+                BinaryPrimitives.WriteUInt32LittleEndian(output.Slice(12, 4), x3 + state[3]);
+                BinaryPrimitives.WriteUInt32LittleEndian(output.Slice(16, 4), x4 + state[4]);
+                BinaryPrimitives.WriteUInt32LittleEndian(output.Slice(20, 4), x5 + state[5]);
+                BinaryPrimitives.WriteUInt32LittleEndian(output.Slice(24, 4), x6 + state[6]);
+                BinaryPrimitives.WriteUInt32LittleEndian(output.Slice(28, 4), x7 + state[7]);
+                BinaryPrimitives.WriteUInt32LittleEndian(output.Slice(32, 4), x8 + state[8]);
+                BinaryPrimitives.WriteUInt32LittleEndian(output.Slice(36, 4), x9 + state[9]);
+                BinaryPrimitives.WriteUInt32LittleEndian(output.Slice(40, 4), x10 + state[10]);
+                BinaryPrimitives.WriteUInt32LittleEndian(output.Slice(44, 4), x11 + state[11]);
+                BinaryPrimitives.WriteUInt32LittleEndian(output.Slice(48, 4), x12 + state[12]);
+                BinaryPrimitives.WriteUInt32LittleEndian(output.Slice(52, 4), x13 + state[13]);
+                BinaryPrimitives.WriteUInt32LittleEndian(output.Slice(56, 4), x14 + state[14]);
+                BinaryPrimitives.WriteUInt32LittleEndian(output.Slice(60, 4), x15 + state[15]);
+            }
 
             state[12]++;
             if (state[12] == 0)

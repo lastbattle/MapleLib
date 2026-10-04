@@ -42,4 +42,12 @@ public class ChaCha20TransformBenchmarks
         transform.TransformInPlace(_work);
         return _work[^1];
     }
+
+    [Benchmark]
+    public byte TransformBlockSameBuffer()
+    {
+        using var transform = new ChaCha20CryptoTransform(Key, Nonce, 1);
+        transform.TransformBlock(_work, 0, _work.Length, _work, 0);
+        return _work[^1];
+    }
 }

@@ -81,7 +81,7 @@ namespace MapleLib.Img
                 // scan or watcher callback is replacing its contents.
                 lock (_stateLock)
                 {
-                    return _availableVersions.ToList().AsReadOnly();
+                    return Array.AsReadOnly(_availableVersions.ToArray());
                 }
             }
         }
@@ -177,8 +177,8 @@ namespace MapleLib.Img
 
                 foreach (var retainedVersion in retainedVersions)
                 {
-                    if (!_availableVersions.Any(v =>
-                        string.Equals(v.DirectoryPath, retainedVersion.DirectoryPath, StringComparison.OrdinalIgnoreCase)))
+                if (!_availableVersions.Any(v =>
+                    string.Equals(v.DirectoryPath, retainedVersion.DirectoryPath, StringComparison.OrdinalIgnoreCase)))
                     {
                         _availableVersions.Add(retainedVersion);
                     }
@@ -437,15 +437,14 @@ namespace MapleLib.Img
                 if (Directory.Exists(categoryPath))
                 {
                     categoryReport.Exists = true;
-                    categoryReport.FileCount = HaCreatorPaths.EnumerateFilesExcludingBackups(
-                        categoryPath,
-                        "*.img",
-                        SearchOption.AllDirectories).Count();
-                    categoryReport.TotalSize = HaCreatorPaths.EnumerateFilesExcludingBackups(
-                                                            categoryPath,
-                                                            "*.img",
-                                                            SearchOption.AllDirectories)
-                                                        .Sum(f => new FileInfo(f).Length);
+                    foreach (string imagePath in HaCreatorPaths.EnumerateFilesExcludingBackups(
+                                 categoryPath,
+                                 "*.img",
+                                 SearchOption.AllDirectories))
+                    {
+                        categoryReport.FileCount++;
+                        categoryReport.TotalSize += new FileInfo(imagePath).Length;
+                    }
                 }
 
                 report.Categories.Add(categoryReport);

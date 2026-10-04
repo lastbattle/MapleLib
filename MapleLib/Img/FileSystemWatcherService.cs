@@ -314,7 +314,7 @@ namespace MapleLib.Img
             if (watchType == WatchType.Category)
             {
                 _categoryPaths.TryGetValue(watcherPath, out category);
-                relativePath = e.FullPath.Substring(watcherPath.Length).TrimStart(Path.DirectorySeparatorChar);
+                relativePath = GetRelativePath(e.FullPath, watcherPath);
             }
 
             // Queue the change
@@ -352,7 +352,7 @@ namespace MapleLib.Img
             if (watchType == WatchType.Category)
             {
                 _categoryPaths.TryGetValue(watcherPath, out category);
-                relativePath = e.FullPath.Substring(watcherPath.Length).TrimStart(Path.DirectorySeparatorChar);
+                relativePath = GetRelativePath(e.FullPath, watcherPath);
             }
 
             // Queue the change
@@ -409,6 +409,11 @@ namespace MapleLib.Img
             }
         }
 
+        private static string GetRelativePath(string fullPath, string watcherPath)
+        {
+            return fullPath.AsSpan(watcherPath.Length).TrimStart(Path.DirectorySeparatorChar).ToString();
+        }
+
         private void ProcessPendingChanges(object state)
         {
             long version = (long)state;
@@ -432,11 +437,23 @@ namespace MapleLib.Img
                 if (changes.Count == 0)
                     return;
 
-                // Group by path and take the latest change for each
-                var uniqueChanges = changes
-                    .GroupBy(c => c.Path, StringComparer.OrdinalIgnoreCase)
-                    .Select(g => g.OrderByDescending(c => c.Timestamp).First())
-                    .ToList();
+                // Coalesce by path while preserving first-seen path order. This
+                // matches GroupBy's order and OrderByDescending's stable tie behavior.
+                var latestByPath = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+                var uniqueChanges = new List<FileChangeInfo>(changes.Count);
+                foreach (FileChangeInfo change in changes)
+                {
+                    if (latestByPath.TryGetValue(change.Path, out int existingIndex))
+                    {
+                        if (change.Timestamp > uniqueChanges[existingIndex].Timestamp)
+                            uniqueChanges[existingIndex] = change;
+                    }
+                    else
+                    {
+                        latestByPath.Add(change.Path, uniqueChanges.Count);
+                        uniqueChanges.Add(change);
+                    }
+                }
 
                 foreach (var change in uniqueChanges)
                 {

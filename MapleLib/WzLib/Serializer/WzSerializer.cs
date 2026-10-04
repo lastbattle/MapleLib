@@ -71,12 +71,32 @@ namespace MapleLib.WzLib.Serializer
                 {
                     MemoryStream stream = new MemoryStream();
                     property3.PngProperty.GetImage(false).Save(stream, ImageFormat.Png);
-                    byte[] pngbytes = stream.ToArray();
+                    string pngBase64 = EncodeStreamBase64(stream);
                     stream.Close();
-                    tw.Write(string.Concat(new object[] { depth, "<canvas name=\"", XmlUtil.SanitizeText(property3.Name), "\" width=\"", property3.PngProperty.Width, "\" height=\"", property3.PngProperty.Height, "\" basedata=\"", Convert.ToBase64String(pngbytes), "\">" }) + lineBreak);
+                    tw.Write(depth);
+                    tw.Write("<canvas name=\"");
+                    tw.Write(XmlUtil.SanitizeText(property3.Name));
+                    tw.Write("\" width=\"");
+                    tw.Write(property3.PngProperty.Width);
+                    tw.Write("\" height=\"");
+                    tw.Write(property3.PngProperty.Height);
+                    tw.Write("\" basedata=\"");
+                    tw.Write(pngBase64);
+                    tw.Write("\">");
+                    tw.Write(lineBreak);
                 }
                 else
-                    tw.Write(string.Concat(new object[] { depth, "<canvas name=\"", XmlUtil.SanitizeText(property3.Name), "\" width=\"", property3.PngProperty.Width, "\" height=\"", property3.PngProperty.Height, "\">" }) + lineBreak);
+                {
+                    tw.Write(depth);
+                    tw.Write("<canvas name=\"");
+                    tw.Write(XmlUtil.SanitizeText(property3.Name));
+                    tw.Write("\" width=\"");
+                    tw.Write(property3.PngProperty.Width);
+                    tw.Write("\" height=\"");
+                    tw.Write(property3.PngProperty.Height);
+                    tw.Write("\">");
+                    tw.Write(lineBreak);
+                }
                 string newDepth = depth + indent;
                 foreach (WzImageProperty property in property3.WzProperties)
                 {
@@ -87,62 +107,134 @@ namespace MapleLib.WzLib.Serializer
             else if (prop is WzIntProperty)
             {
                 WzIntProperty property4 = (WzIntProperty)prop;
-                tw.Write(string.Concat(new object[] { depth, "<int name=\"", XmlUtil.SanitizeText(property4.Name), "\" value=\"", property4.Value, "\"/>" }) + lineBreak);
+                tw.Write(depth);
+                tw.Write("<int name=\"");
+                tw.Write(XmlUtil.SanitizeText(property4.Name));
+                tw.Write("\" value=\"");
+                tw.Write(property4.Value);
+                tw.Write("\"/>");
+                tw.Write(lineBreak);
             }
             else if (prop is WzDoubleProperty)
             {
                 WzDoubleProperty property5 = (WzDoubleProperty)prop;
-                tw.Write(string.Concat(new object[] { depth, "<double name=\"", XmlUtil.SanitizeText(property5.Name), "\" value=\"", property5.Value, "\"/>" }) + lineBreak);
+                tw.Write(depth);
+                tw.Write("<double name=\"");
+                tw.Write(XmlUtil.SanitizeText(property5.Name));
+                tw.Write("\" value=\"");
+                tw.Write(property5.Value);
+                tw.Write("\"/>");
+                tw.Write(lineBreak);
             }
             else if (prop is WzNullProperty)
             {
                 WzNullProperty property6 = (WzNullProperty)prop;
-                tw.Write(depth + "<null name=\"" + XmlUtil.SanitizeText(property6.Name) + "\"/>" + lineBreak);
+                tw.Write(depth);
+                tw.Write("<null name=\"");
+                tw.Write(XmlUtil.SanitizeText(property6.Name));
+                tw.Write("\"/>");
+                tw.Write(lineBreak);
             }
             else if (prop is WzBinaryProperty)
             {
                 WzBinaryProperty property7 = (WzBinaryProperty)prop;
                 if (bExportBase64Data)
-                    tw.Write(string.Concat(new object[] { depth, "<sound name=\"", XmlUtil.SanitizeText(property7.Name), "\" length=\"", property7.Length.ToString(), "\" basehead=\"", Convert.ToBase64String(property7.Header), "\" basedata=\"", Convert.ToBase64String(property7.GetBytes(false)), "\"/>" }) + lineBreak);
+                {
+                    tw.Write(depth);
+                    tw.Write("<sound name=\"");
+                    tw.Write(XmlUtil.SanitizeText(property7.Name));
+                    tw.Write("\" length=\"");
+                    tw.Write(property7.Length);
+                    tw.Write("\" basehead=\"");
+                    tw.Write(Convert.ToBase64String(property7.Header));
+                    tw.Write("\" basedata=\"");
+                    tw.Write(Convert.ToBase64String(property7.GetBytes(false)));
+                    tw.Write("\"/>");
+                    tw.Write(lineBreak);
+                }
                 else
-                    tw.Write(depth + "<sound name=\"" + XmlUtil.SanitizeText(property7.Name) + "\"/>" + lineBreak);
+                {
+                    tw.Write(depth);
+                    tw.Write("<sound name=\"");
+                    tw.Write(XmlUtil.SanitizeText(property7.Name));
+                    tw.Write("\"/>");
+                    tw.Write(lineBreak);
+                }
             }
             else if (prop is WzStringProperty)
             {
                 WzStringProperty property8 = (WzStringProperty)prop;
                 string str = XmlUtil.SanitizeText(property8.Value);
-                tw.Write(depth + "<string name=\"" + XmlUtil.SanitizeText(property8.Name) + "\" value=\"" + str + "\"/>" + lineBreak);
+                tw.Write(depth);
+                tw.Write("<string name=\"");
+                tw.Write(XmlUtil.SanitizeText(property8.Name));
+                tw.Write("\" value=\"");
+                tw.Write(str);
+                tw.Write("\"/>");
+                tw.Write(lineBreak);
             }
             else if (prop is WzSubProperty)
             {
                 WzSubProperty property9 = (WzSubProperty)prop;
-                tw.Write(depth + "<imgdir name=\"" + XmlUtil.SanitizeText(property9.Name) + "\">" + lineBreak);
+                tw.Write(depth);
+                tw.Write("<imgdir name=\"");
+                tw.Write(XmlUtil.SanitizeText(property9.Name));
+                tw.Write("\">");
+                tw.Write(lineBreak);
                 string newDepth = depth + indent;
                 foreach (WzImageProperty property in property9.WzProperties)
                 {
                     WritePropertyToXML(tw, newDepth, property, exportFilePath);
                 }
-                tw.Write(depth + "</imgdir>" + lineBreak);
+                tw.Write(depth);
+                tw.Write("</imgdir>");
+                tw.Write(lineBreak);
             }
             else if (prop is WzShortProperty)
             {
                 WzShortProperty property10 = (WzShortProperty)prop;
-                tw.Write(string.Concat(new object[] { depth, "<short name=\"", XmlUtil.SanitizeText(property10.Name), "\" value=\"", property10.Value, "\"/>" }) + lineBreak);
+                tw.Write(depth);
+                tw.Write("<short name=\"");
+                tw.Write(XmlUtil.SanitizeText(property10.Name));
+                tw.Write("\" value=\"");
+                tw.Write(property10.Value);
+                tw.Write("\"/>");
+                tw.Write(lineBreak);
             }
             else if (prop is WzLongProperty)
             {
                 WzLongProperty long_prop = (WzLongProperty)prop;
-                tw.Write(string.Concat(new object[] { depth, "<long name=\"", XmlUtil.SanitizeText(long_prop.Name), "\" value=\"", long_prop.Value, "\"/>" }) + lineBreak);
+                tw.Write(depth);
+                tw.Write("<long name=\"");
+                tw.Write(XmlUtil.SanitizeText(long_prop.Name));
+                tw.Write("\" value=\"");
+                tw.Write(long_prop.Value);
+                tw.Write("\"/>");
+                tw.Write(lineBreak);
             }
             else if (prop is WzUOLProperty)
             {
                 WzUOLProperty property11 = (WzUOLProperty)prop;
-                tw.Write(depth + "<uol name=\"" + XmlUtil.SanitizeText(property11.Name) + "\" value=\"" + XmlUtil.SanitizeText(property11.Value) + "\"/>" + lineBreak);
+                tw.Write(depth);
+                tw.Write("<uol name=\"");
+                tw.Write(XmlUtil.SanitizeText(property11.Name));
+                tw.Write("\" value=\"");
+                tw.Write(XmlUtil.SanitizeText(property11.Value));
+                tw.Write("\"/>");
+                tw.Write(lineBreak);
             }
             else if (prop is WzVectorProperty)
             {
                 WzVectorProperty property12 = (WzVectorProperty)prop;
-                tw.Write(string.Concat(new object[] { depth, "<vector name=\"", XmlUtil.SanitizeText(property12.Name), "\" x=\"", property12.X.Value, "\" y=\"", property12.Y.Value, "\"/>" }) + lineBreak);
+                tw.Write(depth);
+                tw.Write("<vector name=\"");
+                tw.Write(XmlUtil.SanitizeText(property12.Name));
+                tw.Write("\" x=\"");
+                tw.Write(property12.X.Value);
+                tw.Write("\" y=\"");
+                tw.Write(property12.Y.Value);
+                tw.Write("\"/>");
+                tw.Write(lineBreak);
             }
             else if (prop is WzFloatProperty)
             {
@@ -150,11 +242,21 @@ namespace MapleLib.WzLib.Serializer
                 string str2 = Convert.ToString(property13.Value, formattingInfo);
                 if (!str2.Contains("."))
                     str2 = str2 + ".0";
-                tw.Write(depth + "<float name=\"" + XmlUtil.SanitizeText(property13.Name) + "\" value=\"" + str2 + "\"/>" + lineBreak);
+                tw.Write(depth);
+                tw.Write("<float name=\"");
+                tw.Write(XmlUtil.SanitizeText(property13.Name));
+                tw.Write("\" value=\"");
+                tw.Write(str2);
+                tw.Write("\"/>");
+                tw.Write(lineBreak);
             }
             else if (prop is WzConvexProperty)
             {
-                tw.Write(depth + "<extended name=\"" + XmlUtil.SanitizeText(prop.Name) + "\">" + lineBreak);
+                tw.Write(depth);
+                tw.Write("<extended name=\"");
+                tw.Write(XmlUtil.SanitizeText(prop.Name));
+                tw.Write("\">");
+                tw.Write(lineBreak);
 
                 WzConvexProperty property14 = (WzConvexProperty)prop;
                 string newDepth = depth + indent;
@@ -162,7 +264,9 @@ namespace MapleLib.WzLib.Serializer
                 {
                     WritePropertyToXML(tw, newDepth, property, exportFilePath);
                 }
-                tw.Write(depth + "</extended>" + lineBreak);
+                tw.Write(depth);
+                tw.Write("</extended>");
+                tw.Write(lineBreak);
             }
             else if (prop is WzLuaProperty propertyLua)
             {
@@ -208,7 +312,9 @@ namespace MapleLib.WzLib.Serializer
             const string FIELD_LENGTH_NAME = "_length";
             const string FIELD_FILENAME_NAME = "_fileName";
 
-            var propJson = new Dictionary<string, object>
+            // Reserve room for the common type/name pair and one payload field;
+            // this avoids the first resize for the common scalar properties.
+            var propJson = new Dictionary<string, object>(capacity: 3)
             {
                 { FIELD_NAME_NAME, prop.Name },
                 { FIELD_TYPE_NAME, prop.PropertyType.ToString() }
@@ -220,12 +326,12 @@ namespace MapleLib.WzLib.Serializer
                     propJson[FIELD_TYPE_NAME] = "canvas";
                     propJson[FIELD_WIDTH_NAME] = canvasProp.PngProperty.Width;
                     propJson[FIELD_HEIGHT_NAME] = canvasProp.PngProperty.Height;
-                    if (bExportBase64Data && !propJson.ContainsKey(FIELD_BASEDATA_NAME))
+                    if (bExportBase64Data)
                     {
                         using (MemoryStream stream = new MemoryStream())
                         {
                             canvasProp.PngProperty.GetImage(false)?.Save(stream, ImageFormat.Png);
-                            propJson[FIELD_BASEDATA_NAME] = Convert.ToBase64String(stream.ToArray());
+                            propJson[FIELD_BASEDATA_NAME] = EncodeStreamBase64(stream);
                         }
                     }
                     foreach (WzImageProperty subProp in canvasProp.WzProperties)
@@ -249,7 +355,7 @@ namespace MapleLib.WzLib.Serializer
                 case WzBinaryProperty binaryProp:
                     propJson[FIELD_TYPE_NAME] = "binary";
                     propJson[FIELD_LENGTH_NAME] = binaryProp.Length.ToString();
-                    if (bExportBase64Data && !propJson.ContainsKey("basehead") && !propJson.ContainsKey("basedata"))
+                    if (bExportBase64Data)
                     {
                         propJson["basehead"] = Convert.ToBase64String(binaryProp.Header);
                         propJson["basedata"] = Convert.ToBase64String(binaryProp.GetBytes(false));
@@ -302,7 +408,7 @@ namespace MapleLib.WzLib.Serializer
                 case WzLuaProperty luaProp:
                     propJson[FIELD_TYPE_NAME] = "lua";
                     propJson[FIELD_FILENAME_NAME] = luaProp.Parent.Name;
-                    if (bExportBase64Data && !propJson.ContainsKey(FIELD_BASEDATA_NAME))
+                    if (bExportBase64Data)
                     {
                         propJson[FIELD_BASEDATA_NAME] = luaProp.ToString();
                     }
@@ -317,10 +423,17 @@ namespace MapleLib.WzLib.Serializer
 
             // making the assumption that only the first wz image will be used, everything is dropped since its not going to be read in wz anyway
             // FullPath = "Item.wz\\Install\\0380.img\\03800572\\info\\icon\\foothold\\foothold" <<< double 'foothold' here :( 
-            if (!json.ContainsKey(jPropertyName))
-            {
-                json[jPropertyName] = propJson; // add this json to the main json object parent
-            }
+            // Preserve duplicate-name behavior (the first property wins) with one
+            // lookup instead of ContainsKey followed by an indexer write.
+            json.TryAdd(jPropertyName, propJson);
+        }
+
+        private static string EncodeStreamBase64(MemoryStream stream)
+        {
+            if (stream.TryGetBuffer(out ArraySegment<byte> segment) && segment.Array != null)
+                return Convert.ToBase64String(segment.Array, segment.Offset, checked((int)stream.Length));
+
+            return Convert.ToBase64String(stream.ToArray());
         }
     }
 

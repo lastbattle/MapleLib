@@ -70,11 +70,12 @@ namespace MapleLib.WzLib.WzStructure.Data.MapStructure
                 WzSubProperty eventQueue = new("EventQ");
                 HashSet<string> usedNames = UnknownEventQueueProperties.Select(property => property.Name)
                     .ToHashSet(StringComparer.OrdinalIgnoreCase);
+                int nextQueueIndex = 0;
                 for (int i = 0; i < EventQueue.Count; i++)
                 {
                     string name = i < _eventQueueNames.Count && !usedNames.Contains(_eventQueueNames[i])
                         ? _eventQueueNames[i]
-                        : NextQueueName(usedNames);
+                        : NextQueueName(usedNames, ref nextQueueIndex);
                     usedNames.Add(name);
                     eventQueue.AddProperty(new WzStringProperty(name, EventQueue[i]));
                 }
@@ -89,11 +90,16 @@ namespace MapleLib.WzLib.WzStructure.Data.MapStructure
         }
 
         private static int ParseIndex(string value) => int.TryParse(value, out int index) ? index : int.MaxValue;
-        private static string NextQueueName(ISet<string> usedNames)
+        private static string NextQueueName(ISet<string> usedNames, ref int nextIndex)
         {
-            for (int index = 0; ; index++)
-                if (!usedNames.Contains(index.ToString()))
-                    return index.ToString();
+            // Names are only added during serialization, so earlier occupied
+            // indices cannot become available again.
+            while (true)
+            {
+                string name = nextIndex++.ToString();
+                if (!usedNames.Contains(name))
+                    return name;
+            }
         }
     }
 

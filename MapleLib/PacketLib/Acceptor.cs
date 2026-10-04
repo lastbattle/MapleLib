@@ -16,6 +16,7 @@ namespace MapleLib.PacketLib
 		/// The listener socket
 		/// </summary>
 		private readonly Socket _listener;
+		private readonly AsyncCallback _acceptCallback;
 
 		/// <summary>
 		/// Method called when a client is connected
@@ -33,6 +34,7 @@ namespace MapleLib.PacketLib
 		public Acceptor()
 		{
 			_listener = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
+			_acceptCallback = OnClientConnect;
 		}
 
 		/// <summary>
@@ -43,7 +45,7 @@ namespace MapleLib.PacketLib
 		{
 			_listener.Bind(new IPEndPoint(IPAddress.Any, port));
 			_listener.Listen(15);
-			_listener.BeginAccept(new AsyncCallback(OnClientConnect), null);
+			_listener.BeginAccept(_acceptCallback, null);
 		}
 
         /// <summary>
@@ -70,7 +72,7 @@ namespace MapleLib.PacketLib
 
 				session.WaitForData();
 
-				_listener.BeginAccept(new AsyncCallback(OnClientConnect), null);
+				_listener.BeginAccept(_acceptCallback, null);
 			}
 			catch (ObjectDisposedException)
 			{

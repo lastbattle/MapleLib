@@ -712,6 +712,7 @@ namespace MapleLib.Img
             }
 
             // Check Map category exists with at least some maps (only if Map was extracted)
+            int? mapImageCount = null;
             if (checkMap)
             {
                 string mapPath = Path.Combine(versionPath, "Map");
@@ -725,6 +726,7 @@ namespace MapleLib.Img
                         mapPath,
                         "*.img",
                         SearchOption.AllDirectories).Count();
+                    mapImageCount = mapCount;
                     if (mapCount == 0)
                     {
                         result.Errors.Add("Map category has no .img files");
@@ -739,10 +741,12 @@ namespace MapleLib.Img
                 string categoryPath = Path.Combine(versionPath, category);
                 if (Directory.Exists(categoryPath))
                 {
-                    int count = HaCreatorPaths.EnumerateFilesExcludingBackups(
-                        categoryPath,
-                        "*.img",
-                        SearchOption.AllDirectories).Count();
+                    int count = category == "Map" && mapImageCount.HasValue
+                        ? mapImageCount.Value
+                        : HaCreatorPaths.EnumerateFilesExcludingBackups(
+                            categoryPath,
+                            "*.img",
+                            SearchOption.AllDirectories).Count();
                     result.CategoryImageCounts[category] = count;
                     if (category != "Map") // Already counted above if Map was checked
                     {
@@ -957,8 +961,7 @@ namespace MapleLib.Img
             foreach (var msFile in HaCreatorPaths.EnumerateFilesExcludingBackups(
                 packsPath,
                 "*.ms",
-                SearchOption.AllDirectories)
-                .OrderBy(path => path, StringComparer.OrdinalIgnoreCase))
+                SearchOption.AllDirectories))
             {
                 string fileName = Path.GetFileNameWithoutExtension(msFile);
                 int underscoreIndex = fileName.IndexOf('_');
@@ -1054,8 +1057,11 @@ namespace MapleLib.Img
                                 using (var msFile = new WzMsFile(memoryStream, Path.GetFileName(msFilePath), msFilePath, true))
                                 {
                                     msFile.ReadEntries();
-                                    total += msFile.Entries.Count(entry =>
-                                        !HaCreatorPaths.ContainsBackupsDirectory(entry.Name));
+                                    foreach (var entry in msFile.Entries)
+                                    {
+                                        if (!HaCreatorPaths.ContainsBackupsDirectory(entry.Name))
+                                            total++;
+                                    }
                                 }
                             }
                             catch
@@ -1182,6 +1188,10 @@ namespace MapleLib.Img
             if (directory.WzImages == null)
                 return;
 
+            string listWzPrefix = listWzEntries != null && extractedListWzImages != null
+                ? BuildListWzPrefix(categoryName, directory)
+                : null;
+
             foreach (var img in directory.WzImages)
             {
                 try
@@ -1210,7 +1220,7 @@ namespace MapleLib.Img
                     if (listWzEntries != null && extractedListWzImages != null)
                     {
                         // Build the List.wz style path: Category/SubDir/.../ImageName.img
-                        string listWzPath = BuildListWzPath(categoryName, directory, img.Name);
+                        string listWzPath = listWzPrefix + img.Name;
                         if (listWzEntries.Contains(listWzPath))
                         {
                             extractedListWzImages.TryAdd(listWzPath, 0);
@@ -1239,10 +1249,12 @@ namespace MapleLib.Img
         /// </summary>
         private string BuildListWzPath(string categoryName, WzDirectory directory, string imageName)
         {
-            // Build path from directory hierarchy
-            var pathParts = new List<string> { categoryName };
+            return BuildListWzPrefix(categoryName, directory) + imageName;
+        }
 
-            // Walk up the directory tree to build the full path
+        private string BuildListWzPrefix(string categoryName, WzDirectory directory)
+        {
+            var pathParts = new List<string> { categoryName };
             var current = directory;
             var dirPath = new Stack<string>();
             while (current != null && current.Parent is WzDirectory parentDir)
@@ -1255,8 +1267,7 @@ namespace MapleLib.Img
                 pathParts.Add(dirPath.Pop());
             }
 
-            pathParts.Add(imageName);
-            return string.Join("/", pathParts);
+            return string.Join("/", pathParts) + "/";
         }
 
         /// <summary>
@@ -1558,6 +1569,13 @@ namespace MapleLib.Img
 
                             // Extract each image to its proper category folder
                             // Entry names are like "Mob/0100000.img" - parse to get category and image name
+                            var wzImagesByName = new Dictionary<string, WzImage>(StringComparer.Ordinal);
+                            foreach (WzImage image in wzFile.WzDirectory.WzImages)
+                            {
+                                if (image.Name is string imageName)
+                                    wzImagesByName.TryAdd(imageName, image);
+                            }
+
                             foreach (var entry in msFile.Entries)
                             {
                                 cancellationToken.ThrowIfCancellationRequested();
@@ -1627,7 +1645,7 @@ namespace MapleLib.Img
 
                                     // Find the corresponding WzImage in the loaded WzFile
                                     string imgBaseName = Path.GetFileName(entryName);
-                                    var wzImage = wzFile.WzDirectory.WzImages.FirstOrDefault(img => img.Name == imgBaseName);
+                                    wzImagesByName.TryGetValue(imgBaseName, out var wzImage);
 
                                     if (wzImage == null)
                                     {
@@ -2001,16 +2019,20 @@ namespace MapleLib.Img
                 .Replace(Path.DirectorySeparatorChar, '/');
 
             string fileName = Path.GetFileName(relativePath);
-            if (!fileName.Any(char.IsUpper))
+            bool hasUppercase = false;
+            foreach (char character in fileName)
             {
-                return;
+                if (char.IsUpper(character))
+                {
+                    hasUppercase = true;
+                    break;
+                }
             }
+            if (!hasUppercase)
+                return;
 
             string lowerKey = relativePath.ToLowerInvariant();
-            if (!imageCaseMap.ContainsKey(lowerKey))
-            {
-                imageCaseMap[lowerKey] = relativePath;
-            }
+            imageCaseMap.TryAdd(lowerKey, relativePath);
         }
 
         /// <summary>

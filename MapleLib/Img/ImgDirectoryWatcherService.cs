@@ -239,12 +239,10 @@ namespace MapleLib.Img
             }
 
             // Clean up file states for this directory
-            var keysToRemove = _fileStates.Keys
-                .Where(k => IsPathWithinDirectory(k, normalizedPath))
-                .ToList();
-            foreach (var key in keysToRemove)
+            foreach (var key in _fileStates.Keys)
             {
-                _fileStates.TryRemove(key, out _);
+                if (IsPathWithinDirectory(key, normalizedPath))
+                    _fileStates.TryRemove(key, out _);
             }
         }
 
@@ -488,7 +486,7 @@ namespace MapleLib.Img
                 using var md5 = MD5.Create();
                 using var stream = File.OpenRead(filePath);
                 var hash = md5.ComputeHash(stream);
-                return BitConverter.ToString(hash).Replace("-", "").ToLowerInvariant();
+                return Convert.ToHexStringLower(hash);
             }
             catch
             {
@@ -598,10 +596,12 @@ namespace MapleLib.Img
             if (string.Equals(filePath, directoryPath, StringComparison.OrdinalIgnoreCase))
                 return true;
 
-            string separator = Path.EndsInDirectorySeparator(directoryPath)
-                ? string.Empty
-                : Path.DirectorySeparatorChar.ToString();
-            return filePath.StartsWith(directoryPath + separator, StringComparison.OrdinalIgnoreCase);
+            if (!filePath.StartsWith(directoryPath, StringComparison.OrdinalIgnoreCase))
+                return false;
+
+            return Path.EndsInDirectorySeparator(directoryPath) ||
+                   (filePath.Length > directoryPath.Length &&
+                    filePath[directoryPath.Length] == Path.DirectorySeparatorChar);
         }
         #endregion
 

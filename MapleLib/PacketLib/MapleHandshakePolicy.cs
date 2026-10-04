@@ -39,7 +39,7 @@ namespace MapleLib.PacketLib
 
         public MapleCrypto CreateCrypto(byte[] iv, short sessionVersion)
         {
-            return new MapleCrypto((byte[])iv.Clone(), sessionVersion);
+            return new MapleCrypto(iv, sessionVersion);
         }
     }
 }

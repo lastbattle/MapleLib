@@ -12,6 +12,32 @@ namespace MapleLib.Tests;
 
 public sealed class WzExtractionPackingAdversarialTests
 {
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void ValidateExtraction_PreservesMapCategoryCounts(bool checkMap)
+    {
+        string root = CreateTempDirectory();
+        try
+        {
+            string maps = Path.Combine(root, "Map", "Nested");
+            Directory.CreateDirectory(maps);
+            File.WriteAllBytes(Path.Combine(maps, "1.img"), Array.Empty<byte>());
+            File.WriteAllBytes(Path.Combine(maps, "2.img"), Array.Empty<byte>());
+            var categories = new System.Collections.Generic.List<string>();
+            if (checkMap) categories.Add("Map");
+            var result = new WzExtractionService().ValidateExtraction(root, categories);
+            XunitAssert.True(result.IsValid);
+            XunitAssert.Equal(2, result.CategoryImageCounts["Map"]);
+            // Preserve the existing total-count contract when Map wasn't selected.
+            XunitAssert.Equal(checkMap ? 2 : 0, result.TotalImageCount);
+        }
+        finally
+        {
+            DeleteDirectory(root);
+        }
+    }
+
     [Fact]
     public async Task ExtractCategory_RejectsTraversalBeforeCreatingOutput()
     {

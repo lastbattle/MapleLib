@@ -782,9 +782,9 @@ namespace MapleLib.WzLib.WzStructure
         public static Rectangle? GetVR(WzImage image)
         {
             Rectangle? result = null;
-            if (image["info"]["VRLeft"] != null)
+            WzImageProperty info = image["info"];
+            if (info["VRLeft"] != null)
             {
-                WzImageProperty info = image["info"];
                 int left = InfoTool.GetInt(info["VRLeft"]);
                 int right = InfoTool.GetInt(info["VRRight"]);
                 int top = InfoTool.GetInt(info["VRTop"]);

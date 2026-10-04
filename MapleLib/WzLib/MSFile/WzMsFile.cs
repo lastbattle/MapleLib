@@ -637,17 +637,10 @@ namespace MapleLib.WzLib.MSFile
                 if (length < 0 || length > maxLength)
                     throw new InvalidDataException($"Invalid version {WzMsConstants.Version4} entry name length: {length}");
 
-                char[] rented = ArrayPool<char>.Shared.Rent(length);
-                try
+                return string.Create(length, this, static (chars, reader) =>
                 {
-                    Span<char> chars = rented.AsSpan(0, length);
-                    ReadBytes(MemoryMarshal.AsBytes(chars));
-                    return new string(rented, 0, length);
-                }
-                finally
-                {
-                    ArrayPool<char>.Shared.Return(rented);
-                }
+                    reader.ReadBytes(MemoryMarshal.AsBytes(chars));
+                });
             }
 
             public void Dispose()
@@ -714,6 +707,7 @@ namespace MapleLib.WzLib.MSFile
             Random rng = new();
 
             this.Entries = [];
+            string category = Path.GetFileNameWithoutExtension(wzFile.Name);
 
             foreach (var wzImage in wzFile.WzDirectory.WzImages)
             {
@@ -722,7 +716,6 @@ namespace MapleLib.WzLib.MSFile
                 wzImage.SaveImage(writer, forceReadFromData:true);
                 byte[] data = ms.ToArray();
 
-                string category = Path.GetFileNameWithoutExtension(wzFile.Name);
                 string entryName = category + "/" + wzImage.Name;
 
                 byte[] entryKey = new byte[16];
@@ -899,7 +892,7 @@ namespace MapleLib.WzLib.MSFile
                         {
                             int entryNameLen = entry.Name.Length;
                             snowWriter2.Write(entryNameLen);
-                            snowWriter2.Write(entry.Name.ToCharArray());
+                            snowWriter2.Write(entry.Name.AsSpan());
                             snowWriter2.Write(entry.CheckSum);
                             snowWriter2.Write(entry.Flags);
                             snowWriter2.Write((int)entry.StartPos);
@@ -966,11 +959,7 @@ namespace MapleLib.WzLib.MSFile
         private void DeriveImgKey(WzMsEntry entry, Span<byte> imgKey)
         {
             ValidateEntryKeyInputs(entry);
-            uint keyHash = WzMsConstants.InitialKeyHash;
-            foreach (char c in Header.Salt)
-            {
-                keyHash = (keyHash ^ c) * WzMsConstants.KeyHashMultiplier;
-            }
+            uint keyHash = Header.SaltKeyHash;
 
             Span<char> keyHashChars = stackalloc char[10];
             keyHash.TryFormat(keyHashChars, out int keyHashLength);
@@ -992,11 +981,7 @@ namespace MapleLib.WzLib.MSFile
         private void DeriveChaCha20ImgKey(WzMsEntry entry, Span<byte> imgKey, Span<byte> nonce, out uint counter)
         {
             ValidateEntryKeyInputs(entry);
-            uint keyHash = WzMsConstants.InitialKeyHash;
-            foreach (char c in Header.Salt)
-            {
-                keyHash = (keyHash ^ c) * WzMsConstants.KeyHashMultiplier;
-            }
+            uint keyHash = Header.SaltKeyHash;
 
             Span<char> keyHashChars = stackalloc char[10];
             keyHash.TryFormat(keyHashChars, out int keyHashLength);

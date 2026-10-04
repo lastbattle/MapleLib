@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
-using System.Linq;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
@@ -227,6 +226,15 @@ namespace MapleLib.Img
         public List<SubdirectoryEntry> Subdirectories { get; set; } = new List<SubdirectoryEntry>();
 
         [JsonIgnore]
-        public int TotalImageCount => Images.Count + Subdirectories.Sum(s => s.TotalImageCount);
+        public int TotalImageCount
+        {
+            get
+            {
+                int childCount = 0;
+                foreach (SubdirectoryEntry subdirectory in Subdirectories)
+                    childCount = checked(childCount + subdirectory.TotalImageCount);
+                return Images.Count + childCount;
+            }
+        }
     }
 }

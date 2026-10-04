@@ -1,4 +1,5 @@
-using System.Collections.Generic;
+﻿using System.Collections.Generic;
+using System.Buffers;
 using System.IO;
 using System;
 using MapleLib.WzLib.Util;
@@ -222,6 +223,7 @@ namespace MapleLib.WzLib
             {
                 bIsImageChanged = true
             };
+            clone.WzProperties.Capacity = properties.Count;
             foreach (WzImageProperty prop in properties)
                 // Deep cloning source data must preserve duplicate names.
                 // WzPropertyCollection intentionally supports them for
@@ -338,13 +340,19 @@ namespace MapleLib.WzLib
         /// <param name="name">The name of the property to remove</param>
         public void RemoveProperty(WzImageProperty prop)
         {
-            if (!properties.Contains(prop))
+            if (reader != null && !parsed)
+            {
+                if (!properties.Contains(prop))
+                    return;
+                ParseImage();
+            }
+
+            int index = properties.IndexOf(prop);
+            if (index < 0)
                 return;
 
-            if (reader != null && !parsed)
-                ParseImage();
             prop.Parent = null;
-            properties.Remove(prop);
+            properties.RemoveAt(index);
             Changed = true; // Mark image as changed when property is removed
         }
 
@@ -399,7 +407,7 @@ namespace MapleLib.WzLib
                 throw new ArgumentException("Checksum calculation requires a readable, seekable stream.", nameof(stream));
 
             long originalPosition = stream.Position;
-            byte[] buffer = new byte[64 * 1024];
+            byte[] buffer = ArrayPool<byte>.Shared.Rent(64 * 1024);
             try
             {
                 stream.Position = 0;
@@ -413,6 +421,7 @@ namespace MapleLib.WzLib
             }
             finally
             {
+                ArrayPool<byte>.Shared.Return(buffer);
                 stream.Position = originalPosition;
             }
         }
@@ -585,7 +594,13 @@ namespace MapleLib.WzLib
             {
                 long pos = reader.BaseStream.Position;
                 reader.BaseStream.Position = offset;
-                writer.Write(reader.ReadBytes((int)size));
+                Stream source = reader.BaseStream;
+                bool copied = reader.GetType() == typeof(WzBinaryReader) &&
+                    source.GetType() == typeof(MemoryStream) &&
+                    offset <= source.Length && size >= source.Length - offset &&
+                    writer != null && writer.TryWriteRemainingMemoryStream((MemoryStream)source);
+                if (!copied)
+                    writer.Write(reader.ReadBytes((int)size));
 
                 reader.BaseStream.Position = pos; // reset
             }

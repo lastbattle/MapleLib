@@ -40,6 +40,9 @@ namespace MapleLib.PacketLib
         /// <returns></returns>
         public static String ToString(this PacketReader reader)
         {
+            if (reader.TryGetBuffer(out ArraySegment<byte> segment))
+                return FormatBytes(segment, UpperHex);
+
             byte[] bytes = reader.ToArray();
 
             return FormatBytes(bytes, UpperHex);
@@ -53,6 +56,9 @@ namespace MapleLib.PacketLib
         /// <returns></returns>
         public static String ToString(this PacketWriter writer)
         {
+            if (writer.TryGetBuffer(out ArraySegment<byte> segment))
+                return FormatBytes(segment, UpperHex);
+
             byte[] bytes = writer.ToArray();
 
             return FormatBytes(bytes, UpperHex);
@@ -65,11 +71,18 @@ namespace MapleLib.PacketLib
 
         private static string FormatBytes(byte[] bytes, string alphabet)
         {
-            int length = bytes.Length;
+            if (bytes is null)
+                throw new NullReferenceException();
+            return FormatBytes(new ArraySegment<byte>(bytes), alphabet);
+        }
+
+        private static string FormatBytes(ArraySegment<byte> bytes, string alphabet)
+        {
+            int length = bytes.Count;
             return string.Create(checked(length * 3), (bytes, alphabet), static (destination, state) =>
             {
                 int offset = 0;
-                foreach (byte value in state.bytes)
+                foreach (byte value in state.bytes.AsSpan())
                 {
                     destination[offset++] = state.alphabet[value >> 4];
                     destination[offset++] = state.alphabet[value & 0x0F];

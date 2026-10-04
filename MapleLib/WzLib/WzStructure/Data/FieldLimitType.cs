@@ -64,13 +64,23 @@ namespace MapleLib.WzLib.WzStructure.Data
 
         public static int GetMaxFieldLimitType()
         {
-            int max = 0;
-            foreach (FieldLimitType limitType in Enum.GetValues<FieldLimitType>())
+            return MaximumCache.Value;
+        }
+
+        private static class MaximumCache
+        {
+            internal static readonly int Value = Compute();
+
+            private static int Compute()
             {
-                if ((int)limitType > max)
-                    max = (int)limitType;
+                int max = 0;
+                foreach (FieldLimitType limitType in Enum.GetValues<FieldLimitType>())
+                {
+                    if ((int)limitType > max)
+                        max = (int)limitType;
+                }
+                return max;
             }
-            return max;
         }
     }
 }

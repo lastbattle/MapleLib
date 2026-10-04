@@ -12,6 +12,7 @@ namespace MapleLib.WzLib.MSFile
         private int _entryCount;
         private long _HeaderStartPosition;
         private long _EntryStartPosition;
+        private readonly uint _saltKeyHash;
 
         /// <summary>
         /// Constructor
@@ -28,6 +29,15 @@ namespace MapleLib.WzLib.MSFile
         {
             FileName = fileName;
             Salt = salt;
+            // The immutable salt contributes the same hash to every image key.
+            // Keep null salts constructible; derivation still fails after entry validation.
+            uint saltKeyHash = WzMsConstants.InitialKeyHash;
+            if (salt != null)
+            {
+                foreach (char c in salt)
+                    saltKeyHash = (saltKeyHash ^ c) * WzMsConstants.KeyHashMultiplier;
+            }
+            _saltKeyHash = saltKeyHash;
             FileNameWithSalt = fileNameWithSalt;
             Hash = hash;
             Version = version;
@@ -38,6 +48,7 @@ namespace MapleLib.WzLib.MSFile
 
         public string FileName { get; }
         public string Salt { get; }
+        internal uint SaltKeyHash => Salt != null ? _saltKeyHash : throw new NullReferenceException();
         public string FileNameWithSalt { get; }
         public int Hash { get => _hash; private set => _hash = value; }
         public byte Version { get; }

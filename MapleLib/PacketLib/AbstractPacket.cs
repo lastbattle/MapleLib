@@ -22,7 +22,7 @@ namespace MapleLib.PacketLib
 		try
 		{
 			_buffer.Position = 0;
-			using var copy = new MemoryStream();
+			using var copy = new MemoryStream(checked((int)_buffer.Length));
 			_buffer.CopyTo(copy);
 			return copy.ToArray();
 		}
@@ -30,6 +30,18 @@ namespace MapleLib.PacketLib
 		{
 			_buffer.Position = oldPosition;
 		}
+		}
+
+		internal bool TryGetBuffer(out ArraySegment<byte> segment)
+		{
+			if (_buffer is MemoryStream memoryStream && memoryStream.TryGetBuffer(out segment))
+			{
+				segment = new ArraySegment<byte>(segment.Array!, segment.Offset, checked((int)memoryStream.Length));
+				return true;
+			}
+
+			segment = default;
+			return false;
 		}
 	}
 }

@@ -1,5 +1,6 @@
 using MapleLib.WzLib.WzProperties;
 using System;
+using System.Buffers;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
@@ -126,9 +127,16 @@ namespace MapleLib.WzLib
 
             // Recursively process all properties
             string imagePath = image.FullPath ?? image.Name;
-            foreach (WzImageProperty prop in image.WzProperties)
+            string[] pathNames = null;
+            try
             {
-                resolvedCount += ResolveLinksInProperty(prop, imagePath);
+                foreach (WzImageProperty prop in image.WzProperties)
+                    resolvedCount += ResolveLinksInProperty(prop, imagePath, ref pathNames, 0);
+            }
+            finally
+            {
+                if (pathNames != null)
+                    ArrayPool<string>.Shared.Return(pathNames, clearArray: true);
             }
 
             if (resolvedCount > 0)
@@ -190,7 +198,7 @@ namespace MapleLib.WzLib
         /// Recursively resolves links in a property and its children.
         /// Optimized to skip property types that cannot contain canvas properties.
         /// </summary>
-        private int ResolveLinksInProperty(WzImageProperty property, string parentPath)
+        private int ResolveLinksInProperty(WzImageProperty property, string imagePath, ref string[] pathNames, int depth)
         {
             if (property == null)
                 return 0;
@@ -214,12 +222,14 @@ namespace MapleLib.WzLib
             }
 
             int resolvedCount = 0;
-            string currentPath = $"{parentPath}/{property.Name}";
+            // Capture names before virtual child getters can rename this node
+            // or an ancestor. A leaf without links needs no leased path buffer.
+            string currentName = property.Name;
 
             // If this is a canvas property, check for links
             if (property is WzCanvasProperty canvas)
             {
-                if (TryResolveCanvasLink(canvas, currentPath))
+                if (TryResolveCanvasLink(canvas, imagePath, ref pathNames, depth, currentName))
                 {
                     resolvedCount++;
                 }
@@ -229,22 +239,42 @@ namespace MapleLib.WzLib
             var children = property.WzProperties;
             if (children != null && children.Count > 0)
             {
+                EnsurePathCapacity(ref pathNames, depth + 1);
+                pathNames[depth + 1] = currentName;
                 foreach (WzImageProperty child in children)
                 {
-                    resolvedCount += ResolveLinksInProperty(child, currentPath);
+                    resolvedCount += ResolveLinksInProperty(child, imagePath, ref pathNames, depth + 1);
                 }
             }
 
             return resolvedCount;
         }
 
+        private static void EnsurePathCapacity(ref string[] pathNames, int depth)
+        {
+            if (pathNames == null)
+            {
+                pathNames = ArrayPool<string>.Shared.Rent(16);
+            }
+            else if (depth == pathNames.Length)
+            {
+                string[] expanded = ArrayPool<string>.Shared.Rent(depth * 2);
+                Array.Copy(pathNames, expanded, depth);
+                ArrayPool<string>.Shared.Return(pathNames, clearArray: true);
+                pathNames = expanded;
+            }
+        }
+
         /// <summary>
         /// Attempts to resolve an _inlink or _outlink in a canvas property
         /// </summary>
         /// <param name="canvas">The canvas property to resolve</param>
-        /// <param name="path">The path for logging purposes</param>
+        /// <param name="imagePath">The image path captured before traversal</param>
+        /// <param name="pathNames">Names captured while descending the property tree</param>
+        /// <param name="depth">Number of captured ancestor names</param>
+        /// <param name="currentName">The canvas name captured before link resolution</param>
         /// <returns>True if a link was resolved, false otherwise</returns>
-        private bool TryResolveCanvasLink(WzCanvasProperty canvas, string path)
+        private bool TryResolveCanvasLink(WzCanvasProperty canvas, string imagePath, ref string[] pathNames, int depth, string currentName)
         {
             bool hasInlink = canvas.ContainsInlinkProperty();
             bool hasOutlink = canvas.ContainsOutlinkProperty();
@@ -252,6 +282,18 @@ namespace MapleLib.WzLib
             if (!hasInlink && !hasOutlink)
                 return false;
 
+            string path;
+            if (depth == 0)
+            {
+                path = string.Concat(imagePath, "/", currentName);
+            }
+            else
+            {
+                EnsurePathCapacity(ref pathNames, depth + 1);
+                pathNames[depth + 1] = currentName;
+                pathNames[0] = imagePath;
+                path = string.Join("/", pathNames, 0, depth + 2);
+            }
             string linkType = hasInlink ? "_inlink" : "_outlink";
             string linkValue = hasInlink
                 ? ((WzStringProperty)canvas[WzCanvasProperty.InlinkPropertyName])?.Value ?? "unknown"
@@ -314,7 +356,7 @@ namespace MapleLib.WzLib
                 // Format: "Category/[Subdirs/]ImageName.img/property/path"
                 // e.g., "Mob/8800141.img/attack1/0" or "Item/Consume/0243.img/123/info"
                 // For _Canvas: "Map/Back/_Canvas/snowyDarkrock.img/back/0" or "Map/_Canvas/MapHelper.img/mark/Hilla"
-                string[] parts = outlinkPath.Split(new[] { '/' }, StringSplitOptions.RemoveEmptyEntries);
+                string[] parts = outlinkPath.Split('/', StringSplitOptions.RemoveEmptyEntries);
                 if (parts.Length < 2)
                     return false;
 
@@ -328,8 +370,7 @@ namespace MapleLib.WzLib
                 }
 
                 // Check if this is a _Canvas path
-                bool isCanvasPath = outlinkPath.Contains("/_Canvas/", StringComparison.OrdinalIgnoreCase) ||
-                                    outlinkPath.Contains("_Canvas/", StringComparison.OrdinalIgnoreCase);
+                bool isCanvasPath = outlinkPath.Contains("_Canvas/", StringComparison.OrdinalIgnoreCase);
 
                 // Find the image name - look for .img in the path
                 int imgIndex = -1;
@@ -349,14 +390,14 @@ namespace MapleLib.WzLib
                 // e.g., for "Item/Consume/0243.img", subdirPath = "Consume"
                 // e.g., for "Map/Back/_Canvas/snowyDarkrock.img", subdirPath = "Back/_Canvas"
                 string subdirPath = imgIndex > 1
-                    ? string.Join("/", parts.Skip(1).Take(imgIndex - 1))
+                    ? string.Join("/", parts, 1, imgIndex - 1)
                     : null;
 
                 string imageName = parts[imgIndex]; // e.g., "0243.img" or "snowyDarkrock.img"
 
                 // Build the property path within the image
                 string propertyPath = imgIndex + 1 < parts.Length
-                    ? string.Join("/", parts.Skip(imgIndex + 1))
+                    ? string.Join("/", parts, imgIndex + 1, parts.Length - imgIndex - 1)
                     : null;
 
                 // Search for the image across all loaded WZ files
@@ -379,7 +420,7 @@ namespace MapleLib.WzLib
                     if (!string.IsNullOrEmpty(pathAfterCanvas))
                     {
                         // Parse the path after _Canvas to get image name and property path
-                        string[] canvasParts = pathAfterCanvas.Split(new[] { '/' }, StringSplitOptions.RemoveEmptyEntries);
+                        string[] canvasParts = pathAfterCanvas.Split('/', StringSplitOptions.RemoveEmptyEntries);
                         if (canvasParts.Length >= 1)
                         {
                             // First part should be the image name (e.g., "snowyDarkrock.img")
@@ -389,7 +430,7 @@ namespace MapleLib.WzLib
                                 imageName = canvasImageName;
                                 // Property path is everything after the image name
                                 propertyPath = canvasParts.Length > 1
-                                    ? string.Join("/", canvasParts.Skip(1))
+                                    ? string.Join("/", canvasParts, 1, canvasParts.Length - 1)
                                     : null;
                             }
                         }
@@ -502,7 +543,7 @@ namespace MapleLib.WzLib
                             {
                                 // Build the remaining path after the animation name
                                 // e.g., "LayerSlots/Slot0/Segment1/AnimReference/8"
-                                string remainingPath = string.Join("/", pathParts.Skip(2));
+                                string remainingPath = string.Join("/", pathParts, 2, pathParts.Length - 2);
                                 string animNameFromPath = pathParts[1]; // e.g., "activated"
 
                                 // Generate alternative paths for segment name mismatches
@@ -598,7 +639,7 @@ namespace MapleLib.WzLib
                         {
                             for (int i = pathParts.Length - 2; i >= 0 && targetProperty == null; i--)
                             {
-                                string partialPath = string.Join("/", pathParts.Skip(i));
+                                string partialPath = string.Join("/", pathParts, i, pathParts.Length - i);
                                 targetProperty = searchImage.GetFromPath(partialPath);
                             }
                         }
@@ -629,15 +670,11 @@ namespace MapleLib.WzLib
                             targetProperty = FindCanvasWithParent(searchImage, parentName, lastComponent);
                         }
 
-                        // Strategy 7: Get all canvases and find one that might match by index
+                        // Strategy 7: Select a canvas by its pre-order index
                         // This handles cases where _Canvas has flat structure with different naming
                         if (targetProperty == null && int.TryParse(lastComponent, out int idx))
                         {
-                            var allCanvases = GetAllCanvasesInImage(searchImage);
-                            if (idx < allCanvases.Count)
-                            {
-                                targetProperty = allCanvases[idx];
-                            }
+                            targetProperty = FindCanvasByOrdinal(searchImage, idx);
                         }
                         } // end isCanvasPath strategies
                     } // end if propertyPath
@@ -677,7 +714,7 @@ namespace MapleLib.WzLib
             // If subdirectory path is specified, navigate to it first
             if (!string.IsNullOrEmpty(subdirPath))
             {
-                string[] subdirs = subdirPath.Split(new[] { '/' }, StringSplitOptions.RemoveEmptyEntries);
+                string[] subdirs = subdirPath.Split('/', StringSplitOptions.RemoveEmptyEntries);
                 WzDirectory current = directory;
 
                 foreach (string subdir in subdirs)
@@ -926,46 +963,45 @@ namespace MapleLib.WzLib
         }
 
         /// <summary>
-        /// Gets all canvas properties in an image in a flat list.
-        /// Useful as a fallback when path-based matching fails.
+        /// Selects a canvas by pre-order position without materializing the tree.
         /// </summary>
-        /// <param name="image">The WzImage to search in</param>
-        /// <returns>List of all canvas properties in the image</returns>
-        private List<WzCanvasProperty> GetAllCanvasesInImage(WzImage image)
+        private WzCanvasProperty FindCanvasByOrdinal(WzImage image, int index)
         {
-            var canvases = new List<WzCanvasProperty>();
-
-            if (image == null || image.WzProperties == null)
-                return canvases;
-
-            foreach (var prop in image.WzProperties)
+            int count = 0;
+            WzCanvasProperty selected = null;
+            if (image != null && image.WzProperties != null)
             {
-                CollectCanvasesFromProperty(prop, canvases);
+                foreach (var property in image.WzProperties)
+                    SelectCanvasFromProperty(property, index, ref count, ref selected);
             }
 
-            return canvases;
+            // The former list lookup rejected negative indices after traversal,
+            // aborting the outlink search rather than continuing to later shards.
+            if (index < 0)
+                throw new ArgumentOutOfRangeException(nameof(index));
+            return selected;
         }
 
-        /// <summary>
-        /// Recursively collects all canvas properties from a property tree.
-        /// </summary>
-        private void CollectCanvasesFromProperty(WzImageProperty property, List<WzCanvasProperty> canvases)
+        private void SelectCanvasFromProperty(WzImageProperty property, int index,
+            ref int count, ref WzCanvasProperty selected)
         {
             if (property == null)
                 return;
 
             if (property is WzCanvasProperty canvas)
             {
-                canvases.Add(canvas);
+                if (count == index)
+                    selected = canvas;
+                count++;
             }
 
+            // Complete the traversal even after selection: virtual child getters
+            // can have effects or throw before the caller copies canvas data.
             var children = property.WzProperties;
             if (children != null)
             {
                 foreach (var child in children)
-                {
-                    CollectCanvasesFromProperty(child, canvases);
-                }
+                    SelectCanvasFromProperty(child, index, ref count, ref selected);
             }
         }
 

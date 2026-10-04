@@ -1,4 +1,5 @@
 using System;
+using System.Buffers;
 using System.IO;
 using System.Text;
 
@@ -9,6 +10,7 @@ namespace MapleLib.PacketLib
 	/// </summary>
 	public class PacketReader : AbstractPacket, IDisposable
 	{
+		private const int StackStringBufferSize = 256;
 		/// <summary>
 		/// The main reader tool
 		/// </summary>
@@ -212,10 +214,45 @@ namespace MapleLib.PacketLib
 			if (length < 0)
 				throw new ArgumentOutOfRangeException(nameof(length));
 
-			byte[] bytes = ReadBytes(length);
-			if (bytes.Length != length)
-				throw new EndOfStreamException("The packet ended before the requested string length was read.");
-			return _encoding.GetString(bytes);
+			if (length > 0 && length <= StackStringBufferSize)
+			{
+				Span<byte> buffer = stackalloc byte[StackStringBufferSize];
+				int offset = 0;
+				while (offset < length)
+				{
+					int read = _binReader.Read(buffer[offset..length]);
+					if (read == 0)
+						throw new EndOfStreamException("The packet ended before the requested string length was read.");
+					offset += read;
+				}
+
+				return _encoding.GetString(buffer[..length]);
+			}
+
+			if (length == 0)
+			{
+				_binReader.ReadBytes(0);
+				return string.Empty;
+			}
+
+			byte[] bytes = ArrayPool<byte>.Shared.Rent(length);
+			try
+			{
+				int offset = 0;
+				while (offset < length)
+				{
+					int read = _binReader.Read(bytes, offset, length - offset);
+					if (read == 0)
+						throw new EndOfStreamException("The packet ended before the requested string length was read.");
+					offset += read;
+				}
+
+				return _encoding.GetString(bytes, 0, length);
+			}
+			finally
+			{
+				ArrayPool<byte>.Shared.Return(bytes);
+			}
 		}
 
 		/// <summary>

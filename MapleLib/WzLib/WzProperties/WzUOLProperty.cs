@@ -135,7 +135,6 @@ namespace MapleLib.WzLib.WzProperties
                         } else {
                             linkVal = (WzObject)this.parent;
                         }
-                        string fullPath = parent.FullPath;
                         foreach (string path in paths) {
                             if (linkVal == null)
                                 return null;
@@ -167,8 +166,11 @@ namespace MapleLib.WzLib.WzProperties
 
         private WzObject ResolveLinkValue()
         {
-            WzObject current = this;
-            HashSet<WzObject> visited = new HashSet<WzObject>();
+            WzObject current = LinkValue;
+            if (current is not WzUOLProperty)
+                return current;
+
+            HashSet<WzObject> visited = new HashSet<WzObject> { this };
             while (current is WzUOLProperty uol)
             {
                 if (!visited.Add(current))

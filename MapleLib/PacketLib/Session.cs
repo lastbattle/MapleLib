@@ -15,6 +15,7 @@ namespace MapleLib.PacketLib
 		/// The Session's socket
 		/// </summary>
 		private readonly Socket _socket;
+		private readonly AsyncCallback _receiveCallback;
 
 		private SessionType _type;
 
@@ -100,6 +101,7 @@ namespace MapleLib.PacketLib
 			ArgumentNullException.ThrowIfNull(socket);
 			_socket = socket;
 			_type = type;
+			_receiveCallback = OnDataReceived;
 		}
 
 		/// <summary>
@@ -127,7 +129,7 @@ namespace MapleLib.PacketLib
 					socketInfo.Index,
 					socketInfo.DataBuffer.Length - socketInfo.Index,
 					SocketFlags.None,
-					new AsyncCallback(OnDataReceived),
+					_receiveCallback,
 					socketInfo);
 			}
 			catch (Exception se)
@@ -176,7 +178,7 @@ namespace MapleLib.PacketLib
 							else
 							{
 								PacketReader headerReader = new PacketReader(socketInfo.DataBuffer);
-								byte[] packetHeaderB = headerReader.ToArray();
+								byte[] packetHeaderB = socketInfo.DataBuffer;
 								int packetHeader = headerReader.ReadInt();
 								int packetLength = MapleCrypto.GetPacketLength(packetHeader);
 								ValidatePacketLength(packetLength);
@@ -275,7 +277,7 @@ namespace MapleLib.PacketLib
 		public void SendPacket(PacketWriter packet)
 		{
 			ArgumentNullException.ThrowIfNull(packet);
-			SendPacket(packet.ToArray());
+			SendPacketCore(packet.ToArray(), inputOwned: true);
 		}
 
 		/// <summary>
@@ -285,6 +287,11 @@ namespace MapleLib.PacketLib
 		public void SendPacket(byte[] input)
 		{
 			ArgumentNullException.ThrowIfNull(input);
+			SendPacketCore(input, inputOwned: false);
+		}
+
+		private void SendPacketCore(byte[] input, bool inputOwned)
+		{
 			if (input.Length > ushort.MaxValue)
 				throw new ArgumentOutOfRangeException(nameof(input), "Maple packet payload cannot exceed the 16-bit header length.");
 
@@ -293,7 +300,7 @@ namespace MapleLib.PacketLib
 				if (_SIV == null)
 					throw new InvalidOperationException("The send cipher has not been initialized.");
 
-				byte[] cryptData = (byte[])input.Clone();
+				byte[] cryptData = inputOwned ? input : (byte[])input.Clone();
 				byte[] sendData = new byte[checked(cryptData.Length + 4)];
 				byte[] header = _type == SessionType.SERVER_TO_CLIENT ? _SIV.GetHeaderToClient(cryptData.Length) : _SIV.GetHeaderToServer(cryptData.Length);
 
@@ -302,7 +309,7 @@ namespace MapleLib.PacketLib
 
 				System.Buffer.BlockCopy(header, 0, sendData, 0, 4);
 				System.Buffer.BlockCopy(cryptData, 0, sendData, 4, cryptData.Length);
-				SendRawPacket(sendData);
+				SendRawPacketCore(sendData);
 			}
 		}
 
@@ -324,14 +331,19 @@ namespace MapleLib.PacketLib
 			ArgumentNullException.ThrowIfNull(buffer);
 			lock (_sendLock)
 			{
-				int sent = 0;
-				while (sent < buffer.Length)
-				{
-					int current = _socket.Send(buffer, sent, buffer.Length - sent, SocketFlags.None);
-					if (current <= 0)
-						throw new IOException("The socket closed before the complete packet was sent.");
-					sent += current;
-				}
+				SendRawPacketCore(buffer);
+			}
+		}
+
+		private void SendRawPacketCore(byte[] buffer)
+		{
+			int sent = 0;
+			while (sent < buffer.Length)
+			{
+				int current = _socket.Send(buffer, sent, buffer.Length - sent, SocketFlags.None);
+				if (current <= 0)
+					throw new IOException("The socket closed before the complete packet was sent.");
+				sent += current;
 			}
 		}
 

@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -91,25 +92,31 @@ namespace MapleLib.WzLib.WzProperties
             {
                 return null;
             }
-            string[] segments = path.Split(new char[1] { '/' }, System.StringSplitOptions.RemoveEmptyEntries);
-            if (segments.Length == 0)
-            {
-                return null;
-            }
-            if (segments[0] == "..")
-            {
-                return ((WzImageProperty)Parent)[path.Substring(name.IndexOf('/') + 1)];
-            }
+            ReadOnlySpan<char> remainingPath = path.AsSpan();
             WzImageProperty ret = this;
-            foreach (string segment in segments)
+            bool isFirstSegment = true;
+            while (!remainingPath.IsEmpty)
             {
-                ret = ret.WzProperties.Find(segment, System.StringComparison.Ordinal);
+                int separatorIndex = remainingPath.IndexOf('/');
+                ReadOnlySpan<char> segment = separatorIndex < 0
+                    ? remainingPath
+                    : remainingPath[..separatorIndex];
+                remainingPath = separatorIndex < 0
+                    ? default
+                    : remainingPath[(separatorIndex + 1)..];
+                if (segment.IsEmpty)
+                    continue;
+
+                if (isFirstSegment && segment.SequenceEqual(".."))
+                    return ((WzImageProperty)Parent)[path.Substring(name.IndexOf('/') + 1)];
+
+                isFirstSegment = false;
+                ret = ret.WzProperties.Find(segment);
                 if (ret == null)
-                {
-                    break;
-                }
+                    return null;
             }
-            return ret;
+
+            return ret == this && isFirstSegment ? null : ret;
         }
 
         /// <summary>

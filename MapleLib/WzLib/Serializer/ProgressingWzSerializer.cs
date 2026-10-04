@@ -1,9 +1,9 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Buffers;
 using System.IO;
 using System.Linq;
 using System.Text;
-using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 
 namespace MapleLib.WzLib.Serializer
@@ -30,8 +30,8 @@ namespace MapleLib.WzLib.Serializer
             Directory.CreateDirectory(path);
         }
 
-        private readonly static string regexSearch = ":" + new string(Path.GetInvalidFileNameChars()) + new string(Path.GetInvalidPathChars());
-        private readonly static Regex regex_invalidPath = new Regex(string.Format("[{0}]", Regex.Escape(regexSearch)));
+        private static readonly SearchValues<char> InvalidPathCharacters = SearchValues.Create(
+            (":" + new string(Path.GetInvalidFileNameChars()) + new string(Path.GetInvalidPathChars())).AsSpan());
         /// <summary>
         /// Escapes invalid file name and paths (if nexon uses any illegal character that causes issue during saving)
         /// </summary>
@@ -40,11 +40,34 @@ namespace MapleLib.WzLib.Serializer
         {
             ArgumentNullException.ThrowIfNull(path);
 
-            string escaped = regex_invalidPath.Replace(path, "").TrimEnd(' ', '.');
+            ReadOnlySpan<char> input = path.AsSpan();
+            int invalidIndex = input.IndexOfAny(InvalidPathCharacters);
+            string escaped;
+            if (invalidIndex < 0)
+            {
+                escaped = path.Substring(0, input.TrimEnd(" .").Length);
+            }
+            else
+            {
+                Span<char> buffer = path.Length <= 256 ? stackalloc char[path.Length] : new char[path.Length];
+                int written = 0;
+                do
+                {
+                    input.Slice(0, invalidIndex).CopyTo(buffer.Slice(written));
+                    written += invalidIndex;
+                    input = input.Slice(invalidIndex + 1);
+                    invalidIndex = input.IndexOfAny(InvalidPathCharacters);
+                } while (invalidIndex >= 0);
+
+                input.CopyTo(buffer.Slice(written));
+                written += input.Length;
+                escaped = new string(buffer.Slice(0, written).TrimEnd(" ."));
+            }
             if (escaped.Length == 0)
                 return "_";
 
-            string deviceName = escaped.Split('.')[0];
+            int dotIndex = escaped.IndexOf('.');
+            ReadOnlySpan<char> deviceName = dotIndex < 0 ? escaped.AsSpan() : escaped.AsSpan(0, dotIndex);
             if (deviceName.Equals("CON", StringComparison.OrdinalIgnoreCase) ||
                 deviceName.Equals("PRN", StringComparison.OrdinalIgnoreCase) ||
                 deviceName.Equals("AUX", StringComparison.OrdinalIgnoreCase) ||

@@ -252,16 +252,16 @@ namespace MapleLib.Img
         {
             EnsureInitialized();
             string categoryKey = category.ToLowerInvariant();
-            if (!_categoryIndex.ContainsKey(categoryKey))
+            if (!_categoryIndex.TryGetValue(categoryKey, out List<string> categoryPaths))
                 return null;
             if (_indexedCategories.ContainsKey(categoryKey))
-                return _categoryIndex[categoryKey];
+                return categoryPaths;
 
             _cacheLock.EnterUpgradeableReadLock();
             try
             {
                 if (_indexedCategories.ContainsKey(categoryKey))
-                    return _categoryIndex[categoryKey];
+                    return categoryPaths;
 
                 _cacheLock.EnterWriteLock();
                 try
@@ -538,7 +538,7 @@ namespace MapleLib.Img
         public bool CategoryExists(string category)
         {
             EnsureInitialized();
-            return _categoryIndex.ContainsKey(category.ToLower());
+            return _categoryIndex.ContainsKey(category.ToLowerInvariant());
         }
 
         /// <summary>
@@ -591,8 +591,17 @@ namespace MapleLib.Img
                 return Enumerable.Empty<string>();
             }
 
-            return HaCreatorPaths.EnumerateDirectoriesExcludingBackups(categoryPath, SearchOption.AllDirectories)
-                           .Select(d => d.Substring(categoryPath.Length).TrimStart(Path.DirectorySeparatorChar));
+            return EnumerateSubdirectories(categoryPath);
+        }
+
+        private static IEnumerable<string> EnumerateSubdirectories(string categoryPath)
+        {
+            int categoryPathLength = categoryPath.Length;
+            foreach (string directory in HaCreatorPaths.EnumerateDirectoriesExcludingBackups(categoryPath, SearchOption.AllDirectories))
+            {
+                ReadOnlySpan<char> relativePath = directory.AsSpan(categoryPathLength).TrimStart(Path.DirectorySeparatorChar);
+                yield return relativePath.ToString();
+            }
         }
         #endregion
 
@@ -691,9 +700,7 @@ namespace MapleLib.Img
 
             string fullFilePath = Path.GetFullPath(filePath);
             string versionRoot = Path.GetFullPath(_versionPath);
-            string versionRootWithSeparator = Path.EndsInDirectorySeparator(versionRoot)
-                ? versionRoot
-                : versionRoot + Path.DirectorySeparatorChar;
+            string versionRootWithSeparator = Path.EndsInDirectorySeparator(versionRoot) ? versionRoot : versionRoot + Path.DirectorySeparatorChar;
             string relativePath = fullFilePath.StartsWith(versionRootWithSeparator, StringComparison.OrdinalIgnoreCase)
                 ? fullFilePath.Substring(versionRootWithSeparator.Length)
                 : Path.GetFileName(fullFilePath);
@@ -718,10 +725,8 @@ namespace MapleLib.Img
                 fullPath += ".img";
 
             fullPath = Path.GetFullPath(fullPath);
-            string root = Path.GetFullPath(_versionPath);
-            string rootWithSeparator = Path.EndsInDirectorySeparator(root)
-                ? root
-                : root + Path.DirectorySeparatorChar;
+            string root = _versionPath;
+            string rootWithSeparator = Path.EndsInDirectorySeparator(root) ? root : root + Path.DirectorySeparatorChar;
 
             if (!fullPath.StartsWith(rootWithSeparator, StringComparison.OrdinalIgnoreCase))
                 throw new InvalidOperationException($"Image path escapes the version directory: {fullPath}");
@@ -734,11 +739,9 @@ namespace MapleLib.Img
             if (string.IsNullOrWhiteSpace(category))
                 throw new ArgumentException("Category is required.", nameof(category));
 
-            string root = Path.GetFullPath(_versionPath);
+            string root = _versionPath;
             string fullPath = Path.GetFullPath(Path.Combine(root, category));
-            string rootWithSeparator = Path.EndsInDirectorySeparator(root)
-                ? root
-                : root + Path.DirectorySeparatorChar;
+            string rootWithSeparator = Path.EndsInDirectorySeparator(root) ? root : root + Path.DirectorySeparatorChar;
             if (!fullPath.StartsWith(rootWithSeparator, StringComparison.OrdinalIgnoreCase))
                 throw new InvalidOperationException($"Category path escapes the version directory: {fullPath}");
             return fullPath;
@@ -782,10 +785,8 @@ namespace MapleLib.Img
         private string GetCacheKeyFromPath(string filePath)
         {
             // Extract category and relative path from full path
-            string root = Path.GetFullPath(_versionPath);
-            string rootWithSeparator = Path.EndsInDirectorySeparator(root)
-                ? root
-                : root + Path.DirectorySeparatorChar;
+            string root = _versionPath;
+            string rootWithSeparator = Path.EndsInDirectorySeparator(root) ? root : root + Path.DirectorySeparatorChar;
             if (!filePath.StartsWith(rootWithSeparator, StringComparison.OrdinalIgnoreCase))
                 return null;
 
@@ -848,7 +849,7 @@ namespace MapleLib.Img
             if (SaveImageToFile(newImage, fullPath))
             {
                 // Update category index
-                string categoryLower = category.ToLower();
+                string categoryLower = category.ToLowerInvariant();
                 if (!_categoryIndex.ContainsKey(categoryLower))
                 {
                     _categoryIndex[categoryLower] = new List<string>();
@@ -882,7 +883,7 @@ namespace MapleLib.Img
                 RemoveFromCache(category, relativePath);
 
                 // Remove from category index
-                string categoryLower = category.ToLower();
+                string categoryLower = category.ToLowerInvariant();
                 if (_categoryIndex.TryGetValue(categoryLower, out var paths))
                 {
                     paths.Remove(relativePath);
@@ -984,7 +985,17 @@ namespace MapleLib.Img
         public IEnumerable<KeyValuePair<string, WzImage>> GetChangedImages()
         {
             var allItems = _imageCache.GetAllItems();
-            return allItems.Where(kvp => kvp.Value != null && kvp.Value.Changed);
+            return EnumerateChangedImages(allItems);
+        }
+
+        private static IEnumerable<KeyValuePair<string, WzImage>> EnumerateChangedImages(
+            IEnumerable<KeyValuePair<string, WzImage>> items)
+        {
+            foreach (var item in items)
+            {
+                if (item.Value != null && item.Value.Changed)
+                    yield return item;
+            }
         }
 
         /// <summary>
@@ -993,7 +1004,14 @@ namespace MapleLib.Img
         /// <returns>Number of changed images in cache</returns>
         public int GetChangedImagesCount()
         {
-            return _imageCache.GetAllValues().Count(img => img != null && img.Changed);
+            int count = 0;
+            foreach (WzImage image in _imageCache.GetAllValues())
+            {
+                if (image != null && image.Changed)
+                    count++;
+            }
+
+            return count;
         }
 
         /// <summary>
@@ -1298,7 +1316,7 @@ namespace MapleLib.Img
             if (!relativePath.EndsWith(".img", StringComparison.OrdinalIgnoreCase))
                 return;
 
-            string categoryLower = category.ToLower();
+            string categoryLower = category.ToLowerInvariant();
 
             _cacheLock.EnterWriteLock();
             try
@@ -1331,7 +1349,7 @@ namespace MapleLib.Img
             if (string.IsNullOrEmpty(category) || string.IsNullOrEmpty(relativePath))
                 return;
 
-            string categoryLower = category.ToLower();
+            string categoryLower = category.ToLowerInvariant();
 
             _cacheLock.EnterWriteLock();
             try
@@ -1364,7 +1382,7 @@ namespace MapleLib.Img
             if (string.IsNullOrEmpty(category) || string.IsNullOrEmpty(relativePath))
                 return false;
 
-            string categoryLower = category.ToLower();
+            string categoryLower = category.ToLowerInvariant();
 
             _cacheLock.EnterReadLock();
             try
@@ -1392,7 +1410,7 @@ namespace MapleLib.Img
             _imageCache.Remove(cacheKey);
 
             // Also invalidate the directory cache for this category
-            string categoryLower = category.ToLower();
+            string categoryLower = category.ToLowerInvariant();
             if (_directoryCache.TryGetValue(categoryLower, out var dir))
             {
                 dir.Refresh();
@@ -1424,8 +1442,8 @@ namespace MapleLib.Img
                     _cacheLock.EnterWriteLock();
                     try
                     {
-                        _categoryIndex[category.ToLower()] = imageFiles;
-                        _indexedCategories[category.ToLower()] = 0;
+                        _categoryIndex[category.ToLowerInvariant()] = imageFiles;
+                        _indexedCategories[category.ToLowerInvariant()] = 0;
                     }
                     finally
                     {

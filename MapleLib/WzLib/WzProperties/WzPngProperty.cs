@@ -810,7 +810,7 @@ namespace MapleLib.WzLib.WzProperties
             int totalRead = 0;
             while (totalRead < buffer.Length)
             {
-                int bytesRead = stream.Read(buffer, totalRead, buffer.Length - totalRead);
+                int bytesRead = stream.Read(buffer.AsSpan(totalRead));
                 if (bytesRead == 0)
                     throw new InvalidDataException("PNG decompressed data is truncated.");
                 totalRead += bytesRead;
@@ -840,9 +840,12 @@ namespace MapleLib.WzLib.WzProperties
                 }
 
                 wzKey.EnsureKeySize(blockSize);
+                ReadOnlySpan<byte> key = wzKey.GetKeySpan();
+                ReadOnlySpan<byte> encrypted = source.AsSpan(sourceOffset, blockSize);
+                Span<byte> decrypted = destination.AsSpan(destinationOffset, blockSize);
                 for (int i = 0; i < blockSize; i++)
                 {
-                    destination[destinationOffset + i] = (byte)(source[sourceOffset + i] ^ wzKey[i]);
+                    decrypted[i] = (byte)(encrypted[i] ^ key[i]);
                 }
 
                 sourceOffset += blockSize;

@@ -44,6 +44,9 @@ public class ByteHexBenchmarks
 
     [Benchmark]
     public string HexEncodingAscii() => HexEncoding.ToStringFromAscii(_bytes);
+
+    [Benchmark]
+    public byte[] IntegerToLittleEndian() => ByteUtils.IntegerToLittleEndian(0x12345678);
 }
 
 [MemoryDiagnoser]

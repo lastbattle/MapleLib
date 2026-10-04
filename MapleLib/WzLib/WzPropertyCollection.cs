@@ -1,4 +1,4 @@
-/*Copyright(c) 2024, LastBattle https://github.com/lastbattle/Harepacker-resurrected
+﻿/*Copyright(c) 2024, LastBattle https://github.com/lastbattle/Harepacker-resurrected
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -21,6 +21,7 @@ SOFTWARE.
 
 using System;
 using System.Collections.Generic;
+using System.Runtime.InteropServices;
 
 namespace MapleLib.WzLib
 {
@@ -89,9 +90,10 @@ namespace MapleLib.WzLib
             // Name is mutable on every WzImageProperty.  The collection has
             // no setter callback, so only a miss needs this compatibility
             // fallback; stable hot-path hits remain dictionary probes.
-            for (int i = 0; i < Count; i++)
+            ReadOnlySpan<WzImageProperty> propertySpan = CollectionsMarshal.AsSpan(this);
+            for (int i = 0; i < propertySpan.Length; i++)
             {
-                WzImageProperty property = base[i];
+                WzImageProperty property = propertySpan[i];
                 if (string.Equals(property?.Name, name, StringComparison.OrdinalIgnoreCase))
                 {
                     RebuildIndex();
@@ -111,10 +113,24 @@ namespace MapleLib.WzLib
             if (comparison == StringComparison.OrdinalIgnoreCase)
                 return FindByName(name);
 
-            for (int i = 0; i < Count; i++)
+            ReadOnlySpan<WzImageProperty> propertySpan = CollectionsMarshal.AsSpan(this);
+            for (int i = 0; i < propertySpan.Length; i++)
             {
-                WzImageProperty property = base[i];
+                WzImageProperty property = propertySpan[i];
                 if (string.Equals(property?.Name, name, comparison))
+                    return property;
+            }
+
+            return null;
+        }
+
+        internal WzImageProperty Find(ReadOnlySpan<char> name)
+        {
+            ReadOnlySpan<WzImageProperty> propertySpan = CollectionsMarshal.AsSpan(this);
+            for (int i = 0; i < propertySpan.Length; i++)
+            {
+                WzImageProperty property = propertySpan[i];
+                if (property?.Name.AsSpan().SequenceEqual(name) == true)
                     return property;
             }
 
@@ -132,6 +148,9 @@ namespace MapleLib.WzLib
 
         public new void AddRange(IEnumerable<WzImageProperty> collection)
         {
+            if (collection is ICollection<WzImageProperty> items && items.Count > 0 && Count <= int.MaxValue - items.Count)
+                EnsureCapacity(Count + items.Count);
+
             foreach (WzImageProperty item in collection)
                 Add(item);
         }
@@ -147,8 +166,35 @@ namespace MapleLib.WzLib
 
         public new void InsertRange(int index, IEnumerable<WzImageProperty> collection)
         {
-            foreach (WzImageProperty item in collection)
-                Insert(index++, item);
+            if (collection == null)
+                throw new NullReferenceException();
+            if (ReferenceEquals(collection, this))
+            {
+                foreach (WzImageProperty item in collection)
+                    Insert(index++, item);
+                return;
+            }
+
+            // Materialize arbitrary enumerables before mutating the list so
+            // the index is rebuilt only once.  ICollection<T> inputs can be
+            // passed directly to List<T>.InsertRange without a temporary
+            // copy; this covers the normal array and List<T> callers.
+            IList<WzImageProperty> items = collection as IList<WzImageProperty>
+                ?? new List<WzImageProperty>(collection);
+            if (items.Count == 0)
+                return;
+            if ((uint)index > (uint)Count)
+                throw new ArgumentOutOfRangeException(nameof(index));
+
+            for (int i = 0; i < items.Count; i++)
+            {
+                WzImageProperty item = items[i];
+                if (parent != null && item != null)
+                    item.Parent = parent;
+            }
+
+            base.InsertRange(index, items);
+            RebuildIndex();
         }
 
         public new WzImageProperty this[int index]

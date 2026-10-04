@@ -220,7 +220,7 @@ namespace MapleLib.PacketLib
 
             try
             {
-                pair.ServerSession.SendPacket((byte[])payload.Clone());
+                pair.ServerSession.SendPacket(payload);
                 SentCount++;
                 status = $"Injected {payload?.Length ?? 0} byte(s) into {_role} role session {pair.RemoteEndpoint}.";
                 LastStatus = status;
@@ -376,7 +376,7 @@ namespace MapleLib.PacketLib
                     return;
                 }
 
-                pair.ClientSession.SendPacket((byte[])raw.Clone());
+                pair.ClientSession.SendPacket(raw);
                 RaiseServerPacket(pair.RemoteEndpoint, raw, false, pair.Version, pair.ProxySessionId);
                 ReceivedCount++;
                 LastPacketUtc = DateTime.UtcNow;

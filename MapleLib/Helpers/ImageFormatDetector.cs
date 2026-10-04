@@ -111,7 +111,13 @@ namespace MapleLib.Helpers
             byte maxAlpha = 0;
             bool isGrayscale = true;
             const int grayscaleTolerance = 8; // Allow small deviation for near-grayscale images
-            HashSet<uint> rgbSet = []; // Unique RGB colors
+            // Reserve the pixel count up front so large images do not repeatedly
+            // resize and rehash the color table while scanning. The set still
+            // stores only distinct colors; this merely avoids growth churn.
+            int pixelCount = checked(width * height);
+            // A modest seed avoids the default sequence of tiny rehashes while
+            // keeping flat-color thumbnails from reserving a full image-sized table.
+            HashSet<uint> rgbSet = new(Math.Min(pixelCount, 256)); // Unique RGB colors
             Span<ulong> alphaValues = stackalloc ulong[4];
             alphaValues.Clear();
             int uniqueAlphaValues = 0;
@@ -120,11 +126,12 @@ namespace MapleLib.Helpers
             long alphaGradientSum = 0;
             int gradientCount = 0;
 
-            for (int y = 0; y < height; y++)
+            int rowStride = checked(width * 4);
+            int rowOffset = 0;
+            for (int y = 0; y < height; y++, rowOffset += rowStride)
             {
-                for (int x = 0; x < width; x++)
+                for (int x = 0, i = rowOffset; x < width; x++, i += 4)
                 {
-                    int i = (y * width + x) * 4;
                     byte a = argbData[i + 3];
                     byte r = argbData[i + 2];
                     byte g = argbData[i + 1];
@@ -165,14 +172,14 @@ namespace MapleLib.Helpers
                     }
                     if (y > 0)
                     {
-                        byte aboveA = argbData[(i - width * 4) + 3];
+                        byte aboveA = argbData[i - rowStride + 3];
                         alphaGradientSum += Math.Abs(a - aboveA);
                         gradientCount++;
                     }
                 }
             }
 
-            int pixelCount = argbData.Length / 4;
+            pixelCount = argbData.Length / 4;
             double meanAlpha = (double)alphaSum / pixelCount;
             double alphaVariance = ((double)alphaSumSquares / pixelCount) - (meanAlpha * meanAlpha);
             double avgAlphaGradient = gradientCount > 0 ? (double)alphaGradientSum / gradientCount : 0;

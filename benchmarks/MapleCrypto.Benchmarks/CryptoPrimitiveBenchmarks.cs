@@ -14,6 +14,8 @@ public class CryptoPrimitiveBenchmarks
     private readonly byte[] _multiplySource = [0x4D, 0x23, 0xC7, 0x2B];
     private readonly MapleCryptoEngine _crypto = new([0x4D, 0x23, 0xC7, 0x2B], 95);
     private int _packetHeader = unchecked((int)0xA1B2C3D4);
+    private readonly byte[] _shuffleState = [0xF2, 0x53, 0x50, 0xC6];
+    private byte _shuffleInput;
 
     [Benchmark]
     public byte[] TrimUserKey() =>
@@ -23,6 +25,9 @@ public class CryptoPrimitiveBenchmarks
     public byte[] GetNewIV() => MapleCryptoEngine.GetNewIV(_iv);
 
     [Benchmark]
+    public byte[] Shuffle() => MapleCryptoEngine.Shuffle(++_shuffleInput, _shuffleState);
+
+    [Benchmark]
     public byte[] GetHeaderToClient() => _crypto.GetHeaderToClient(1460);
 
     [Benchmark]
@@ -30,6 +35,7 @@ public class CryptoPrimitiveBenchmarks
 
     [Benchmark]
     public int GetPacketLength() => MapleCryptoEngine.GetPacketLength(++_packetHeader);
+
 
     [Benchmark]
     public byte[] MultiplyBytes() => MapleCryptoEngine.MultiplyBytes(_multiplySource, 4, 4);

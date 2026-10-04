@@ -175,15 +175,17 @@ namespace MapleLib.Img
             if (_images == null || string.IsNullOrEmpty(imageName))
                 return false;
 
-            var image = _images.FirstOrDefault(img =>
-                img.Name?.Equals(imageName, StringComparison.OrdinalIgnoreCase) == true);
-
-            if (image != null)
+            for (int i = 0; i < _images.Count; i++)
             {
-                _images.Remove(image);
-                image.Dispose();
-                return true;
+                WzImage image = _images[i];
+                if (image.Name?.Equals(imageName, StringComparison.OrdinalIgnoreCase) == true)
+                {
+                    _images.RemoveAt(i);
+                    image.Dispose();
+                    return true;
+                }
             }
+
             return false;
         }
 
@@ -224,6 +226,8 @@ namespace MapleLib.Img
             get
             {
                 EnsureSubdirectoriesPopulated();
+                // Preserve WzDirectory's snapshot semantics: callers may mutate
+                // the returned list without changing the virtual directory.
                 return _subDirectories.Cast<WzDirectory>().ToList();
             }
         }
@@ -235,22 +239,21 @@ namespace MapleLib.Img
         {
             get
             {
+                ArgumentNullException.ThrowIfNull(name);
                 EnsureSubdirectoriesPopulated();
                 EnsureImagesPopulated();
-
-                string nameLower = name.ToLower();
 
                 // Check images first
                 foreach (var img in _images)
                 {
-                    if (img.Name.ToLower() == nameLower)
+                    if (string.Equals(img.Name, name, StringComparison.OrdinalIgnoreCase))
                         return img;
                 }
 
                 // Then check subdirectories
                 foreach (var dir in _subDirectories)
                 {
-                    if (dir.Name.ToLower() == nameLower)
+                    if (string.Equals(dir.Name, name, StringComparison.OrdinalIgnoreCase))
                         return dir;
                 }
 
@@ -263,9 +266,16 @@ namespace MapleLib.Img
         /// </summary>
         public override WzImage GetImageByName(string name)
         {
+            ArgumentNullException.ThrowIfNull(name);
             EnsureImagesPopulated();
-            string nameLower = name.ToLower();
-            return _images.FirstOrDefault(img => img.Name.ToLower() == nameLower);
+            for (int i = 0; i < _images.Count; i++)
+            {
+                WzImage image = _images[i];
+                if (string.Equals(image.Name, name, StringComparison.OrdinalIgnoreCase))
+                    return image;
+            }
+
+            return null;
         }
 
         /// <summary>
@@ -273,9 +283,16 @@ namespace MapleLib.Img
         /// </summary>
         public override WzDirectory GetDirectoryByName(string name)
         {
+            ArgumentNullException.ThrowIfNull(name);
             EnsureSubdirectoriesPopulated();
-            string nameLower = name.ToLower();
-            return _subDirectories.FirstOrDefault(dir => dir.Name.ToLower() == nameLower);
+            for (int i = 0; i < _subDirectories.Count; i++)
+            {
+                VirtualWzDirectory directory = _subDirectories[i];
+                if (string.Equals(directory.Name, name, StringComparison.OrdinalIgnoreCase))
+                    return directory;
+            }
+
+            return null;
         }
 
         /// <summary>
@@ -323,7 +340,13 @@ namespace MapleLib.Img
         /// </summary>
         public WzImage FindImage(string relativePath)
         {
-            string[] parts = relativePath.Split(new[] { '/', '\\' }, StringSplitOptions.RemoveEmptyEntries);
+            // Direct image lookups are common and do not need path tokenization.
+            // Keep null on the existing split path so its historical exception
+            // behavior is unchanged.
+            if (relativePath != null && relativePath.AsSpan().IndexOfAny('/', '\\') < 0)
+                return GetImageByName(relativePath);
+
+            string[] parts = relativePath.Split('/', '\\', StringSplitOptions.RemoveEmptyEntries);
 
             if (parts.Length == 0)
                 return null;

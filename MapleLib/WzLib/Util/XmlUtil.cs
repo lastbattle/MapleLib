@@ -73,12 +73,9 @@ namespace MapleLib.WzLib.Util
 
 		public static string Indentation(int level)
 		{
-			char[] indent = new char[level];
-			for (int i = 0; i < indent.Length; i++)
-			{
-				indent[i] = '\t';
-			}
-			return new String(indent);
+			if (level < 0)
+				throw new OverflowException();
+			return new string('\t', level);
 		}
 	}
 }

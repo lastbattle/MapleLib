@@ -159,10 +159,15 @@ namespace MapleLib.MapleCryptoLib
 			int a = _IV[3] * 0x100 + _IV[2];
 			a = a ^ (_mapleVersion);
 			int b = a ^ size;
-			header[0] = Convert.ToByte(a % 0x100);
-			header[1] = Convert.ToByte(a / 0x100);
-			header[2] = Convert.ToByte(b % 0x100);
-			header[3] = Convert.ToByte(b / 0x100);
+			// The validated packet/version inputs produce non-negative words. Keep
+			// the old Convert.ToByte failure contract for negative custom versions,
+			// while avoiding modulo/division and conversion calls on the hot path.
+			if (a < 0 || b < 0)
+				throw new OverflowException();
+			header[0] = (byte)a;
+			header[1] = (byte)(a >> 8);
+			header[2] = (byte)b;
+			header[3] = (byte)(b >> 8);
 			return header;
 		}
 
@@ -187,8 +192,8 @@ namespace MapleLib.MapleCryptoLib
 			{
 				return -1;
 			}
-			return BinaryPrimitives.ReadUInt16LittleEndian(packetHeader) ^
-				BinaryPrimitives.ReadUInt16LittleEndian(packetHeader.AsSpan(2));
+			return (packetHeader[0] | (packetHeader[1] << 8)) ^
+				(packetHeader[2] | (packetHeader[3] << 8));
 
 		}
 
@@ -246,9 +251,13 @@ namespace MapleLib.MapleCryptoLib
 			}
 
 			ReadOnlySpan<byte> pattern = input.AsSpan(0, count);
-			for (int offset = 0; offset < ret.Length; offset += count)
+			pattern.CopyTo(ret);
+			int filled = count;
+			while (filled < ret.Length)
 			{
-				pattern.CopyTo(ret.AsSpan(offset, count));
+				int copyLength = Math.Min(filled, ret.Length - filled);
+				ret.AsSpan(0, copyLength).CopyTo(ret.AsSpan(filled));
+				filled += copyLength;
 			}
 			return ret;
 		}

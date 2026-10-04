@@ -4,10 +4,12 @@
     <TargetFramework>net10.0-windows</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
 
   <ItemGroup>
     <PackageReference Include="BenchmarkDotNet" Version="0.15.6" />
+    <PackageReference Include="lz4net" Version="1.0.15.93" />
     <ProjectReference Include="..\..\MapleLib\MapleLib.csproj" />
   </ItemGroup>
 

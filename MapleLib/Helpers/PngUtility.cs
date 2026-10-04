@@ -273,17 +273,16 @@ namespace MapleLib.Helpers
                             }
                             else
                             {
-                                for (int i = 0; i < 4; i++)
+                                int copyWidth = Math.Min(4, width - x);
+                                byte* destination = pDecoded + pixelY * stride + x * 4;
+                                for (int i = 0; i < copyWidth; i++)
                                 {
-                                    int pixelX = x + i;
-                                    if (pixelX >= width) continue;
-
                                     Color color = colorTable[colorIdxTable[baseIdx + i]];
-                                    int pixelOffset = pixelY * stride + pixelX * 4;
-                                    pDecoded[pixelOffset] = color.B;
-                                    pDecoded[pixelOffset + 1] = color.G;
-                                    pDecoded[pixelOffset + 2] = color.R;
-                                    pDecoded[pixelOffset + 3] = alphaTable[baseIdx + i];
+                                    destination[0] = color.B;
+                                    destination[1] = color.G;
+                                    destination[2] = color.R;
+                                    destination[3] = alphaTable[baseIdx + i];
+                                    destination += 4;
                                 }
                             }
                         }
@@ -291,6 +290,42 @@ namespace MapleLib.Helpers
 
                     return buffers;
                 }, _ => { });
+                return;
+            }
+
+            // Avoid Parallel.For setup for the small images that are common in UI assets.
+            if (blockCountX * blockCountY <= 16)
+            {
+                Color[] colorTable = new Color[4];
+                int[] colorIdxTable = new int[16];
+                byte[] alphaTable = new byte[16];
+                for (int blockY = 0; blockY < blockCountY; blockY++)
+                {
+                    int y = blockY * 4;
+                    int copyHeight = Math.Min(4, height - y);
+                    for (int blockX = 0; blockX < blockCountX; blockX++)
+                    {
+                        int x = blockX * 4;
+                        int off = (blockY * blockCountX + blockX) * 16;
+                        ExpandAlphaTableDXT3(alphaTable, rawData, off);
+                        ExpandColorTable(colorTable, BitConverter.ToUInt16(rawData, off + 8), BitConverter.ToUInt16(rawData, off + 10));
+                        ExpandColorIndexTable(colorIdxTable, rawData, off + 12);
+                        int copyWidth = Math.Min(4, width - x);
+                        for (int j = 0; j < copyHeight; j++)
+                        {
+                            byte* destination = pDecoded + (y + j) * stride + x * 4;
+                            for (int i = 0; i < copyWidth; i++)
+                            {
+                                Color color = colorTable[colorIdxTable[j * 4 + i]];
+                                destination[0] = color.B;
+                                destination[1] = color.G;
+                                destination[2] = color.R;
+                                destination[3] = alphaTable[j * 4 + i];
+                                destination += 4;
+                            }
+                        }
+                    }
+                }
                 return;
             }
 
@@ -315,21 +350,19 @@ namespace MapleLib.Helpers
                     ExpandColorTable(colorTable, u0, u1);
                     ExpandColorIndexTable(colorIdxTable, rawData, off + 12);
 
-                    for (int j = 0; j < 4; j++)
+                    int copyHeight = Math.Min(4, height - y);
+                    int copyWidth = Math.Min(4, width - x);
+                    for (int j = 0; j < copyHeight; j++)
                     {
-                        int pixelY = y + j;
-                        if (pixelY >= height) continue;
-                        for (int i = 0; i < 4; i++)
+                        byte* destination = pDecoded + (y + j) * stride + x * 4;
+                        for (int i = 0; i < copyWidth; i++)
                         {
-                            int pixelX = x + i;
-                            if (pixelX >= width) continue;
-
                             Color color = colorTable[colorIdxTable[j * 4 + i]];
-                            int pixelOffset = pixelY * stride + pixelX * 4;
-                            pDecoded[pixelOffset] = color.B;
-                            pDecoded[pixelOffset + 1] = color.G;
-                            pDecoded[pixelOffset + 2] = color.R;
-                            pDecoded[pixelOffset + 3] = alphaTable[j * 4 + i];
+                            destination[0] = color.B;
+                            destination[1] = color.G;
+                            destination[2] = color.R;
+                            destination[3] = alphaTable[j * 4 + i];
+                            destination += 4;
                         }
                     }
                 }
@@ -411,6 +444,46 @@ namespace MapleLib.Helpers
 
             int stride = bmpData.Stride;        // Use actual stride for offset calculation
 
+            // Small textures avoid parallel scheduling and reuse a single set of block tables.
+            if (blockCountX * blockCountY <= 16)
+            {
+                Color[] colorTable = new Color[4];
+                int[] colorIdxTable = new int[16];
+                byte[] alphaTable = new byte[8];
+                int[] alphaIdxTable = new int[16];
+                byte* pDecoded = (byte*)bmpData.Scan0;
+                for (int blockY = 0; blockY < blockCountY; blockY++)
+                {
+                    int y = blockY * 4;
+                    int copyHeight = Math.Min(4, height - y);
+                    for (int blockX = 0; blockX < blockCountX; blockX++)
+                    {
+                        int x = blockX * 4;
+                        int off = (blockY * blockCountX + blockX) * 16;
+                        ExpandAlphaTableDXT5(alphaTable, rawData[off], rawData[off + 1]);
+                        ExpandAlphaIndexTableDXT5(alphaIdxTable, rawData, off + 2);
+                        ExpandColorTable(colorTable, BitConverter.ToUInt16(rawData, off + 8), BitConverter.ToUInt16(rawData, off + 10));
+                        ExpandColorIndexTable(colorIdxTable, rawData, off + 12);
+                        int copyWidth = Math.Min(4, width - x);
+                        for (int j = 0; j < copyHeight; j++)
+                        {
+                            byte* destination = pDecoded + (y + j) * stride + x * 4;
+                            for (int i = 0; i < copyWidth; i++)
+                            {
+                                int index = j * 4 + i;
+                                Color color = colorTable[colorIdxTable[index]];
+                                destination[0] = color.B;
+                                destination[1] = color.G;
+                                destination[2] = color.R;
+                                destination[3] = alphaTable[alphaIdxTable[index]];
+                                destination += 4;
+                            }
+                        }
+                    }
+                }
+                return;
+            }
+
             if (Sse2.IsSupported)
             {
                 byte* pDecoded = (byte*)bmpData.Scan0;
@@ -443,21 +516,21 @@ namespace MapleLib.Helpers
                             ExpandColorIndexTable(colorIndices, rawData, offset + 12);
 
                             // Write pixels for block 1
-                            for (int j = 0; j < 4; j++)
+                            int pixelBaseY = y * 4;
+                            int copyHeight = Math.Min(4, height - pixelBaseY);
+                            int copyWidth = Math.Min(4, width - x * 4);
+                            for (int j = 0; j < copyHeight; j++)
                             {
-                                int pixelY = y * 4 + j;
-                                if (pixelY >= height) continue; // Skip if out of bounds
-                                for (int i = 0; i < 4; i++)
+                                byte* destination = pDecoded + (pixelBaseY + j) * stride + x * 16;
+                                for (int i = 0; i < copyWidth; i++)
                                 {
-                                    int pixelX = x * 4 + i;
-                                    if (pixelX >= width) continue; // Skip if out of bounds
-                                    int pixelOffset = pixelY * stride + pixelX * 4;
                                     Color c = colors[colorIndices[j * 4 + i]];
                                     byte alpha = alphaTable[alphaIdxTable[j * 4 + i]];
-                                    pDecoded[pixelOffset] = c.B;
-                                    pDecoded[pixelOffset + 1] = c.G;
-                                    pDecoded[pixelOffset + 2] = c.R;
-                                    pDecoded[pixelOffset + 3] = alpha;
+                                    destination[0] = c.B;
+                                    destination[1] = c.G;
+                                    destination[2] = c.R;
+                                    destination[3] = alpha;
+                                    destination += 4;
                                 }
                             }
 
@@ -475,21 +548,20 @@ namespace MapleLib.Helpers
                                 ExpandColorIndexTable(colorIndices, rawData, offset + 28);
 
                                 // Write pixels for block 2
-                                for (int j = 0; j < 4; j++)
+                                int secondBlockStartX = (x + 1) * 4;
+                                int secondCopyWidth = Math.Min(4, width - secondBlockStartX);
+                                for (int j = 0; j < copyHeight; j++)
                                 {
-                                    int pixelY = y * 4 + j;
-                                    if (pixelY >= height) continue; // Skip if out of bounds
-                                    for (int i = 0; i < 4; i++)
+                                    byte* destination = pDecoded + (pixelBaseY + j) * stride + secondBlockStartX * 4;
+                                    for (int i = 0; i < secondCopyWidth; i++)
                                     {
-                                        int pixelX = (x + 1) * 4 + i;
-                                        if (pixelX >= width) continue; // Skip if out of bounds
-                                        int pixelOffset = pixelY * stride + pixelX * 4;
                                         Color c = colors[colorIndices[j * 4 + i]];
                                         byte alpha = alphaTable[alphaIdxTable[j * 4 + i]];
-                                        pDecoded[pixelOffset] = c.B;
-                                        pDecoded[pixelOffset + 1] = c.G;
-                                        pDecoded[pixelOffset + 2] = c.R;
-                                        pDecoded[pixelOffset + 3] = alpha;
+                                        destination[0] = c.B;
+                                        destination[1] = c.G;
+                                        destination[2] = c.R;
+                                        destination[3] = alpha;
+                                        destination += 4;
                                     }
                                 }
                             }
@@ -621,12 +693,9 @@ namespace MapleLib.Helpers
         {
             for (int i = 0; i < 16; i += 2, offset++)
             {
-                alpha[i + 0] = (byte)(rawData[offset] & 0x0f);
-                alpha[i + 1] = (byte)((rawData[offset] & 0xf0) >> 4);
-            }
-            for (int i = 0; i < 16; i++)
-            {
-                alpha[i] = (byte)(alpha[i] | (alpha[i] << 4));
+                byte packed = rawData[offset];
+                alpha[i] = (byte)((packed & 0x0f) * 17);
+                alpha[i + 1] = (byte)((packed >> 4) * 17);
             }
         }
 

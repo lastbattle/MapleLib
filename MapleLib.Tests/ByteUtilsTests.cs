@@ -206,7 +206,32 @@ public sealed class ByteUtilsTests
     [Fact]
     public void CompareBytearrays_RejectsNullInputs()
     {
-        Assert.Throws<ArgumentNullException>(() => ByteUtils.CompareBytearrays(null!, []));
-        Assert.Throws<ArgumentNullException>(() => ByteUtils.CompareBytearrays([], null!));
+        Assert.Equal("a", Assert.Throws<ArgumentNullException>(() => ByteUtils.CompareBytearrays(null!, [])).ParamName);
+        Assert.Equal("b", Assert.Throws<ArgumentNullException>(() => ByteUtils.CompareBytearrays([], null!)).ParamName);
+        Assert.Equal("a", Assert.Throws<ArgumentNullException>(() => ByteUtils.CompareBytearrays(null!, null!)).ParamName);
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(1)]
+    [InlineData(31)]
+    [InlineData(32)]
+    [InlineData(33)]
+    [InlineData(4096)]
+    public void CompareBytearrays_RequiresEqualLengthsAndEveryByte(int length)
+    {
+        byte[] left = Enumerable.Range(0, length).Select(i => (byte)i).ToArray();
+        byte[] right = (byte[])left.Clone();
+        Assert.True(ByteUtils.CompareBytearrays(left, right));
+        Assert.True(ByteUtils.CompareBytearrays(left, left));
+        Assert.False(ByteUtils.CompareBytearrays(left, new byte[length + 1]));
+        Assert.False(ByteUtils.CompareBytearrays(new byte[length + 1], left));
+        if (length == 0) return;
+        foreach (int index in new[] { 0, length / 2, length - 1 }.Distinct())
+        {
+            right[index] ^= 1;
+            Assert.False(ByteUtils.CompareBytearrays(left, right));
+            right[index] ^= 1;
+        }
     }
 }

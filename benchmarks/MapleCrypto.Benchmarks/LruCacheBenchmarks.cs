@@ -57,6 +57,18 @@ public class LruCacheBenchmarks
         return checksum;
     }
 
+    [Benchmark]
+    public int SameKeyHotHit()
+    {
+        int checksum = 0;
+        for (int operation = 0; operation < OperationsPerWorker; operation++)
+        {
+            _cache.TryGet(_keys[0], out CacheValue? value);
+            checksum += value!.Value;
+        }
+        return checksum;
+    }
+
     [Benchmark(OperationsPerInvoke = OperationsPerWorker)]
     public int HotMissSingleThread()
     {

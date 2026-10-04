@@ -1,4 +1,4 @@
-using System.Collections.Generic;
+﻿using System.Collections.Generic;
 using System.Buffers;
 using System.IO;
 using System.Text.RegularExpressions;
@@ -292,7 +292,7 @@ namespace MapleLib.WzLib
             long headerPadding = (long)this.Header.FStart - reader.BaseStream.Position;
             if (headerPadding < 0 || headerPadding > int.MaxValue)
                 throw new InvalidDataException("WZ header padding is invalid.");
-            byte[] unk2 = reader.ReadBytes((int)headerPadding);
+            reader.BaseStream.Position = checked(reader.BaseStream.Position + headerPadding);
             reader.Header = this.Header;
 
             Check64BitClient(reader);  // update b64BitClient flag
@@ -765,7 +765,7 @@ namespace MapleLib.WzLib
             else if (!path.Contains("*"))
                 return new List<WzObject> { GetObjectFromPath(path) };
 
-            string[] seperatedNames = path.Split("/".ToCharArray());
+            string[] seperatedNames = path.Split('/');
             if (seperatedNames.Length == 2 && seperatedNames[1] == "*")
                 return GetObjectsFromDirectory(WzDirectory);
 
@@ -992,20 +992,31 @@ namespace MapleLib.WzLib
         public List<WzObject> GetObjectsFromDirectory(WzDirectory dir)
         {
             List<WzObject> objList = new List<WzObject>();
-            foreach (WzImage image in dir.WzImages)
-                objList.AddRange(GetObjectsFromImage(image));
-            foreach (WzDirectory subDirectory in dir.WzDirectories)
-                objList.AddRange(GetObjectsFromDirectory(subDirectory));
+            AppendObjectsFromDirectory(dir, objList);
             return objList;
+        }
+
+        private void AppendObjectsFromDirectory(WzDirectory dir, List<WzObject> objList)
+        {
+            foreach (WzImage image in dir.WzImages)
+            {
+                foreach (WzImageProperty property in image.WzProperties)
+                {
+                    objList.Add(property);
+                    AppendObjectsFromProperty(property, objList);
+                }
+            }
+            foreach (WzDirectory subDirectory in dir.WzDirectories)
+                AppendObjectsFromDirectory(subDirectory, objList);
         }
 
         public List<WzObject> GetObjectsFromImage(WzImage img)
         {
-            var objList = new List<WzObject>();
+            var objList = new List<WzObject>(img.WzProperties.Count);
             foreach (WzImageProperty property in img.WzProperties)
             {
                 objList.Add(property);
-                objList.AddRange(GetObjectsFromProperty(property));
+                AppendObjectsFromProperty(property, objList);
             }
             return objList;
         }
@@ -1013,9 +1024,14 @@ namespace MapleLib.WzLib
         public List<WzObject> GetObjectsFromProperty(WzImageProperty prop)
         {
             List<WzObject> objList = new List<WzObject>();
-            var subProperties = new List<WzImageProperty>();
+            AppendObjectsFromProperty(prop, objList);
+            return objList;
+        }
 
-            bool bAddRange = true;
+        private static void AppendObjectsFromProperty(WzImageProperty prop, List<WzObject> objList)
+        {
+            WzPropertyCollection subProperties = null;
+
             switch (prop.PropertyType)
             {
                 case WzPropertyType.Canvas:
@@ -1031,19 +1047,16 @@ namespace MapleLib.WzLib
                 case WzPropertyType.Vector:
                     objList.Add(((WzVectorProperty)prop).X);
                     objList.Add(((WzVectorProperty)prop).Y);
-                    bAddRange = false;
                     break;
             }
 
-            if (bAddRange)
+            if (subProperties != null)
             {
                 foreach (WzImageProperty subProperty in subProperties)
                 {
-                    objList.AddRange(GetObjectsFromProperty(subProperty));
+                    AppendObjectsFromProperty(subProperty, objList);
                 }
             }
-
-            return objList;
         }
 
         internal List<string> GetPathsFromDirectory(WzDirectory dir, string curPath)
@@ -1080,9 +1093,8 @@ namespace MapleLib.WzLib
         internal List<string> GetPathsFromProperty(WzImageProperty prop, string curPath)
         {
             List<string> objList = new List<string>();
-            var subProperties = new List<WzImageProperty>();
+            WzPropertyCollection subProperties = null;
 
-            bool bAddRange = true;
             switch (prop.PropertyType)
             {
                 case WzPropertyType.Canvas:
@@ -1098,11 +1110,10 @@ namespace MapleLib.WzLib
                 case WzPropertyType.Vector:
                     objList.Add(curPath + "/X");
                     objList.Add(curPath + "/Y");
-                    bAddRange = false;
                     break;
             }
 
-            if (bAddRange)
+            if (subProperties != null)
             {
                 foreach (WzImageProperty subProperty in subProperties)
                 {
@@ -1110,7 +1121,6 @@ namespace MapleLib.WzLib
                     objList.AddRange(GetPathsFromProperty(subProperty, propertyPath));
                 }
             }
-
             return objList;
         }
 
@@ -1196,8 +1206,8 @@ namespace MapleLib.WzLib
                         ReadOnlySpan<char> nameSpan = dir.name.AsSpan();
                         ReadOnlySpan<char> partSpan = separatedPath[0].AsSpan();
                         if (string.Equals(dir.name, separatedPath[0], StringComparison.OrdinalIgnoreCase) ||
-                            (dir.name.Length > 3 && nameSpan.Slice(0, dir.name.Length - 3).SequenceEqual(partSpan) && // SequenceEqual for spans, but for ignore case, use custom or fallback
-                             string.Equals(dir.name.Substring(0, dir.name.Length - 3), separatedPath[0], StringComparison.OrdinalIgnoreCase))) // Fallback to Substring for ignore case; optimize if possible
+                            (dir.name.Length > 3 &&
+                             nameSpan[..^3].Equals(partSpan, StringComparison.OrdinalIgnoreCase)))
                         {
                             wzInnerDir = dir;
                             break;
