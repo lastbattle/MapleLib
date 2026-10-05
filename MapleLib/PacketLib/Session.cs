@@ -245,11 +245,18 @@ namespace MapleLib.PacketLib
 				{
 					Helpers.ErrorLogger.Log(Helpers.ErrorLevel.Critical, "[Error] Session.OnDataReceived: " + se);
 				}
+RaiseDisconnected();
 			}
 			catch (Exception e)
 			{
 				Helpers.ErrorLogger.Log(Helpers.ErrorLevel.Critical, "[Error] Session.OnDataReceived: " + e);
+				RaiseDisconnected();
 			}
+		}
+
+		private void RaiseDisconnected()
+		{
+			OnClientDisconnected?.Invoke(this);
 		}
 
         public void SendInitialPacket(int pVersion, string pPatchLoc, byte[] pRIV, byte[] pSIV, byte pServerType)
