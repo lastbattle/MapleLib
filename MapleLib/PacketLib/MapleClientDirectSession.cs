@@ -439,7 +439,7 @@ namespace MapleLib.PacketLib
                     return; // ConnectAsync performs the retirement
                 }
 
-                args = RetireCurrentConnectionLocked("Server closed the connection.");
+                args = RetireCurrentConnectionLocked("Server closed the connection.", expected: false);
             }
 
             if (args != null)
@@ -447,7 +447,7 @@ namespace MapleLib.PacketLib
         }
 
         /// <summary>Teardown only; caller holds <see cref="_sync"/>.</summary>
-        private MapleDirectSessionDisconnectedEventArgs RetireCurrentConnectionLocked(string reason)
+        private MapleDirectSessionDisconnectedEventArgs RetireCurrentConnectionLocked(string reason, bool expected = true)
         {
             if (_session == null)
                 return null;
@@ -472,7 +472,7 @@ namespace MapleLib.PacketLib
 
             // A locally initiated close owns the disconnect notification so the
             // Session's socket callback cannot double-report the same generation.
-            return new MapleDirectSessionDisconnectedEventArgs(_role, generation, reason, expected: true);
+            return new MapleDirectSessionDisconnectedEventArgs(_role, generation, reason, expected);
         }
 
         private static int DecodeOpcode(byte[] rawPacket)
