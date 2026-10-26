@@ -145,11 +145,11 @@ namespace MapleLib.WzLib.Serializer
 
             foreach (WzDirectory subdir in dir.WzDirectories)
             {
-                SerializeDirectory(subdir, outPath + subdir.Name + @"\");
+                SerializeDirectory(subdir, outPath + EscapeInvalidFilePathNames(subdir.Name) + @"\");
             }
             foreach (WzImage img in dir.WzImages)
             {
-                SerializeImage(img, outPath + img.Name);
+                SerializeImage(img, outPath + EscapeInvalidFilePathNames(img.Name));
             }
         }
 
