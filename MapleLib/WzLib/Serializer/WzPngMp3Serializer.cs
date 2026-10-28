@@ -89,7 +89,16 @@ namespace MapleLib.WzLib.Serializer
             }
             else if (currObj is WzCanvasProperty canvasProperty)
             {
-                Bitmap bmp = canvasProperty.GetLinkedWzCanvasBitmap();
+                Bitmap? bmp = canvasProperty.GetLinkedWzCanvasBitmap();
+                if (bmp == null)
+                {
+                    // A crafted canvas can reference a broken link and carry
+                    // no resolvable bitmap; skip the node instead of faulting
+                    // the whole export run.
+                    Helpers.ErrorLogger.Log(Helpers.ErrorLevel.IncorrectStructure,
+                        $"Canvas '{canvasProperty.FullPath}' has no resolvable bitmap; skipped.");
+                    return;
+                }
 
                 string path = outPath + EscapeInvalidFilePathNames(currObj.Name) + ".png";
 
