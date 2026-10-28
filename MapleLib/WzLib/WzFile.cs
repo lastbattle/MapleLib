@@ -728,7 +728,13 @@ namespace MapleLib.WzLib
         {
             if (oneFile)
             {
-                FileStream fs = File.Create(path + "/" + this.name + ".xml");
+                // The WZ name is package/renamer controlled: compose the
+                // target from the export directory plus the escaped name so a
+                // hostile name cannot escape the operator's export root.
+                string escapedName = MapleLib.WzLib.Serializer.ProgressingWzSerializer.EscapeInvalidFilePathNames(name ?? string.Empty);
+                string targetDirectory = Path.GetFullPath(path);
+                Directory.CreateDirectory(targetDirectory);
+                FileStream fs = File.Create(Path.Combine(targetDirectory, escapedName + ".xml"));
                 StreamWriter writer = new StreamWriter(fs);
 
                 int level = 0;
