@@ -35,8 +35,22 @@ namespace MapleLib.WzLib.Serializer
         {
             List<WzObject> result = new List<WzObject>();
             XmlDocument doc = new XmlDocument();
-            doc.Load(path);
-            XmlElement mainElement = (XmlElement)doc.ChildNodes[1];
+
+            // Imported XML is untrusted: skip DTD processing entirely so
+            // crafted entities cannot amplify or fetch resources during
+            // parse, and take the root element directly so a document type
+            // node cannot shift the child indexes.
+            XmlReaderSettings readerSettings = new XmlReaderSettings
+            {
+                DtdProcessing = DtdProcessing.Ignore,
+                XmlResolver = null,
+            };
+
+            using (XmlReader reader = XmlReader.Create(path, readerSettings))
+            {
+                doc.Load(reader);
+            }
+            XmlElement mainElement = (XmlElement)doc.DocumentElement;
             curr = 0;
             if (mainElement.Name == "xmldump")
             {
