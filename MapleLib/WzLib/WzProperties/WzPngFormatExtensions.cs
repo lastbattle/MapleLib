@@ -9,8 +9,8 @@ namespace MapleLib.WzLib.WzProperties
     {
         // Keep decoded image allocations bounded before they reach a byte array
         // or GDI+ bitmap. Real WZ canvases are well below this limit.
-        internal const int MaxDecodedSize = 256 * 1024 * 1024;
-        internal const int MaxDimension = 32768;
+    public const int MaxDecodedSize = 256 * 1024 * 1024;
+    public const int MaxDimension = 32768;
 
         /// <summary>
         /// Gets the pixel format for the WZ PNG format
