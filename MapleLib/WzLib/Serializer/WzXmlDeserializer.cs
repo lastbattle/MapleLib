@@ -149,15 +149,37 @@ namespace MapleLib.WzLib.Serializer
                     return sub;
 
                 case "canvas":
-                    WzCanvasProperty canvas = new WzCanvasProperty(element.GetAttribute("name"));
-                    if (!element.HasAttribute("basedata"))
-                        throw new NoBase64DataException("no base64 data in canvas element with name " + canvas.Name);
-                    canvas.PngProperty = new WzPngProperty();
-                    MemoryStream pngstream = new MemoryStream(Convert.FromBase64String(element.GetAttribute("basedata")));
-                    canvas.PngProperty.PNG = (Bitmap)Image.FromStream(pngstream, true, true);
-                    foreach (XmlElement subelement in element)
-                        canvas.AddProperty(ParsePropertyFromXMLElement(subelement));
-                    return canvas;
+                    {
+                        WzCanvasProperty canvas = new WzCanvasProperty(element.GetAttribute("name"));
+                        if (!element.HasAttribute("basedata"))
+                            throw new NoBase64DataException("no base64 data in canvas element with name " + canvas.Name);
+                        canvas.PngProperty = new WzPngProperty();
+                        using (MemoryStream pngstream = new MemoryStream(Convert.FromBase64String(element.GetAttribute("basedata"))))
+                        using (Image decodedImage = Image.FromStream(pngstream, true, true))
+                        {
+                            if (decodedImage is not Bitmap decodedBitmap)
+                                throw new InvalidDataException($"Canvas '{canvas.Name}' basedata does not decode to a bitmap image.");
+
+                            // Imported XML is untrusted content: hold it to the same
+                            // dimension and decoded-size limits the binary parser
+                            // enforces before the property retains any of it.
+                            long decodedBytes = (long)decodedBitmap.Width * decodedBitmap.Height * 4L;
+                            if (decodedBitmap.Width <= 0 || decodedBitmap.Height <= 0 ||
+                                decodedBitmap.Width > WzPngFormatExtensions.MaxDimension ||
+                                decodedBitmap.Height > WzPngFormatExtensions.MaxDimension ||
+                                decodedBytes > WzPngFormatExtensions.MaxDecodedSize)
+                            {
+                                throw new InvalidDataException($"Canvas '{canvas.Name}' dimensions {decodedBitmap.Width}x{decodedBitmap.Height} exceed the supported import limits.");
+                            }
+
+                            // The PNG setter consumes the pixels only and leaves the
+                            // image unowned, so dispose it with this scope on every path.
+                            canvas.PngProperty.PNG = decodedBitmap;
+                        }
+                        foreach (XmlElement subelement in element)
+                            canvas.AddProperty(ParsePropertyFromXMLElement(subelement));
+                        return canvas;
+                    }
 
                 case "int":
                     WzIntProperty compressedInt = new WzIntProperty(element.GetAttribute("name"), int.Parse(element.GetAttribute("value"), formattingInfo));
@@ -173,8 +195,10 @@ namespace MapleLib.WzLib.Serializer
 
                 case "sound":
                     if (!element.HasAttribute("basedata") || !element.HasAttribute("basehead") || !element.HasAttribute("length")) throw new NoBase64DataException("no base64 data in sound element with name " + element.GetAttribute("name"));
+                    if (!int.TryParse(element.GetAttribute("length"), NumberStyles.Integer, CultureInfo.InvariantCulture, out int soundLengthMs) || soundLengthMs < 0)
+                        throw new InvalidDataException($"Sound '{element.GetAttribute("name")}' has an invalid length attribute.");
                     WzBinaryProperty sound = new WzBinaryProperty(element.GetAttribute("name"),
-                        int.Parse(element.GetAttribute("length")),
+                        soundLengthMs,
                         Convert.FromBase64String(element.GetAttribute("basehead")),
                         Convert.FromBase64String(element.GetAttribute("basedata")));
                     return sound;
