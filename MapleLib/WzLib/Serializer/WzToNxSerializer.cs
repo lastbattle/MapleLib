@@ -50,9 +50,15 @@ namespace MapleLib.WzLib.Serializer
 
         public void SerializeFile(WzFile file, string path)
         {
-            string filename = file.Name.Replace(".wz", ".nx");
+            // The WZ name is package/renamer controlled: escape it before it
+            // reaches the output path, and ensure the target dir exists.
+            string escapedName = ProgressingWzSerializer.EscapeInvalidFilePathNames(file.Name ?? string.Empty);
+            string filename = escapedName.Replace(".wz", ".nx");
+            string outputDirectory = Path.GetDirectoryName(path) ?? string.Empty;
+            if (outputDirectory.Length > 0)
+                Directory.CreateDirectory(outputDirectory);
 
-            using (FileStream fs = new FileStream(Path.Combine(Path.GetDirectoryName(path), filename), FileMode.Create, FileAccess.ReadWrite,
+            using (FileStream fs = new FileStream(Path.Combine(outputDirectory, filename), FileMode.Create, FileAccess.ReadWrite,
                     FileShare.None))
             using (BinaryWriter bw = new BinaryWriter(fs))
             {
