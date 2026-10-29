@@ -49,7 +49,11 @@ namespace MapleLib.WzLib.Serializer
                             continue;
                         }
 
-                        serializer.SerializeFile(f, Path.Combine(baseDir, f.Name));
+                        // The WZ name is package/renamer controlled and can be
+                        // hostile or null: escape it before it reaches the output
+                        // root, matching the per-image/dir paths below.
+                        string safeFileName = ProgressingWzSerializer.EscapeInvalidFilePathNames(f.Name ?? string.Empty);
+                        serializer.SerializeFile(f, Path.Combine(baseDir, safeFileName));
 
                         // Update progress bar
                         progressCallback?.Invoke(1);
