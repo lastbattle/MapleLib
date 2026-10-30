@@ -673,7 +673,12 @@ namespace MapleLib.WzLib
             Debug.WriteLine(string.Format("bSaveAs64BitWz: {0}", bSaveAs64BitWz));
             Debug.WriteLine("----------------------------------------");
 
-            string tempFile = Path.GetFileNameWithoutExtension(path) + ".TEMP";
+            // Stage the data file beside the target, not in the process CWD:
+            // the relative "<name>.TEMP" path escaped the operator's output
+            // root and clobbered same-named files in the working directory.
+            string tempFile = Path.Combine(
+                Path.GetDirectoryName(Path.GetFullPath(path)) ?? string.Empty,
+                Path.GetFileNameWithoutExtension(path) + ".TEMP");
             try
             {
                 File.Create(tempFile).Close();
