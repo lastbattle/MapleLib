@@ -558,7 +558,17 @@ namespace MapleLib {
                     if (iniFileSplit.Length <= 1)
                         throw new Exception(".ini file does not contain LastWzIndex information.");
 
-                    return (iniFile, int.Parse(iniFileSplit[1]));
+                    // The index bounds the canvas file loop below and comes
+                    // from attacker-readable data; reject negative, overflowing
+                    // or malformed values instead of throwing mid-resolution.
+                    if (!int.TryParse(iniFileSplit[1], out int lastWzIndex) ||
+                        lastWzIndex < 0 ||
+                        lastWzIndex > MaxCanvasSectionFileIndex)
+                    {
+                        return (null, -1);
+                    }
+
+                    return (iniFile, lastWzIndex);
                 }
             }
             throw new Exception(".ini file does not contain LastWzIndex information.");
@@ -949,12 +959,19 @@ namespace MapleLib {
                 if (_wzCanvasSectionLoaded.TryGetValue(canvasFolder, out bool canvasSectionLoaded) && canvasSectionLoaded)
                     return; // already loaded
 
-                string canvasDirectory = Path.Combine(this.WzBaseDirectory, canvasFolder, CANVAS_DIRECTORY_NAME); // "C://Nexon/MapleStory/Data/Map/Back/_Canvas"
+                // Canvas folders originate from WZ '_outlink' strings, so the
+                // value is attacker controlled.  Contain it below the WZ root
+                // before any directory is probed, and reuse the normalized
+                // absolute path for the file lookups below.
+                if (!TryGetContainedCanvasFolder(WzBaseDirectory, canvasFolder, out string containedFolder))
+                    return;
+
+                string canvasDirectory = Path.Combine(containedFolder, CANVAS_DIRECTORY_NAME); // "C://Nexon/MapleStory/Data/Map/Back/_Canvas"
                 (string iniFileName, int wzFileIndex) = GetIniWzIndexInfo(canvasDirectory);
                 if (iniFileName == null)
                     return;
 
-                string canvasFileBase = string.Format(@"{0}/{1}/{2}_0", canvasFolder, CANVAS_DIRECTORY_NAME.ToLower(), CANVAS_DIRECTORY_NAME.ToLower()); // "map/_canvas/_canvas_0"
+                string canvasFileBase = string.Format(@"{0}/{1}/{2}_0", containedFolder, CANVAS_DIRECTORY_NAME.ToLower(), CANVAS_DIRECTORY_NAME.ToLower()); // ".../_canvas/_canvas_0"
                 for (int canvasNumber = 0; canvasNumber <= wzFileIndex; canvasNumber++)
                 {
                     string canvasFileBase_ = string.Format("{0}{1:D2}", canvasFileBase, canvasNumber); // "map/_canvas/_canvas_001.wz"
@@ -974,6 +991,53 @@ namespace MapleLib {
                 {
                     _readWriteLock.ExitWriteLock();
                 }
+            }
+        }
+
+        /// <summary>
+        /// Upper bound for the canvas section index parsed from a section ini;
+        /// the value drives the canvas file loop in LoadCanvasSection.
+        /// </summary>
+        private const int MaxCanvasSectionFileIndex = 0xFFFF;
+
+        /// <summary>
+        /// Normalizes a canvas folder from WZ link data and verifies that the
+        /// resolved path stays below the WZ root.  Link contents are attacker
+        /// controlled, so the folder is containment-checked before any
+        /// directory or file below it is touched.
+        /// </summary>
+        private static bool TryGetContainedCanvasFolder(string baseDirectory, string canvasFolder, out string containedFolder)
+        {
+            containedFolder = null;
+            if (string.IsNullOrWhiteSpace(baseDirectory) || string.IsNullOrWhiteSpace(canvasFolder))
+                return false;
+
+            try
+            {
+                string rootFullPath = Path.GetFullPath(baseDirectory);
+                string candidate = Path.GetFullPath(Path.Combine(rootFullPath, canvasFolder));
+                string rootPrefix = rootFullPath.EndsWith(Path.DirectorySeparatorChar) ||
+                                    rootFullPath.EndsWith(Path.AltDirectorySeparatorChar)
+                    ? rootFullPath
+                    : rootFullPath + Path.DirectorySeparatorChar;
+
+                if (!candidate.StartsWith(rootPrefix, StringComparison.OrdinalIgnoreCase))
+                    return false;
+
+                containedFolder = candidate;
+                return true;
+            }
+            catch (ArgumentException)
+            {
+                return false;
+            }
+            catch (IOException)
+            {
+                return false;
+            }
+            catch (NotSupportedException)
+            {
+                return false;
             }
         }
 
