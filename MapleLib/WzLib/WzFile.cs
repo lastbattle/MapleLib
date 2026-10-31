@@ -393,7 +393,12 @@ namespace MapleLib.WzLib
         /// </summary>
         private void Check64BitClient(WzBinaryReader reader)
         {
-            if (this.Header.FSize >= 2)
+            // Probe bounds must come from the physical stream, not the
+            // header-declared size: a crafted FSize larger than the real
+            // tail made these probes read past EOF and fail the whole
+            // parse before version detection could run.
+            long dataLength = reader.BaseStream.Length - this.header.FStart;
+            if (dataLength >= 2)
             {
                 reader.BaseStream.Position = this.header.FStart; // go back to 0x3C
 
@@ -408,7 +413,7 @@ namespace MapleLib.WzLib
                     // if the value greater than 127 and also to be a multiple of 256, the first 5 bytes will become to
                     //   80 00 xx xx xx
                     // so we additional check the int value, at most time the child node count in a wz won't greater than 65536.
-                    if (this.Header.FSize >= 5)
+                    if (dataLength >= sizeof(int))
                     {
                         reader.BaseStream.Position = this.header.FStart; // go back to 0x3C
                         int propCount = reader.ReadInt32();
