@@ -332,8 +332,12 @@ namespace MapleLib.WzLib.WzProperties {
         /// <returns></returns>
         public new WzImageProperty GetLinkedWzImageProperty()
         {
-            string _inlink = ((WzStringProperty)this[InlinkPropertyName])?.Value; // could get nexon'd here. In case they place an _inlink that's not WzStringProperty
-            string _outlink = ((WzStringProperty)this[OutlinkPropertyName])?.Value; // could get nexon'd here. In case they place an _outlink that's not WzStringProperty
+            // Link properties are attacker controlled, so a non-string link
+            // (for example an int written by a crafted image) is treated as
+            // absent instead of raising an InvalidCastException that would
+            // abort the whole canvas resolution or export run.
+            string? _inlink = (this[InlinkPropertyName] as WzStringProperty)?.Value;
+            string? _outlink = (this[OutlinkPropertyName] as WzStringProperty)?.Value;
 
             if (!string.IsNullOrEmpty(_inlink))
             {
