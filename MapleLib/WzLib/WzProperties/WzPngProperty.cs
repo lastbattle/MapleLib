@@ -541,15 +541,16 @@ namespace MapleLib.WzLib.WzProperties
             // Validate dimensions before reading/decompressing data or creating
             // the GDI+ bitmap. This keeps malformed metadata from causing a
             // large allocation even when the compressed payload is tiny.
-            ValidateDimensions();
-            byte[] rawBytes = GetRawImage(saveInMemory);
-            if (rawBytes == null)
-            {
-                return null;
-            }
+            Bitmap? bmp = null;
             try
             {
-                Bitmap bmp = new(width, height, Format.GetPixelFormat());
+                ValidateDimensions();
+                byte[] rawBytes = GetRawImage(saveInMemory);
+                if (rawBytes == null)
+                {
+                    return null;
+                }
+                bmp = new Bitmap(width, height, Format.GetPixelFormat());
                 Rectangle rect_ = new(0, 0, width, height);
                 byte[] textureBytes = rawBytes;
 
@@ -559,16 +560,28 @@ namespace MapleLib.WzLib.WzProperties
                         {
                             BitmapData bmpData = bmp.LockBits(rect_, ImageLockMode.WriteOnly, PixelFormat.Format32bppArgb);
 
-                            PngUtility.DecompressImage_PixelDataBgra4444(rawBytes.AsSpan(), width, height, bmp, bmpData);
-                            bmp.UnlockBits(bmpData);
+                            try
+                            {
+                                PngUtility.DecompressImage_PixelDataBgra4444(rawBytes.AsSpan(), width, height, bmp, bmpData);
+                            }
+                            finally
+                            {
+                                bmp.UnlockBits(bmpData);
+                            }
                             break;
                         }
                     case WzPngFormat.Format2:
                         {
                             BitmapData bmpData = bmp.LockBits(rect_, ImageLockMode.WriteOnly, PixelFormat.Format32bppArgb);
 
-                            Marshal.Copy(rawBytes, 0, bmpData.Scan0, rawBytes.Length);
-                            bmp.UnlockBits(bmpData);
+                            try
+                            {
+                                Marshal.Copy(rawBytes, 0, bmpData.Scan0, rawBytes.Length);
+                            }
+                            finally
+                            {
+                                bmp.UnlockBits(bmpData);
+                            }
                             break;
                         }
                     case WzPngFormat.Format3:
@@ -578,8 +591,14 @@ namespace MapleLib.WzLib.WzProperties
                             // you'll be remembered forever <3 
                             BitmapData bmpData3 = bmp.LockBits(rect_, ImageLockMode.WriteOnly, PixelFormat.Format32bppArgb);
 
-                            PngUtility.DecompressImageDXT3(rawBytes, width, height, bmpData3); // FullPath = "Map.wz\\Back\\blackHeaven.img\\back\\98"
-                            bmp.UnlockBits(bmpData3);
+                            try
+                            {
+                                PngUtility.DecompressImageDXT3(rawBytes, width, height, bmpData3); // FullPath = "Map.wz\\Back\\blackHeaven.img\\back\\98"
+                            }
+                            finally
+                            {
+                                bmp.UnlockBits(bmpData3);
+                            }
                             break;
                         }
                     case WzPngFormat.Format257: // http://forum.ragezone.com/f702/wz-png-format-decode-code-1114978/index2.html#post9053713
@@ -587,41 +606,70 @@ namespace MapleLib.WzLib.WzProperties
                             BitmapData bmpData = bmp.LockBits(rect_, ImageLockMode.WriteOnly, PixelFormat.Format16bppArgb1555);
                             // "Npc.wz\\2570101.img\\info\\illustration2\\face\\0"
 
-                            PngUtility.CopyBmpDataWithStride(rawBytes, bmp.Width * 2, bmpData);
-
-                            bmp.UnlockBits(bmpData);
+                            try
+                            {
+                                PngUtility.CopyBmpDataWithStride(rawBytes, bmp.Width * 2, bmpData);
+                            }
+                            finally
+                            {
+                                bmp.UnlockBits(bmpData);
+                            }
                             break;
                         }
                     case WzPngFormat.Format513: // nexon wizet logo
                         {
                             BitmapData bmpData = bmp.LockBits(rect_, ImageLockMode.WriteOnly, PixelFormat.Format16bppRgb565);
 
-                            PngUtility.CopyBmpDataWithStride(rawBytes, bmp.Width * 2, bmpData);
-                            bmp.UnlockBits(bmpData);
+                            try
+                            {
+                                PngUtility.CopyBmpDataWithStride(rawBytes, bmp.Width * 2, bmpData);
+                            }
+                            finally
+                            {
+                                bmp.UnlockBits(bmpData);
+                            }
                             break;
                         }
                     case WzPngFormat.Format517:
                         {
                             BitmapData bmpData = bmp.LockBits(rect_, ImageLockMode.WriteOnly, PixelFormat.Format16bppRgb565);
 
-                            PngUtility.DecompressImage_PixelDataForm517(rawBytes, width, height, bmp, bmpData); // FullPath = "Map.wz\\Back\\midForest.img\\back\\0"
-                            bmp.UnlockBits(bmpData);
+                            try
+                            {
+                                PngUtility.DecompressImage_PixelDataForm517(rawBytes, width, height, bmp, bmpData); // FullPath = "Map.wz\\Back\\midForest.img\\back\\0"
+                            }
+                            finally
+                            {
+                                bmp.UnlockBits(bmpData);
+                            }
                             break;
                         }
                     case WzPngFormat.Format1026:
                         {
                             BitmapData bmpData1026 = bmp.LockBits(rect_, ImageLockMode.WriteOnly, PixelFormat.Format32bppArgb);
 
-                            PngUtility.DecompressImageDXT3(rawBytes, width, height, bmpData1026);
-                            bmp.UnlockBits(bmpData1026);
+                            try
+                            {
+                                PngUtility.DecompressImageDXT3(rawBytes, width, height, bmpData1026);
+                            }
+                            finally
+                            {
+                                bmp.UnlockBits(bmpData1026);
+                            }
                             break;
                         }
                     case WzPngFormat.Format2050: // new
                         {
                             BitmapData bmpData2050 = bmp.LockBits(rect_, ImageLockMode.WriteOnly, PixelFormat.Format32bppArgb);
-                            PngUtility.DecompressImageDXT5(rawBytes, width, height, bmpData2050);
 
-                            bmp.UnlockBits(bmpData2050);
+                            try
+                            {
+                                PngUtility.DecompressImageDXT5(rawBytes, width, height, bmpData2050);
+                            }
+                            finally
+                            {
+                                bmp.UnlockBits(bmpData2050);
+                            }
                             break;
                         }
                     case WzPngFormat.Format4098:
@@ -663,6 +711,7 @@ namespace MapleLib.WzLib.WzProperties
             }
             catch (InvalidDataException)
             {
+                bmp?.Dispose();
                 return null;
             }
         }
