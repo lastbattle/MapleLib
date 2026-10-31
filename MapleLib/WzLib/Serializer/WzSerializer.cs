@@ -278,12 +278,14 @@ namespace MapleLib.WzLib.Serializer
                 {
 
                 }
-                // Export the standalone script beside the XML. Derive the
-                // location from the XML path instead of splicing the raw
-                // parent name into it: crafted names collided with the
-                // in-progress XML stream or bypassed escaping entirely.
-                string luaDirectory = Path.GetDirectoryName(exportFilePath) ?? string.Empty;
-                string luaPath = Path.Combine(luaDirectory, ProgressingWzSerializer.EscapeInvalidFilePathNames(parentName));
+                // Export the standalone script beside the XML. Keep the name
+                // to one path component and force its extension so crafted
+                // names cannot traverse outside or become executable artifacts.
+                string luaDirectory = Path.GetFullPath(Path.GetDirectoryName(exportFilePath) ?? string.Empty);
+                string luaFileName = Path.GetFileName(ProgressingWzSerializer.EscapeInvalidFilePathNames(parentName));
+                if (!luaFileName.EndsWith(".lua", StringComparison.OrdinalIgnoreCase))
+                    luaFileName += ".lua";
+                string luaPath = Path.Combine(luaDirectory, luaFileName);
                 using (TextWriter twLua = new StreamWriter(File.Create(luaPath)))
                 {
                     twLua.Write(propertyLua.ToString());
