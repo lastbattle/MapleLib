@@ -198,6 +198,7 @@ namespace MapleLib.WzLib.WzProperties
             len_ms = reader.ReadCompressedInt();
 
             long headerOff = reader.BaseStream.Position;
+            EnsurePayloadAvailable(reader, soundHeader.Length + 2, "Sound header");
             reader.BaseStream.Position += soundHeader.Length; //skip GUIDs
             int wavFormatLen = reader.ReadByte();
             reader.BaseStream.Position = headerOff;
@@ -391,6 +392,14 @@ namespace MapleLib.WzLib.WzProperties
 
         private void ParseWzSoundPropertyHeader()
         {
+            if (header == null || header.Length < soundHeader.Length + 1)
+            {
+                // Truncated attacker headers previously produced a negative
+                // sized scratch array inside the constructor.
+                ErrorLogger.Log(ErrorLevel.MissingFeature, "Sound header is truncated; skipping wave format parse.");
+                return;
+            }
+
             byte[] wavHeader = new byte[header.Length - soundHeader.Length - 1];
             Buffer.BlockCopy(header, soundHeader.Length + 1, wavHeader, 0, wavHeader.Length);
 
@@ -400,6 +409,15 @@ namespace MapleLib.WzLib.WzProperties
             WaveFormat wavFmt = BytesToStruct<WaveFormat>(wavHeader);
             if (Marshal.SizeOf<WaveFormat>() + wavFmt.ExtraSize != wavHeader.Length)
             {
+                if (wzReader == null)
+                {
+                    // Headers built without a backing reader (XML import and
+                    // clones) have no WZ key; skip the retry instead of
+                    // dereferencing null.
+                    ErrorLogger.Log(ErrorLevel.Critical, "parse sound header failed: no key source for encrypted header");
+                    return;
+                }
+
                 //try decrypt
                 for (int i = 0; i < wavHeader.Length; i++)
                 {
