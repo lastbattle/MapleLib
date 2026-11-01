@@ -238,8 +238,11 @@ namespace MapleLib.WzLib.WzProperties {
         /// </summary>
         /// <returns></returns>
         public PointF GetCanvasOriginPosition() {
-            WzVectorProperty originPos = (WzVectorProperty)this[OriginPropertyName];
-            if (originPos != null)
+            // Origin, head and lt children are parser data: a crafted image
+            // can carry any property type under these names, so treat a
+            // wrong type as absent instead of raising an
+            // InvalidCastException in the map load hot path.
+            if (this[OriginPropertyName] is WzVectorProperty originPos)
                 return new PointF(originPos.X.Value, originPos.Y.Value);
 
             return new PointF(0, 0);
@@ -247,13 +250,13 @@ namespace MapleLib.WzLib.WzProperties {
 
         public void SetCanvasOriginPosition(PointF pointF) {
             PointF pointXY = GetCanvasOriginPosition();
-            if (pointXY.X != 0 && pointXY.Y != 0) {
-                WzVectorProperty originPos = (WzVectorProperty)this[OriginPropertyName];
+            if (pointXY.X != 0 && pointXY.Y != 0 &&
+                this[OriginPropertyName] is WzVectorProperty originPos) {
                 originPos.X.SetValue(pointF.X);
                 originPos.Y.SetValue(pointF.Y);
+                return;
             }
-            else
-                throw new Exception(string.Format("'{0}' property is not available", OriginPropertyName));
+            throw new Exception(string.Format("'{0}' property is not available", OriginPropertyName));
         }
 
         /// <summary>
@@ -262,8 +265,7 @@ namespace MapleLib.WzLib.WzProperties {
         /// </summary>
         /// <returns></returns>
         public PointF GetCanvasHeadPosition() {
-            WzVectorProperty headPos = (WzVectorProperty)this[HeadPropertyName];
-            if (headPos != null)
+            if (this[HeadPropertyName] is WzVectorProperty headPos)
                 return new PointF(headPos.X.Value, headPos.Y.Value);
 
             return new PointF(0, 0);
@@ -275,9 +277,8 @@ namespace MapleLib.WzLib.WzProperties {
         /// </summary>
         /// <returns></returns>
         public PointF GetCanvasLtPosition() {
-            WzVectorProperty headPos = (WzVectorProperty)this[LtPropertyName];
-            if (headPos != null)
-                return new PointF(headPos.X.Value, headPos.Y.Value);
+            if (this[LtPropertyName] is WzVectorProperty ltPos)
+                return new PointF(ltPos.X.Value, ltPos.Y.Value);
 
             return new PointF(0, 0);
         }
