@@ -62,7 +62,7 @@ namespace MapleLib.WzLib.Spine
 
             WzCanvasProperty canvasProperty = null;
 
-            WzImageProperty imageChild = (WzImageProperty)ParentNode[path];
+            WzImageProperty imageChild = ParentNode[path] as WzImageProperty;
             if (imageChild is WzUOLProperty uolProperty)
             {
                 WzObject uolLink = uolProperty.LinkValue;
@@ -81,19 +81,25 @@ namespace MapleLib.WzLib.Spine
                 canvasProperty = property;
             }
 
-            if (canvasProperty != null && graphicsDevice != null)
+            // GetLinkedWzImageProperty returns whichever property the hostile
+            // link path hits and a parsed canvas always owns its png slot, but a
+            // hand built canvas carries neither, so the leg degrades to a skip.
+            if (canvasProperty != null)
             {
-                WzCanvasProperty linkImgProperty = (WzCanvasProperty)canvasProperty.GetLinkedWzImageProperty();
-                WzPngProperty pngProperty = linkImgProperty.PngProperty;
+                WzCanvasProperty linkImgProperty = canvasProperty.GetLinkedWzImageProperty() as WzCanvasProperty;
+                WzPngProperty pngProperty = linkImgProperty?.PngProperty;
 
-                Texture2D tex = new Texture2D(graphicsDevice, pngProperty.Width, pngProperty.Height, false, WzPngFormatExtensions.GetXNASurfaceFormat(linkImgProperty.PngProperty.Format));
-                ownedTextures.Add(tex);
+                if (pngProperty != null && graphicsDevice != null)
+                {
+                    Texture2D tex = new Texture2D(graphicsDevice, pngProperty.Width, pngProperty.Height, false, WzPngFormatExtensions.GetXNASurfaceFormat(pngProperty.Format));
+                    ownedTextures.Add(tex);
 
-                pngProperty.ParsePng(true, tex);
+                    pngProperty.ParsePng(true, tex);
 
-                page.rendererObject = tex;
-                page.width = pngProperty.Width;
-                page.height = pngProperty.Height;
+                    page.rendererObject = tex;
+                    page.width = pngProperty.Width;
+                    page.height = pngProperty.Height;
+                }
             }
         }
 
