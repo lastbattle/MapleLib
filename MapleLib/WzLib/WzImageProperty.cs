@@ -31,6 +31,37 @@ namespace MapleLib.WzLib
             return null;
         }
 
+        /// <summary>
+        /// Resolves a leading ".." path segment against this property's parent.
+        /// The parent of a root-level property is the WzImage itself, which is
+        /// not a WzImageProperty, so the former hard cast threw
+        /// InvalidCastException on the most common image layout. The ".."
+        /// segment is stripped before delegating so parent resolution consumes
+        /// it instead of looking up a literal "../name" child.
+        /// </summary>
+        internal static WzImageProperty GetFromParentPath(WzObject parent, string path)
+        {
+            if (parent == null || string.IsNullOrEmpty(path))
+                return null;
+
+            int separatorIndex = path.IndexOf('/');
+            string remainingPath = separatorIndex < 0 ? string.Empty : path.Substring(separatorIndex + 1);
+
+            switch (parent)
+            {
+                case WzImageProperty parentProperty:
+                    return remainingPath.Length == 0
+                        ? parentProperty
+                        : parentProperty.GetFromPath(remainingPath);
+                case WzImage parentImage:
+                    return remainingPath.Length == 0
+                        ? null
+                        : parentImage.GetFromPath(remainingPath);
+                default:
+                    return null;
+            }
+        }
+
         public abstract WzPropertyType PropertyType { get; }
 
         /// <summary>

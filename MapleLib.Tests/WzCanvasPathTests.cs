@@ -41,15 +41,16 @@ public sealed class WzCanvasPathTests
     }
 
     [Fact]
-    public void CanvasGetFromPathKeepsLegacyParentSubstring()
+    public void CanvasGetFromPathParentDotDotUsesPathRemainder()
     {
         var parent = new WzSubProperty("parent");
         var canvas = new WzCanvasProperty("abc/def");
-        var value = new WzIntProperty("ource", 1);
+        var value = new WzIntProperty("source", 1);
         parent.AddProperty(canvas);
         parent.AddProperty(value);
 
-        // The historical fallback takes its substring offset from the canvas name.
+        // The ".." segment is consumed by path position; slashes inside the
+        // canvas name no longer offset the remainder.
         Assert.Same(value, canvas.GetFromPath("../source"));
     }
 

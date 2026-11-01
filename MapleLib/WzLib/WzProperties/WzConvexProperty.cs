@@ -103,7 +103,7 @@ namespace MapleLib.WzLib.WzProperties
                     continue;
 
                 if (isFirstSegment && segment.SequenceEqual(".."))
-                    return ((WzImageProperty)Parent)[path.Substring(name.IndexOf('/') + 1)];
+                    return GetFromParentPath(Parent, path);
 
                 isFirstSegment = false;
                 ret = ret.WzProperties.Find(segment);
