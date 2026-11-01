@@ -433,6 +433,14 @@ namespace MapleLib.WzLib.WzProperties
                 headerEncrypted = true;
             }
 
+            if (!HasPlausiblePlaybackFormat(wavFmt))
+            {
+                // Playback consumers divide by the average rate and configure
+                // native decoders from these fields; keep zeros out here.
+                ErrorLogger.Log(ErrorLevel.MissingFeature, "Sound header has a degenerate wave format; skipping playback setup.");
+                return;
+            }
+
             // parse to mp3 header
             if (wavFmt.Encoding == WaveFormatEncoding.MpegLayer3 && wavHeader.Length >= Marshal.SizeOf<Mp3WaveFormat>())
             {
@@ -446,6 +454,15 @@ namespace MapleLib.WzLib.WzProperties
             {
                 ErrorLogger.Log(ErrorLevel.MissingFeature, string.Format("Unknown wave encoding {0}", wavFmt.Encoding.ToString()));
             }
+        }
+
+        private static bool HasPlausiblePlaybackFormat(WaveFormat format)
+        {
+            return format != null
+                && format.Channels >= 1
+                && format.SampleRate >= 1
+                && format.BlockAlign >= 1
+                && format.AverageBytesPerSecond >= 1;
         }
         #endregion
 
