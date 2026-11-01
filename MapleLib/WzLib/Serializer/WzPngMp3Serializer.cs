@@ -100,7 +100,9 @@ namespace MapleLib.WzLib.Serializer
                     return;
                 }
 
-                string path = outPath + EscapeInvalidFilePathNames(currObj.Name) + ".png";
+                string path = GetBoundPath(
+                    outPath,
+                    EscapeInvalidFilePathNames(currObj.Name) + ".png");
 
                 bmp.Save(path);
                 //curr++;
@@ -110,7 +112,7 @@ namespace MapleLib.WzLib.Serializer
                 string fileName = EscapeInvalidFilePathNames(currObj.Name);
                 if (!fileName.EndsWith(binProperty.FileExtension, StringComparison.OrdinalIgnoreCase))
                     fileName += binProperty.FileExtension;
-                string path = outPath + fileName;
+                string path = GetBoundPath(outPath, fileName);
 
                 binProperty.SaveToFile(path);
             }
@@ -154,6 +156,20 @@ namespace MapleLib.WzLib.Serializer
                     ExportRecursion(canvas, outPath);
                 }
             }
+        }
+
+        private static string GetBoundPath(string baseDirectory, string fileName)
+        {
+            string root = Path.GetFullPath(baseDirectory);
+            string path = Path.GetFullPath(Path.Combine(root, fileName));
+            string rootPrefix = root.EndsWith(Path.DirectorySeparatorChar) ||
+                                root.EndsWith(Path.AltDirectorySeparatorChar)
+                ? root
+                : root + Path.DirectorySeparatorChar;
+
+            return path.StartsWith(rootPrefix, StringComparison.OrdinalIgnoreCase)
+                ? path
+                : Path.Combine(root, Path.GetFileName(fileName));
         }
     }
 }
