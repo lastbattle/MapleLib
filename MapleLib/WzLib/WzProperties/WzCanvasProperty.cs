@@ -121,7 +121,7 @@ namespace MapleLib.WzLib.WzProperties {
             if (firstSegmentEnd < 0)
                 firstSegmentEnd = pathSpan.Length - segmentStart;
             if (pathSpan.Slice(segmentStart, firstSegmentEnd).SequenceEqual("..")) {
-                return ((WzImageProperty)Parent)[path.Substring(name.IndexOf('/') + 1)];
+                return GetFromParentPath(Parent, path);
             }
 
             WzImageProperty ret = this;
