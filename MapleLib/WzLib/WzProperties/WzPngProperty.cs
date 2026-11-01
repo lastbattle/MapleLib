@@ -701,6 +701,16 @@ namespace MapleLib.WzLib.WzProperties
                 {
                     if (texture2d != null)
                     {
+                        // The GPU surface layout comes from GetXNASurfaceFormat,
+                        // so the uploaded payload must match it byte for byte.
+                        // Format 517 stores one RGB565 color per 16x16 block, which
+                        // is never a full Bgr565 surface; expand it exactly like the
+                        // GDI path does before handing it to SetData.
+                        if (Format == WzPngFormat.Format517)
+                        {
+                            textureBytes = ExpandPixelDataForm517ForUpload(rawBytes, width, height);
+                        }
+
                         Microsoft.Xna.Framework.Rectangle rect = new Microsoft.Xna.Framework.Rectangle(Microsoft.Xna.Framework.Point.Zero,
                             new Microsoft.Xna.Framework.Point(width, height));
                         texture2d.SetData(0, 0, rect, textureBytes, 0, textureBytes.Length);
@@ -714,6 +724,52 @@ namespace MapleLib.WzLib.WzProperties
                 bmp?.Dispose();
                 return null;
             }
+        }
+
+        /// <summary>
+        /// Expands a format 517 block payload (one RGB565 color per 16x16
+        /// block) into a full Bgr565 surface, matching the layout of GPU
+        /// textures created via WzPngFormatExtensions.GetXNASurfaceFormat.
+        /// </summary>
+        internal static byte[] ExpandPixelDataForm517ForUpload(byte[] payload, int width, int height)
+        {
+            int blockCountX = (int)(((long)width + 15) / 16);
+            int blockCountY = (int)(((long)height + 15) / 16);
+            int requiredPayload = checked(blockCountX * blockCountY * 2);
+            if (payload == null || payload.Length < requiredPayload)
+                throw new InvalidDataException("PNG 517 block payload is truncated.");
+
+            long expandedLength = (long)width * height * 2;
+            if (expandedLength > int.MaxValue)
+                throw new InvalidDataException("Expanded PNG surface exceeds the supported limit.");
+            byte[] expanded = new byte[(int)expandedLength];
+
+            for (int blockY = 0; blockY < blockCountY; blockY++)
+            {
+                for (int blockX = 0; blockX < blockCountX; blockX++)
+                {
+                    int payloadOffset = (blockY * blockCountX + blockX) * 2;
+                    byte lo = payload[payloadOffset];
+                    byte hi = payload[payloadOffset + 1];
+
+                    int startX = blockX * 16;
+                    int startY = blockY * 16;
+                    int copyWidth = Math.Min(16, width - startX);
+                    int copyHeight = Math.Min(16, height - startY);
+                    for (int y = 0; y < copyHeight; y++)
+                    {
+                        int rowStart = (startY + y) * width;
+                        for (int x = 0; x < copyWidth; x++)
+                        {
+                            int pixelIndex = (rowStart + startX + x) * 2;
+                            expanded[pixelIndex] = lo;
+                            expanded[pixelIndex + 1] = hi;
+                        }
+                    }
+                }
+            }
+
+            return expanded;
         }
 
         /// <summary>
