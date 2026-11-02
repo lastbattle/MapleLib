@@ -82,5 +82,26 @@ namespace MapleLib.WzLib.Serializer
 
             return escaped;
         }
+
+        /// <summary>
+        /// Composes an output path under <paramref name="baseDirectory"/> from
+        /// a parser-derived name.  <see cref="EscapeInvalidFilePathNames"/>
+        /// strips separators instead of enforcing containment, so the composed
+        /// path is canonicalized, verified to stay below the root, and
+        /// collapsed to its final segment when it does not.
+        /// </summary>
+        public static string GetBoundOutputPath(string baseDirectory, string fileName)
+        {
+            string root = Path.GetFullPath(baseDirectory);
+            string candidate = Path.GetFullPath(Path.Combine(root, fileName));
+            string rootPrefix = root.EndsWith(Path.DirectorySeparatorChar) ||
+                                root.EndsWith(Path.AltDirectorySeparatorChar)
+                ? root
+                : root + Path.DirectorySeparatorChar;
+
+            return candidate.StartsWith(rootPrefix, StringComparison.OrdinalIgnoreCase)
+                ? candidate
+                : Path.Combine(root, Path.GetFileName(fileName));
+        }
     }
 }

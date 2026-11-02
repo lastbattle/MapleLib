@@ -58,8 +58,9 @@ namespace MapleLib.WzLib.Serializer
             if (outputDirectory.Length > 0)
                 Directory.CreateDirectory(outputDirectory);
 
-            using (FileStream fs = new FileStream(Path.Combine(outputDirectory, filename), FileMode.Create, FileAccess.ReadWrite,
-                    FileShare.None))
+            using (FileStream fs = new FileStream(
+                    ProgressingWzSerializer.GetBoundOutputPath(outputDirectory, filename),
+                    FileMode.Create, FileAccess.ReadWrite, FileShare.None))
             using (BinaryWriter bw = new BinaryWriter(fs))
             {
                 DumpState state = new DumpState();

@@ -53,7 +53,7 @@ namespace MapleLib.WzLib.Serializer
                         // hostile or null: escape it before it reaches the output
                         // root, matching the per-image/dir paths below.
                         string safeFileName = ProgressingWzSerializer.EscapeInvalidFilePathNames(f.Name ?? string.Empty);
-                        serializer.SerializeFile(f, Path.Combine(baseDir, safeFileName));
+                        serializer.SerializeFile(f, ProgressingWzSerializer.GetBoundOutputPath(baseDir, safeFileName));
 
                         // Update progress bar
                         progressCallback?.Invoke(1);
@@ -91,7 +91,7 @@ namespace MapleLib.WzLib.Serializer
             // Selected Wz Images
             foreach (WzImage img in imgsToDump)
             {
-                string escapedPath = Path.Combine(baseDir, ProgressingWzSerializer.EscapeInvalidFilePathNames(img.Name));
+                string escapedPath = ProgressingWzSerializer.GetBoundOutputPath(baseDir, ProgressingWzSerializer.EscapeInvalidFilePathNames(img.Name));
 
                 serializer.SerializeImage(img, escapedPath);
 
@@ -101,7 +101,7 @@ namespace MapleLib.WzLib.Serializer
             // Selected Wz Dirs
             foreach (WzDirectory dir in dirsToDump)
             {
-                string escapedPath = Path.Combine(baseDir, ProgressingWzSerializer.EscapeInvalidFilePathNames(dir.Name));
+                string escapedPath = ProgressingWzSerializer.GetBoundOutputPath(baseDir, ProgressingWzSerializer.EscapeInvalidFilePathNames(dir.Name));
 
                 serializer.SerializeDirectory(dir, escapedPath);
 
