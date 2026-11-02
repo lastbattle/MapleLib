@@ -29,7 +29,7 @@ namespace MapleLib
             {
                 WzPropertyType.String => ((WzStringProperty)value).Value,
                 WzPropertyType.Int => ((WzIntProperty)value).Value.ToString(),
-                _ => ((WzStringProperty)value).Value
+                _ => fallback
             };
         }
 
@@ -42,7 +42,7 @@ namespace MapleLib
         {
             if (value == null)
                 return null;
-            return ((WzVectorProperty)value);
+            return value as WzVectorProperty;
         }
 
         /// <summary>
@@ -85,13 +85,7 @@ namespace MapleLib
         /// <returns></returns>
         public static int ReadValue(this WzImageProperty value)
         {
-            if (value == null)
-                return 0;
-            else if (value.PropertyType == WzPropertyType.Int)
-                return ((WzIntProperty)value).Value;
-            else if (value.PropertyType == WzPropertyType.String)
-                return int.Parse(((WzStringProperty)value).Value);
-            return 0;
+            return ReadValue(value, 0);
         }
 
 
