@@ -571,7 +571,7 @@ namespace MapleLib.WzLib
         /// <param name="forceReadFromData">Read from data regardless of base data that's changed or not.</param>
         public void SaveImage(WzBinaryWriter writer, bool bIsWzUserKeyDefault = true, bool forceReadFromData = false)
         {
-            if (bIsImageChanged || !bIsWzUserKeyDefault || forceReadFromData)
+            if (bIsImageChanged || !bIsWzUserKeyDefault || forceReadFromData || reader == null)
             {
                 if (reader != null && !parsed)
                 {
@@ -592,6 +592,13 @@ namespace MapleLib.WzLib
             }
             else
             {
+                // Unchanged images are copied verbatim from their source
+                // block. Validate the recorded geometry against the live
+                // stream first so a truncated or staged source is rejected at
+                // the boundary instead of failing with a partial image
+                // already written to the output.
+                ValidateDataBounds();
+
                 long pos = reader.BaseStream.Position;
                 reader.BaseStream.Position = offset;
                 Stream source = reader.BaseStream;
