@@ -1,4 +1,4 @@
-﻿using MapleLib.WzLib.WzProperties;
+using MapleLib.WzLib.WzProperties;
 using System;
 using System.Collections.Generic;
 using System.Drawing;
@@ -74,7 +74,7 @@ namespace MapleLib.WzLib.Serializer
             }
             else if (currObj is WzDirectory directoryProperty)
             {
-                outPath += EscapeInvalidFilePathNames(currObj.Name) + @"\";
+                outPath = GetBoundOutputPath(outPath, EscapeInvalidFilePathNames(currObj.Name)) + @"\";
                 if (!Directory.Exists(outPath))
                     Directory.CreateDirectory(outPath);
 
@@ -100,7 +100,7 @@ namespace MapleLib.WzLib.Serializer
                     return;
                 }
 
-                string path = GetBoundPath(
+                string path = GetBoundOutputPath(
                     outPath,
                     EscapeInvalidFilePathNames(currObj.Name) + ".png");
 
@@ -112,13 +112,13 @@ namespace MapleLib.WzLib.Serializer
                 string fileName = EscapeInvalidFilePathNames(currObj.Name);
                 if (!fileName.EndsWith(binProperty.FileExtension, StringComparison.OrdinalIgnoreCase))
                     fileName += binProperty.FileExtension;
-                string path = GetBoundPath(outPath, fileName);
+                string path = GetBoundOutputPath(outPath, fileName);
 
                 binProperty.SaveToFile(path);
             }
             else if (currObj is WzImage wzImage)
             {
-                outPath += EscapeInvalidFilePathNames(currObj.Name) + @"\";
+                outPath = GetBoundOutputPath(outPath, EscapeInvalidFilePathNames(currObj.Name)) + @"\";
                 if (!Directory.Exists(outPath))
 
                     Directory.CreateDirectory(outPath);
@@ -158,18 +158,5 @@ namespace MapleLib.WzLib.Serializer
             }
         }
 
-        private static string GetBoundPath(string baseDirectory, string fileName)
-        {
-            string root = Path.GetFullPath(baseDirectory);
-            string path = Path.GetFullPath(Path.Combine(root, fileName));
-            string rootPrefix = root.EndsWith(Path.DirectorySeparatorChar) ||
-                                root.EndsWith(Path.AltDirectorySeparatorChar)
-                ? root
-                : root + Path.DirectorySeparatorChar;
-
-            return path.StartsWith(rootPrefix, StringComparison.OrdinalIgnoreCase)
-                ? path
-                : Path.Combine(root, Path.GetFileName(fileName));
-        }
     }
 }

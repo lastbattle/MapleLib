@@ -70,11 +70,11 @@ namespace MapleLib.WzLib.Serializer
 
             foreach (WzDirectory subdir in dir.WzDirectories)
             {
-                exportDirXmlInternal(subdir, path + EscapeInvalidFilePathNames(subdir.name) + @"\");
+                exportDirXmlInternal(subdir, GetBoundOutputPath(path, EscapeInvalidFilePathNames(subdir.name)) + @"\");
             }
             foreach (WzImage subimg in dir.WzImages)
             {
-                exportXmlInternal(subimg, path + EscapeInvalidFilePathNames(subimg.Name) + ".xml");
+                exportXmlInternal(subimg, GetBoundOutputPath(path, EscapeInvalidFilePathNames(subimg.Name)) + ".xml");
             }
         }
 
