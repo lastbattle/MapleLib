@@ -145,10 +145,13 @@ namespace MapleLib.WzLib.WzProperties
         }
         #endregion
 
-        internal void Parse(bool parseNow)
+        internal void Parse(bool parseNow, long endOfBlock)
         {
             _length = _wzReader.ReadCompressedInt();
             EnsurePayloadAvailable(_wzReader, _length, "Raw data");
+            long remainingInBlock = endOfBlock - _wzReader.BaseStream.Position;
+            if (remainingInBlock < 0 || _length > remainingInBlock)
+                throw new InvalidDataException($"Raw data payload exceeds its declared block: {_length} bytes.");
             _rawDataOffset = _wzReader.BaseStream.Position;
             if (parseNow)
                 GetBytes(true);

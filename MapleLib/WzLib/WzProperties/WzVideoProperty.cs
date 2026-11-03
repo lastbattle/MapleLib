@@ -132,11 +132,16 @@ namespace MapleLib.WzLib.WzProperties
             return clone;
         }
 
-        internal void Parse(bool parseNow)
+        internal void Parse(bool parseNow, long endOfBlock)
         {
+            if (endOfBlock - wzReader.BaseStream.Position < 1)
+                throw new InvalidDataException("WZ video type byte exceeds its declared block.");
             type = wzReader.ReadByte();
             _length = wzReader.ReadCompressedInt();
             EnsurePayloadAvailable(wzReader, _length, "Video data");
+            long remainingInBlock = endOfBlock - wzReader.BaseStream.Position;
+            if (remainingInBlock < 0 || _length > remainingInBlock)
+                throw new InvalidDataException($"Video data payload exceeds its declared block: {_length} bytes.");
             _offset = wzReader.BaseStream.Position;
             if (parseNow)
                 GetBytes(true);
