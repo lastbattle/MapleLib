@@ -203,6 +203,11 @@ namespace MapleLib.WzLib.WzProperties
             int wavFormatLen = reader.ReadByte();
             reader.BaseStream.Position = headerOff;
 
+            // ReadBytes truncates silently at end of stream. Pin the whole
+            // declared envelope, prologue plus wave-format leg, before the
+            // header is assembled from partial reads.
+            EnsurePayloadAvailable(reader, soundHeader.Length + 1 + wavFormatLen, "Sound envelope");
+
             byte[] soundHeaderBytes = reader.ReadBytes(soundHeader.Length);
             byte[] unk1 = reader.ReadBytes(1);
             byte[] waveFormatBytes = reader.ReadBytes(wavFormatLen);
