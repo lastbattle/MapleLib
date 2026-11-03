@@ -277,6 +277,7 @@ namespace MapleLib.WzLib
                 case "Property":
                     {
                         WzSubProperty subProp = new WzSubProperty(name) { Parent = parent };
+                        EnsureWithinBlock(reader, eob, "property reserved bytes", 2);
                         reader.BaseStream.Position += 2; // Reserved?
                         subProp.AddProperties(ParsePropertyList(offset, reader, subProp, imgParent, depth + 1, eob));
                         return subProp;
@@ -284,9 +285,11 @@ namespace MapleLib.WzLib
                 case "Canvas":
                     {
                         WzCanvasProperty canvasProp = new WzCanvasProperty(name) { Parent = parent };
+                        EnsureWithinBlock(reader, eob, "canvas reserved bytes", 2);
                         reader.BaseStream.Position++;
                         if (reader.ReadByte() == 1)
                         {
+                            EnsureWithinBlock(reader, eob, "canvas linked reserved bytes", 2);
                             reader.BaseStream.Position += 2;
                             canvasProp.AddProperties(ParsePropertyList(offset, reader, canvasProp, imgParent, depth + 1, eob));
                         }
@@ -319,6 +322,7 @@ namespace MapleLib.WzLib
                     }
                 case "UOL":
                     {
+                        EnsureWithinBlock(reader, eob, "uol reserved bytes", 2);
                         reader.BaseStream.Position++;
                         switch (reader.ReadByte())
                         {
@@ -345,6 +349,7 @@ namespace MapleLib.WzLib
                         {
                             if (reader.ReadByte() == 1)
                             {
+                                EnsureWithinBlock(reader, eob, "raw data reserved bytes", 2);
                                 reader.BaseStream.Position += 2; // Reserved?
                                 rawDataProp.AddProperties(ParsePropertyList(offset, reader, rawDataProp, imgParent, depth + 1, eob));
                             }
@@ -358,10 +363,12 @@ namespace MapleLib.WzLib
                     {
                         WzVideoProperty videoProperty = new WzVideoProperty(name, reader);
                         videoProperty.Parent = parent;
+                        EnsureWithinBlock(reader, eob, "video reserved bytes", 2);
 
                         reader.BaseStream.Position++;
                         if (reader.ReadByte() == 1)
                         {
+                            EnsureWithinBlock(reader, eob, "video linked reserved bytes", 2);
                             reader.BaseStream.Position += 2;
                             videoProperty.AddProperties(ParsePropertyList(offset, reader, videoProperty, imgParent, depth + 1, eob));
                         }
