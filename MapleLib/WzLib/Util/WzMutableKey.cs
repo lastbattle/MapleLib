@@ -58,6 +58,9 @@ namespace MapleLib.WzLib.Util
                 return;
             }
 
+            if (_iv == null || _iv.Length < 4)
+                throw new InvalidDataException("The WZ key IV must contain at least four bytes.");
+
             int batchCount = (size + BatchSize - 1) / BatchSize;
 
             size = batchCount * BatchSize;
@@ -68,6 +71,9 @@ namespace MapleLib.WzLib.Util
                 this._keys = newKeys;
                 return;
             }
+
+            if (_aesUserKey == null || _aesUserKey.Length != 32)
+                throw new InvalidDataException("The WZ AES user key must contain exactly 32 bytes.");
 
             int startIndex = 0;
             if (_keys != null)
