@@ -94,15 +94,18 @@ namespace MapleLib.WzLib.Util
         /// <returns></returns>
         public override string ReadString()
         {
+            if (BaseStream.Length - BaseStream.Position < 1)
+                throw new InvalidDataException("WZ string prefix is truncated.");
+
             sbyte smallLength = base.ReadSByte();
             if (smallLength == 0)
                 return string.Empty;
 
             int length;
             if (smallLength > 0) // Unicode
-                length = smallLength == sbyte.MaxValue ? ReadInt32() : smallLength;
+                length = smallLength == sbyte.MaxValue ? ReadExtendedStringLength() : smallLength;
             else // ASCII
-                length = smallLength == sbyte.MinValue ? ReadInt32() : -smallLength;
+                length = smallLength == sbyte.MinValue ? ReadExtendedStringLength() : -smallLength;
 
             if (length < 0)
                 throw new InvalidDataException("WZ string has a negative length.");
@@ -122,6 +125,14 @@ namespace MapleLib.WzLib.Util
                 return DecodeUnicode(length);
             else
                 return DecodeAscii(length);
+        }
+
+        private int ReadExtendedStringLength()
+        {
+            if (BaseStream.Length - BaseStream.Position < sizeof(int))
+                throw new InvalidDataException("WZ string extended length is truncated.");
+
+            return ReadInt32();
         }
 
         /// <summary>

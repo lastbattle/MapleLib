@@ -464,6 +464,9 @@ namespace MapleLib.WzLib
                 {
                     reader.BaseStream.Position = offset;
 
+                    if (reader.BaseStream.Length - reader.BaseStream.Position < 1)
+                        throw new InvalidDataException("WZ image block is truncated before its type header.");
+
                     byte b = reader.ReadByte();
                     switch (b)
                     {
@@ -481,6 +484,9 @@ namespace MapleLib.WzLib
                         case WzImageHeaderByte_WithoutOffset:
                             {
                                 string prop = reader.ReadString();
+                                if (reader.BaseStream.Length - reader.BaseStream.Position < sizeof(ushort))
+                                    throw new InvalidDataException("WZ image prologue is truncated before the version field.");
+
                                 ushort val = reader.ReadUInt16();
                                 if (prop != "Property" || val != 0)
                                     return false;
