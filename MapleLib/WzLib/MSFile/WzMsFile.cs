@@ -162,6 +162,18 @@ namespace MapleLib.WzLib.MSFile
                 throw new InvalidDataException($"Version {WzMsConstants.Version2} entry table exceeds the containing stream.");
         }
 
+        private void ValidateVersion4EntryCount(int entryCount, long entryStartPosition)
+        {
+            if (entryCount < 0 || entryCount > MaxEntryCount)
+                throw new InvalidDataException($"Invalid version {WzMsConstants.Version4} entry count: {entryCount}");
+            if (entryStartPosition < 0 || entryStartPosition > BaseStream.Length)
+                throw new InvalidDataException($"Invalid version {WzMsConstants.Version4} entry start position: {entryStartPosition}");
+
+            long available = BaseStream.Length - entryStartPosition;
+            if (entryCount > available / Version4MinimumEntryBytes)
+                throw new InvalidDataException($"Version {WzMsConstants.Version4} entry table exceeds the containing stream.");
+        }
+
         private void ValidateEntryDataBounds(WzMsEntry entry)
         {
             if (entry == null)
@@ -478,8 +490,7 @@ namespace MapleLib.WzLib.MSFile
         private void ReadEntriesVersion4()
         {
             int entryCount = this.Header.EntryCount;
-            if (entryCount < 0 || entryCount > MaxEntryCount)
-                throw new InvalidDataException($"Invalid version {WzMsConstants.Version4} entry count: {entryCount}");
+            ValidateVersion4EntryCount(entryCount, this.Header.EntryStartPosition);
             if (this.Entries.Capacity < entryCount)
                 this.Entries.Capacity = entryCount;
 
@@ -583,6 +594,7 @@ namespace MapleLib.WzLib.MSFile
             private readonly ChaCha20CryptoTransform chacha20Cipher;
             private readonly bool leaveOpen;
             private byte[] buffer;
+            private int validLength;
             private int readOffset;
 
             public ChaCha20Reader(Stream baseStream, ReadOnlySpan<byte> key, ReadOnlySpan<byte> nonce, bool leaveOpen = false)
@@ -591,7 +603,8 @@ namespace MapleLib.WzLib.MSFile
                 this.leaveOpen = leaveOpen;
                 this.chacha20Cipher = new ChaCha20CryptoTransform(key, nonce, 0);
                 this.buffer = new byte[WzMsConstants.ChaCha20BlockSize];
-                this.readOffset = this.buffer.Length;
+                this.validLength = 0;
+                this.readOffset = 0;
             }
 
             public byte[] ReadBytes(int count)
@@ -607,14 +620,27 @@ namespace MapleLib.WzLib.MSFile
             {
                 while (destination.Length > 0)
                 {
-                    if (readOffset >= buffer.Length)
+                    if (readOffset >= validLength)
                     {
-                        baseStream.ReadExactly(buffer);
-                        chacha20Cipher.TransformInPlace(buffer);
+                        // The final table block of a compact or truncated pack
+                        // can hold fewer bytes than a full cipher block. Consume
+                        // only what remains so the parse reaches the declared
+                        // data-section check instead of an opaque failure.
+                        long remaining = baseStream.Length - baseStream.Position;
+                        int blockLength = (int)Math.Min(buffer.Length, Math.Max(0, remaining));
+                        if (blockLength == 0)
+                        {
+                            throw new EndOfStreamException(
+                                $"MS version {WzMsConstants.Version4} entry stream ended before the requested bytes were available.");
+                        }
+
+                        baseStream.ReadExactly(buffer.AsSpan(0, blockLength));
+                        chacha20Cipher.TransformInPlace(buffer.AsSpan(0, blockLength));
+                        validLength = blockLength;
                         readOffset = 0;
                     }
 
-                    int readCount = Math.Min(destination.Length, buffer.Length - readOffset);
+                    int readCount = Math.Min(destination.Length, validLength - readOffset);
                     buffer.AsSpan(readOffset, readCount).CopyTo(destination);
                     destination = destination[readCount..];
                     readOffset += readCount;
