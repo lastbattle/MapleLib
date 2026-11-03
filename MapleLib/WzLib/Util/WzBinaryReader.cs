@@ -393,9 +393,15 @@ namespace MapleLib.WzLib.Util
 
         public int ReadCompressedInt()
         {
+            if (BaseStream.Length - BaseStream.Position < 1)
+                throw new InvalidDataException("WZ compressed integer prefix is truncated.");
+
             sbyte sb = base.ReadSByte();
             if (sb == sbyte.MinValue)
             {
+                if (BaseStream.Length - BaseStream.Position < sizeof(int))
+                    throw new InvalidDataException("WZ compressed integer value is truncated.");
+
                 return ReadInt32();
             }
             return sb;
@@ -403,9 +409,15 @@ namespace MapleLib.WzLib.Util
 
         public long ReadLong()
         {
+            if (BaseStream.Length - BaseStream.Position < 1)
+                throw new InvalidDataException("WZ compressed long prefix is truncated.");
+
             sbyte sb = base.ReadSByte();
             if (sb == sbyte.MinValue)
             {
+                if (BaseStream.Length - BaseStream.Position < sizeof(long))
+                    throw new InvalidDataException("WZ compressed long value is truncated.");
+
                 return ReadInt64();
             }
             return sb;
