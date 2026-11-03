@@ -339,6 +339,7 @@ namespace MapleLib.WzLib
                         // UI_000.wz\Login.img\RaceSelect_new\Back0\3\skeleton.skel 
                         // UI_000.wz\Login.img\RaceSelect_new\Back0\16\skeleton.skel
                         // UI_000.wz\Login.img\RaceSelect_new\Back0\1005\Sia.skel
+                        EnsureWithinBlock(reader, eob, "raw data type byte", 1);
                         var type = reader.ReadByte();
 
                         var rawDataProp = new WzRawDataProperty(name, reader, type) { Parent = parent };
@@ -347,6 +348,7 @@ namespace MapleLib.WzLib
                         // type 1: similar to CanvasProperty that has binary data (the PNG) and sub properties (the origin, _hash, etc.)
                         if (type == 1)
                         {
+                            EnsureWithinBlock(reader, eob, "raw data link flag", 1);
                             if (reader.ReadByte() == 1)
                             {
                                 EnsureWithinBlock(reader, eob, "raw data reserved bytes", 2);
@@ -356,7 +358,7 @@ namespace MapleLib.WzLib
                         }
 
                         // all types: parse the binary data (similar to parse WzPngProperty for WzCanvasProperty)
-                        rawDataProp.Parse(imgParent.ParseEverything); // TODO: be able to display this raw data in HaRepacker
+                        rawDataProp.Parse(imgParent.ParseEverything, eob); // TODO: be able to display this raw data in HaRepacker
                         return rawDataProp;
                     }
                 case WzVideoProperty.CANVAS_VIDEO_HEADER: // KMST v1181
@@ -372,7 +374,7 @@ namespace MapleLib.WzLib
                             reader.BaseStream.Position += 2;
                             videoProperty.AddProperties(ParsePropertyList(offset, reader, videoProperty, imgParent, depth + 1, eob));
                         }
-                        videoProperty.Parse(imgParent.ParseEverything); // TODO:  be able to display this Canvas#Video in HaRepacker
+                        videoProperty.Parse(imgParent.ParseEverything, eob); // TODO:  be able to display this Canvas#Video in HaRepacker
                         return videoProperty;
                     }
                 default:

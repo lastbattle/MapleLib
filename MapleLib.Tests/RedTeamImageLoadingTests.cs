@@ -256,7 +256,7 @@ public sealed class RedTeamImageLoadingTests
         using var stream = new MemoryStream(Concat(CompressedInt(3), [1, 2, 3]));
         using var reader = new WzBinaryReader(stream, WzTool.GetIvByMapleVersion(WzMapleVersion.BMS));
         var property = new WzRawDataProperty("raw", reader, 0);
-        property.Parse(parseNow: false);
+        property.Parse(parseNow: false, stream.Length);
         stream.SetLength(stream.Length - 1);
         stream.Position = 0;
 
@@ -273,9 +273,9 @@ public sealed class RedTeamImageLoadingTests
         using var stream = new GateStream(bytes, firstReadStarted, releaseFirstRead);
         using var reader = new WzBinaryReader(stream, WzTool.GetIvByMapleVersion(WzMapleVersion.BMS));
         var firstProperty = new WzRawDataProperty("first", reader, 0);
-        firstProperty.Parse(parseNow: false);
+        firstProperty.Parse(parseNow: false, stream.Length);
         var secondProperty = new WzRawDataProperty("second", reader, 0);
-        secondProperty.Parse(parseNow: false);
+        secondProperty.Parse(parseNow: false, stream.Length);
         stream.EnableGate();
 
         var firstReady = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -329,7 +329,7 @@ public sealed class RedTeamImageLoadingTests
         using var stream = new MemoryStream(Concat([7], CompressedInt(3), [1, 2, 3]));
         using var reader = new WzBinaryReader(stream, WzTool.GetIvByMapleVersion(WzMapleVersion.BMS));
         var property = new WzVideoProperty("video", reader);
-        property.Parse(parseNow: false);
+        property.Parse(parseNow: false, stream.Length);
         stream.SetLength(stream.Length - 1);
         stream.Position = 0;
 
@@ -343,7 +343,7 @@ public sealed class RedTeamImageLoadingTests
         using var stream = new MemoryStream(Concat([7], CompressedInt(2), [0xAA, 0xBB]));
         using var reader = new WzBinaryReader(stream, WzTool.GetIvByMapleVersion(WzMapleVersion.BMS));
         var original = new WzVideoProperty("video", reader);
-        original.Parse(parseNow: true);
+        original.Parse(parseNow: true, stream.Length);
         original.AddProperty(new WzIntProperty("child", 1));
 
         var clone = Assert.IsType<WzVideoProperty>(original.DeepClone());
