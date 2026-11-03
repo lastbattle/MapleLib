@@ -33,13 +33,18 @@ namespace MapleLib.WzLib.Serializer
             bool success = true;
             foreach (string wzpath in wzFilesToDump)
             {
-                if (WzTool.IsListFile(wzpath))
-                {
-                    //Warning.Error(string.Format(HaRepacker.Properties.Resources.MainListWzDetected, wzpath));
-                    continue;
-                }
                 try
                 {
+                    // The list-file probe opens the selection as well, so it
+                    // stays under the per-file guard: one short, locked, or
+                    // missing entry is logged and skipped instead of aborting
+                    // every remaining file in the batch.
+                    if (WzTool.IsListFile(wzpath))
+                    {
+                        //Warning.Error(string.Format(HaRepacker.Properties.Resources.MainListWzDetected, wzpath));
+                        continue;
+                    }
+
                     using (WzFile f = new WzFile(wzpath, version))
                     {
                         WzFileParseStatus parseStatus = f.ParseWzFile();

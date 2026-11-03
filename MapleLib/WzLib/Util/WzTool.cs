@@ -194,13 +194,17 @@ namespace MapleLib.WzLib.Util
 
         public static bool IsListFile(string path)
         {
-            bool result;
-            using (BinaryReader reader = new BinaryReader(File.OpenRead(path)))
-            {
-                int header = reader.ReadInt32();
-                result = header != WZ_HEADER;
-            }
-            return result;
+            using FileStream stream = File.OpenRead(path);
+            // Files smaller than the signature cannot be list entries; report
+            // false so the guarded WZ parse surfaces the real error for the
+            // batch entry instead of EndOfStreamException from a blind
+            // four-byte read.
+            if (stream.Length < sizeof(int))
+                return false;
+
+            using BinaryReader reader = new BinaryReader(stream);
+            int header = reader.ReadInt32();
+            return header != WZ_HEADER;
         }
 
         /// <summary>
