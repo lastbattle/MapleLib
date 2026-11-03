@@ -102,6 +102,68 @@ public class WzBinaryReaderTests
         return stream.ToArray();
     }
 
+    [TestMethod]
+    public void ReadCompressedInt_RejectsTruncatedExtendedProbe()
+    {
+        // The 0x80 marker promotes the read to a four byte value. Every
+        // geometry ending inside the marker or its value must surface the
+        // house InvalidDataException contract, mirroring the string probes.
+        byte[][] geometries =
+        [
+            [],
+            [0x80],
+            [0x80, 0x01],
+            [0x80, 0x01, 0x02],
+        ];
+
+        foreach (byte[] geometry in geometries)
+        {
+            using var stream = new MemoryStream(geometry, writable: false);
+            using var reader = new WzBinaryReader(stream, WzAESConstant.WZ_BMSCLASSIC);
+
+            Assert.Throws<InvalidDataException>(() => reader.ReadCompressedInt());
+        }
+    }
+
+    [TestMethod]
+    public void ReadLong_RejectsTruncatedExtendedProbe()
+    {
+        byte[][] geometries =
+        [
+            [],
+            [0x80],
+            [0x80, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06],
+        ];
+
+        foreach (byte[] geometry in geometries)
+        {
+            using var stream = new MemoryStream(geometry, writable: false);
+            using var reader = new WzBinaryReader(stream, WzAESConstant.WZ_BMSCLASSIC);
+
+            Assert.Throws<InvalidDataException>(() => reader.ReadLong());
+        }
+    }
+
+    [TestMethod]
+    public void ReadCompressedInt_AndReadLong_ParseExtendedFormAtExactBoundary()
+    {
+        byte[] intEncoded = [0x80, 0x44, 0x33, 0x22, 0x11];
+        using (var intStream = new MemoryStream(intEncoded, writable: false))
+        using (var intReader = new WzBinaryReader(intStream, WzAESConstant.WZ_BMSCLASSIC))
+        {
+            Assert.AreEqual(0x11223344, intReader.ReadCompressedInt());
+            Assert.AreEqual(intEncoded.Length, intStream.Position);
+        }
+
+        byte[] longEncoded = [0x80, 0x88, 0x77, 0x66, 0x55, 0x44, 0x33, 0x22, 0x11];
+        using (var longStream = new MemoryStream(longEncoded, writable: false))
+        using (var longReader = new WzBinaryReader(longStream, WzAESConstant.WZ_BMSCLASSIC))
+        {
+            Assert.AreEqual(0x1122334455667788L, longReader.ReadLong());
+            Assert.AreEqual(longEncoded.Length, longStream.Position);
+        }
+    }
+
     private static string CreateAscii(int length)
     {
         if (length == 0)
