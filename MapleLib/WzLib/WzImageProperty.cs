@@ -183,6 +183,7 @@ namespace MapleLib.WzLib
             for (int i = 0; i < entryCount; i++)
             {
                 string name = reader.ReadStringBlock(offset);
+                EnsureWithinBlock(reader, endOfBlock, "property type byte", 1);
                 byte ptype = reader.ReadByte();
                 switch (ptype) // header value
                 {
@@ -191,6 +192,7 @@ namespace MapleLib.WzLib
                         break;
                     case 11:
                     case 2:
+                        EnsureWithinBlock(reader, endOfBlock, "short value", sizeof(short));
                         properties.Add(new WzShortProperty(name, reader.ReadInt16()) { Parent = parent });
                         break;
                     case 3:
@@ -201,21 +203,27 @@ namespace MapleLib.WzLib
                         properties.Add(new WzLongProperty(name, reader.ReadLong()) { Parent = parent });
                         break;
                     case 4:
+                        EnsureWithinBlock(reader, endOfBlock, "float subtype", 1);
                         byte type = reader.ReadByte();
                         if (type == 0x80)
+                        {
+                            EnsureWithinBlock(reader, endOfBlock, "float value", sizeof(float));
                             properties.Add(new WzFloatProperty(name, reader.ReadSingle()) { Parent = parent });
+                        }
                         else if (type == 0)
                             properties.Add(new WzFloatProperty(name, 0f) { Parent = parent });
                         else
                             throw new InvalidDataException($"Unsupported WZ float subtype: {type}.");
                         break;
                     case 5:
+                        EnsureWithinBlock(reader, endOfBlock, "double value", sizeof(double));
                         properties.Add(new WzDoubleProperty(name, reader.ReadDouble()) { Parent = parent });
                         break;
                     case 8:
                         properties.Add(new WzStringProperty(name, reader.ReadStringBlock(offset)) { Parent = parent });
                         break;
                     case 9:
+                        EnsureWithinBlock(reader, endOfBlock, "extended property length", sizeof(uint));
                         uint blockLength = reader.ReadUInt32();
                         long remainingInBlock = endOfBlock - reader.BaseStream.Position;
                         if (remainingInBlock < 0 || blockLength > remainingInBlock || blockLength > reader.Available())
