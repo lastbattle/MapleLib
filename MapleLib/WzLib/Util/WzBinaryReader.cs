@@ -270,18 +270,16 @@ namespace MapleLib.WzLib.Util
 
         private void EnsureAvailable(long byteCount, string valueDescription)
         {
+            // Every caller bounds the declared length before allocating (the
+            // WZ header and string limits), so the payload can be rejected
+            // before the stack buffer or rental is handed to ReadExactly.
+            // The former 10 KiB exemption leaked a raw BinaryReader
+            // EndOfStreamException for short overruns while every other parser
+            // leg reported the house InvalidDataException at the same
+            // boundary, so the exception type depended on the size of the lie.
             long remaining = BaseStream.Length - BaseStream.Position;
-            if (byteCount < 0 || remaining < 0)
+            if (byteCount < 0 || remaining < 0 || byteCount > remaining)
                 throw new InvalidDataException($"{valueDescription} exceeds the remaining stream data.");
-
-            if (byteCount > remaining)
-            {
-                // Small stack-bounded reads retain BinaryReader's historical
-                // EndOfStreamException behavior; larger attacker-controlled
-                // lengths must be rejected before renting/allocating memory.
-                if (byteCount > MemoryLimits.STACKALLOC_SIZE_LIMIT_L1)
-                    throw new InvalidDataException($"{valueDescription} exceeds the remaining stream data.");
-            }
         }
 
         public string ReadNullTerminatedString()
