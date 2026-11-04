@@ -260,7 +260,9 @@ namespace MapleLib.WzLib.WzStructure
 
             directionInfo = MapDirectionInfo.FromProperty(image["directionInfo"]);
 
-            foreach (WzImageProperty prop in infoImage.WzProperties)
+            // A crafted image may carry info as a scalar instead of a
+            // container node; the authored fields then all read as defaults.
+            foreach (WzImageProperty prop in (IEnumerable<WzImageProperty>)infoImage?.WzProperties ?? [])
             {
                 // Client builds occasionally vary the casing of optional
                 // audio fields. Recognize those spellings while retaining the
@@ -782,8 +784,8 @@ namespace MapleLib.WzLib.WzStructure
         public static Rectangle? GetVR(WzImage image)
         {
             Rectangle? result = null;
-            WzImageProperty info = image["info"];
-            if (info["VRLeft"] != null)
+            WzImageProperty info = image?["info"];
+            if (info?["VRLeft"] != null)
             {
                 int left = InfoTool.GetInt(info["VRLeft"]);
                 int right = InfoTool.GetInt(info["VRRight"]);

@@ -25,6 +25,9 @@ namespace MapleLib.WzLib.WzStructure.Data.MapStructure
         internal static MapDirectionEvent FromProperty(WzImageProperty property)
         {
             MapDirectionEvent result = new() { Name = property.Name };
+            if (property.WzProperties == null)
+                return result;
+
             foreach (WzImageProperty child in property.WzProperties)
             {
                 switch (child.Name)
@@ -39,6 +42,9 @@ namespace MapleLib.WzLib.WzStructure.Data.MapStructure
                         result.ForcedInput = InfoTool.GetInt(child);
                         break;
                     case "EventQ":
+                        if (child.WzProperties == null)
+                            break;
+
                         foreach (WzImageProperty queueItem in child.WzProperties.OrderBy(p => ParseIndex(p.Name)))
                         {
                             if (queueItem is WzStringProperty stringProperty)
@@ -110,7 +116,7 @@ namespace MapleLib.WzLib.WzStructure.Data.MapStructure
 
         public static MapDirectionInfo FromProperty(WzImageProperty property)
         {
-            if (property == null)
+            if (property?.WzProperties == null)
                 return null;
 
             MapDirectionInfo result = new();
