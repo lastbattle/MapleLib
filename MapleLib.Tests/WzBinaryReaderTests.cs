@@ -51,7 +51,7 @@ public class WzBinaryReaderTests
     }
 
     [TestMethod]
-    public void ReadString_ThrowsEndOfStreamForTruncatedAsciiAndUnicode()
+    public void ReadString_RejectsTruncatedAsciiAndUnicode()
     {
         foreach (string value in new[] { CreateAscii(128), CreateUnicode(128) })
         {
@@ -60,7 +60,7 @@ public class WzBinaryReaderTests
             using var stream = new MemoryStream(encoded, writable: false);
             using var reader = new WzBinaryReader(stream, WzAESConstant.WZ_BMSCLASSIC);
 
-            Assert.Throws<EndOfStreamException>(() => reader.ReadString());
+            Assert.Throws<InvalidDataException>(() => reader.ReadString());
         }
     }
 
