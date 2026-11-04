@@ -527,12 +527,29 @@ namespace MapleLib.WzLib.Util
 
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public string ReadStringBlock(long offset) => ReadByte() switch
+        public string ReadStringBlock(long offset)
         {
-            0 or WzImage.WzImageHeaderByte_WithoutOffset => ReadString(),
-            1 or WzImage.WzImageHeaderByte_WithOffset => ReadStringAtOffset(AddOffset(offset, ReadInt32())),
-            _ => string.Empty
-        };
+            if (BaseStream.Length - BaseStream.Position < 1)
+                throw new InvalidDataException("WZ string block marker is truncated.");
+
+            byte marker = ReadByte();
+            switch (marker)
+            {
+                case 0:
+                case WzImage.WzImageHeaderByte_WithoutOffset:
+                    return ReadString();
+
+                case 1:
+                case WzImage.WzImageHeaderByte_WithOffset:
+                    if (BaseStream.Length - BaseStream.Position < sizeof(int))
+                        throw new InvalidDataException("WZ string block offset is truncated.");
+
+                    return ReadStringAtOffset(AddOffset(offset, ReadInt32()));
+
+                default:
+                    return string.Empty;
+            }
+        }
 
         internal static long AddOffset(long baseOffset, int relativeOffset)
         {
