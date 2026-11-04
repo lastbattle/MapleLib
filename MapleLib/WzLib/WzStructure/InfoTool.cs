@@ -6,10 +6,29 @@ namespace MapleLib.WzLib.WzStructure
 {
     public static class InfoTool
     {
+        // WzObject.GetX throws NotImplementedException for a property type
+        // without that view, and every caller here is a consumer of authored
+        // content, so a wrong node type degrades to the accessor default
+        // instead of aborting the whole map load.
+        private static T ReadOrDefault<T>(WzImageProperty source, Func<WzImageProperty, T> read, T fallback)
+        {
+            if (source == null)
+                return fallback;
+
+            try
+            {
+                return read(source);
+            }
+            catch (NotImplementedException)
+            {
+                return fallback;
+            }
+        }
+
         #region String
         public static string GetString(this WzImageProperty source)
         {
-            return source == null ? null : source.GetString();
+            return ReadOrDefault(source, static property => property.GetString(), null);
         }
 
         public static WzStringProperty SetString(string value)
@@ -32,7 +51,7 @@ namespace MapleLib.WzLib.WzStructure
         #region Double
         public static double GetDouble(this WzImageProperty source)
         {
-            return source == null ? 0 : source.GetDouble();
+            return ReadOrDefault(source, static property => property.GetDouble(), 0d);
         }
 
         public static WzDoubleProperty SetDouble(double value)
@@ -45,7 +64,7 @@ namespace MapleLib.WzLib.WzStructure
         #region Integer
         public static int GetInt(this WzImageProperty source, int default_ = 0)
         {
-            return source == null ? default_ : source.GetInt();
+            return ReadOrDefault(source, static property => property.GetInt(), default_);
         }
 
         public static WzIntProperty SetInt(int value)
@@ -55,7 +74,7 @@ namespace MapleLib.WzLib.WzStructure
 
         public static int? GetOptionalInt(this WzImageProperty source, int? default_ = null)
         {
-            return source == null ? (int?)default_ : source.GetInt();
+            return source == null ? default_ : source.GetInt();
         }
 
         public static WzIntProperty SetOptionalInt(int? value)
@@ -69,7 +88,7 @@ namespace MapleLib.WzLib.WzStructure
         {
             string str = InfoTool.GetOptionalString(source);
             if (str == null) return null;
-            return int.Parse(str);
+            return int.TryParse(str, out int value) ? value : (int?)null;
         }
 
         public static WzStringProperty SetOptionalTranslatedInt(int? value)
@@ -93,17 +112,22 @@ namespace MapleLib.WzLib.WzStructure
         /// <returns></returns>
         public static Rectangle GetLtRbRectangle(this WzImageProperty parentSource)
         {
+            if (parentSource?.WzProperties == null)
+                return Rectangle.Empty;
+
             WzVectorProperty lt = InfoTool.GetOptionalVector(parentSource["lt"]);
             WzVectorProperty rb = InfoTool.GetOptionalVector(parentSource["rb"]);
 
-            int width = rb.X.Value - lt.X.Value;
-            int height = rb.Y.Value - lt.Y.Value;
+            int left = lt.X?.Value ?? 0;
+            int top = lt.Y?.Value ?? 0;
+            int right = rb.X?.Value ?? 0;
+            int bottom = rb.Y?.Value ?? 0;
 
             Rectangle rectangle = new Rectangle(
-                lt.X.Value,
-                lt.Y.Value,
-                width,
-                height);
+                left,
+                top,
+                right - left,
+                bottom - top);
             return rectangle;
         }
 
@@ -128,7 +152,9 @@ namespace MapleLib.WzLib.WzStructure
         /// <returns></returns>
         public static WzVectorProperty GetVector(this WzImageProperty source)
         {
-            return (WzVectorProperty)source;
+            // Same zero fallback GetOptionalVector already applies to a null
+            // node, so call sites that dereference the result keep working.
+            return source as WzVectorProperty ?? new WzVectorProperty(String.Empty, 0, 0);
         }
 
         /// <summary>
@@ -151,9 +177,6 @@ namespace MapleLib.WzLib.WzStructure
         /// <returns></returns>
         public static WzVectorProperty GetOptionalVector(this WzImageProperty source)
         {
-            if (source == null)
-                return new WzVectorProperty(String.Empty, 0, 0);
-
             return GetVector(source);
         }
 
@@ -162,7 +185,7 @@ namespace MapleLib.WzLib.WzStructure
         #region Long
         public static long GetLong(this WzImageProperty source)
         {
-            return source.GetLong();
+            return ReadOrDefault(source, static property => property.GetLong(), 0L);
         }
 
         public static WzLongProperty SetLong(long value)
@@ -217,7 +240,7 @@ namespace MapleLib.WzLib.WzStructure
         #region Float
         public static float GetFloat(this WzImageProperty source)
         {
-            return source == null ? 0 : source.GetFloat();
+            return ReadOrDefault(source, static property => property.GetFloat(), 0f);
         }
 
         public static WzFloatProperty SetFloat(float value)
