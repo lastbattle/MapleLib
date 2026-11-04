@@ -54,11 +54,13 @@ namespace MapleLib.WzLib.Serializer
             curr = 0;
             if (mainElement.Name == "xmldump")
             {
-                total = CountImgs(mainElement);
+                // The document element is not a directory level of its own, so
+                // its children start at zero like the ParseXMLWzDir call below.
+                total = CountImgs(mainElement, -1);
                 foreach (XmlElement subelement in mainElement)
                 {
                     if (subelement.Name == "wzdir")
-                        result.Add(ParseXMLWzDir(subelement));
+                        result.Add(ParseXMLWzDir(subelement, 0));
                     else if (subelement.Name == "wzimg")
                         result.Add(ParseXMLWzImg(subelement));
                     else
@@ -77,28 +79,30 @@ namespace MapleLib.WzLib.Serializer
         #endregion
 
         #region Internal Functions
-        internal int CountImgs(XmlElement element)
+        internal int CountImgs(XmlElement element, int depth)
         {
+            ValidateDirectoryDepth(depth);
             int count = 0;
             foreach (XmlElement child in element)
             {
                 if (child.Name == "wzimg")
                     count++;
                 else if (child.Name == "wzdir")
-                    count += CountImgs(child);
+                    count += CountImgs(child, depth + 1);
             }
 
             return count;
         }
 
 
-        internal WzDirectory ParseXMLWzDir(XmlElement dirElement)
+        internal WzDirectory ParseXMLWzDir(XmlElement dirElement, int depth)
         {
+            ValidateDirectoryDepth(depth);
             WzDirectory result = new WzDirectory(dirElement.GetAttribute("name"));
             foreach (XmlElement subelement in dirElement)
             {
                 if (subelement.Name == "wzdir")
-                    result.AddDirectory(ParseXMLWzDir(subelement));
+                    result.AddDirectory(ParseXMLWzDir(subelement, depth + 1));
                 else if (subelement.Name == "wzimg")
                     result.AddImage(ParseXMLWzImg(subelement));
                 else throw new InvalidDataException("unknown XML prop " + subelement.Name);
@@ -112,7 +116,7 @@ namespace MapleLib.WzLib.Serializer
             WzImage result = new WzImage(name);
             foreach (XmlElement subelement in imgElement)
             {
-                result.WzProperties.Add(ParsePropertyFromXMLElement(subelement));
+                result.WzProperties.Add(ParsePropertyFromXMLElement(subelement, 0));
             }
             result.Changed = true;
             if (useMemorySaving)
@@ -138,14 +142,15 @@ namespace MapleLib.WzLib.Serializer
             return result;
         }
 
-        internal WzImageProperty ParsePropertyFromXMLElement(XmlElement element)
+        internal WzImageProperty ParsePropertyFromXMLElement(XmlElement element, int depth)
         {
+            ValidatePropertyDepth(depth);
             switch (element.Name)
             {
                 case "imgdir":
                     WzSubProperty sub = new WzSubProperty(element.GetAttribute("name"));
                     foreach (XmlElement subelement in element)
-                        sub.AddProperty(ParsePropertyFromXMLElement(subelement));
+                        sub.AddProperty(ParsePropertyFromXMLElement(subelement, depth + 1));
                     return sub;
 
                 case "canvas":
@@ -177,7 +182,7 @@ namespace MapleLib.WzLib.Serializer
                             canvas.PngProperty.PNG = decodedBitmap;
                         }
                         foreach (XmlElement subelement in element)
-                            canvas.AddProperty(ParsePropertyFromXMLElement(subelement));
+                            canvas.AddProperty(ParsePropertyFromXMLElement(subelement, depth + 1));
                         return canvas;
                     }
 
@@ -230,10 +235,29 @@ namespace MapleLib.WzLib.Serializer
                 case "extended":
                     WzConvexProperty convex = new WzConvexProperty(element.GetAttribute("name"));
                     foreach (XmlElement subelement in element)
-                        convex.AddProperty(ParsePropertyFromXMLElement(subelement));
+                        convex.AddProperty(ParsePropertyFromXMLElement(subelement, depth + 1));
                     return convex;
             }
             throw new InvalidDataException("unknown XML prop " + element.Name);
+        }
+
+        /// <summary>
+        /// Imported XML nests through recursive descent, so the element tree
+        /// needs the same depth budget the binary parser already applies to
+        /// the relationships it mirrors. Without it a crafted dump a couple
+        /// of thousand levels deep ends the process with a
+        /// StackOverflowException that no caller can catch.
+        /// </summary>
+        private static void ValidatePropertyDepth(int depth)
+        {
+            if (depth > WzImageProperty.MaxPropertyNestingDepth)
+                throw new InvalidDataException($"XML property nesting exceeds the supported depth of {WzImageProperty.MaxPropertyNestingDepth}.");
+        }
+
+        private static void ValidateDirectoryDepth(int depth)
+        {
+            if (depth > WzDirectory.MaxDirectoryDepth)
+                throw new InvalidDataException($"XML directory nesting exceeds the supported depth of {WzDirectory.MaxDirectoryDepth}.");
         }
         #endregion
     }

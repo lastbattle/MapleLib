@@ -18,7 +18,7 @@ namespace MapleLib.WzLib
     public abstract class WzImageProperty : WzObject
     {
         private const int MaxPropertyCount = 100_000;
-        private const int MaxPropertyNestingDepth = 128;
+        internal const int MaxPropertyNestingDepth = 128;
         private const int MaxLuaPropertyLength = 64 * 1024 * 1024;
 
         #region Virtual\Abstrcat Members

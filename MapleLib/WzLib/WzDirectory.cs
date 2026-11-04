@@ -20,7 +20,7 @@ namespace MapleLib.WzLib
         // Directory records are attacker-controlled and recursively reference
         // one another by absolute stream offset.  Keep malformed chains from
         // exhausting the process stack even when every offset is unique.
-        private const int MaxDirectoryDepth = 256;
+        internal const int MaxDirectoryDepth = 256;
 
         // Smallest possible entry: the type byte, a one byte name, two
         // compressed integers, and the four byte encrypted offset. The
