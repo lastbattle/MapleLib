@@ -51,14 +51,17 @@ namespace MapleLib.WzLib.Serializer
             List<WzObject> result = new List<WzObject>();
             XmlDocument doc = new XmlDocument();
 
-            // Imported XML is untrusted: skip DTD processing entirely so
-            // crafted entities cannot amplify or fetch resources during
-            // parse, and take the root element directly so a document type
-            // node cannot shift the child indexes.
+            // Imported XML is untrusted. Parsing the DTD keeps internal-subset
+            // entity references working, while the null resolver stops a
+            // crafted external subset from touching the file system or network.
+            // The character cap bounds entity amplification. The root element
+            // is taken directly so a document type node cannot shift the child
+            // indexes.
             XmlReaderSettings readerSettings = new XmlReaderSettings
             {
-                DtdProcessing = DtdProcessing.Ignore,
+                DtdProcessing = DtdProcessing.Parse,
                 XmlResolver = null,
+                MaxCharactersFromEntities = 1_000_000,
             };
 
             using (XmlReader reader = XmlReader.Create(path, readerSettings))
