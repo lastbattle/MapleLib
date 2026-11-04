@@ -45,6 +45,13 @@ namespace MapleLib.WzLib.WzProperties
 
         private static int ReadPayloadLength(WzBinaryReader reader, string description)
         {
+            // The length integer is consumed after the four metadata
+            // bytes, so its own window is checked here; a canvas or IMG
+            // truncated inside those bytes escaped the image parse as a
+            // raw EndOfStreamException from BinaryReader.
+            if (!reader.BaseStream.CanSeek || reader.BaseStream.Length - reader.BaseStream.Position < sizeof(int))
+                throw new InvalidDataException($"{description} length is truncated.");
+
             int encodedLength = reader.ReadInt32();
             long payloadLength = (long)encodedLength - 1L;
             if (payloadLength < 0 || payloadLength > MemoryLimits.MAX_WZ_PAYLOAD_BYTES)
