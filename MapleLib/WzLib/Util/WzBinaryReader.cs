@@ -434,6 +434,9 @@ namespace MapleLib.WzLib.Util
 
         public long ReadOffset()
         {
+            if (BaseStream.Length - BaseStream.Position < sizeof(uint))
+                throw new InvalidDataException("WZ offset integer is truncated.");
+
             uint offset = (uint)BaseStream.Position;
             offset = (offset - Header.FStart) ^ uint.MaxValue;
             offset *= Hash;
@@ -609,18 +612,24 @@ namespace MapleLib.WzLib.Util
         public void PrintHexBytes(int numberOfBytes)
         {
 #if DEBUG // only debug
+            int readable = (int)Math.Min(numberOfBytes, Math.Max(0, BaseStream.Length - BaseStream.Position));
+            if (readable == 0)
+            {
+                return;
+            }
+
             byte[]? pooledArray = null;
             try
             {
-                Span<byte> buffer = numberOfBytes <= MemoryLimits.STACKALLOC_SIZE_LIMIT_L1
-                    ? stackalloc byte[numberOfBytes]
-                    : (pooledArray = s_bytePool.Rent(numberOfBytes)).AsSpan(0, numberOfBytes);
+                Span<byte> buffer = readable <= MemoryLimits.STACKALLOC_SIZE_LIMIT_L1
+                    ? stackalloc byte[readable]
+                    : (pooledArray = s_bytePool.Rent(readable)).AsSpan(0, readable);
 
                 BaseStream.ReadExactly(buffer);
                 //string hex = HexTool.ToString(buffer.ToArray());
                 //Debug.WriteLine(hex);
 
-                BaseStream.Position -= numberOfBytes;
+                BaseStream.Position -= readable;
             }
             finally
             {
