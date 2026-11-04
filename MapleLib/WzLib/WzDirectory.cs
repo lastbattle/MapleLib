@@ -22,6 +22,12 @@ namespace MapleLib.WzLib
         // exhausting the process stack even when every offset is unique.
         private const int MaxDirectoryDepth = 256;
 
+        // Smallest possible entry: the type byte, a one byte name, two
+        // compressed integers, and the four byte encrypted offset. The
+        // unnamed and offset referenced arms are strictly larger, so this
+        // floor holds for every entry shape when validating the count.
+        private const int MinDirectoryEntryBytes = 8;
+
         #region Fields
         private List<WzImage> images = new List<WzImage>();
         internal List<WzDirectory> subDirs = new List<WzDirectory>();
@@ -223,11 +229,14 @@ namespace MapleLib.WzLib
                 return;
 
             int entryCount = reader.ReadCompressedInt();
-            if (entryCount < 0 || entryCount > 100000 || (long)entryCount > reader.Available()) // probably nothing > 100k folders for now.
+            if (entryCount < 0 || entryCount > 100000 || (long)entryCount * MinDirectoryEntryBytes > reader.Available()) // probably nothing > 100k folders for now.
                 throw new InvalidDataException("Invalid WZ directory entry count.");
 
             for (int i = 0; i < entryCount; i++)
             {
+                if (reader.Available() < 1)
+                    throw new InvalidDataException("WZ directory entry type is truncated.");
+
                 byte type = reader.ReadByte(); // see WzBinaryWriter.WriteWzObjectValue
                 string fname = null;
                 int fsize;
@@ -239,13 +248,23 @@ namespace MapleLib.WzLib
                 {
                     case (byte) WzDirectoryType.UnknownType_1:  //01 XX 00 00 00 00 00 OFFSET (4 bytes) 
                         {
+                            if (reader.Available() < sizeof(int))
+                                throw new InvalidDataException("WZ directory unknown entry integer is truncated.");
+
                             int unknown = reader.ReadInt32();
+
+                            if (reader.Available() < sizeof(short))
+                                throw new InvalidDataException("WZ directory unknown entry short is truncated.");
+
                             reader.ReadInt16();
                             long offs = reader.ReadOffset();
                             continue;
                         }
                     case (byte) WzDirectoryType.RetrieveStringFromOffset_2:
                         {
+                            if (reader.Available() < sizeof(int))
+                                throw new InvalidDataException("WZ directory entry string offset is truncated.");
+
                             int stringOffset = reader.ReadInt32();
                             rememberPos = reader.BaseStream.Position;
 
@@ -275,7 +294,7 @@ namespace MapleLib.WzLib
                     default:
                         {
                             reader.PrintHexBytes(20);
-                            throw new Exception("[WzDirectory] Unknown directory. type = " + type);
+                            throw new InvalidDataException($"Unknown WZ directory entry type: {type}.");
                         }
                 }
                 reader.BaseStream.Position = rememberPos;
