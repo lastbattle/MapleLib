@@ -30,6 +30,21 @@ namespace MapleLib.WzLib.Serializer
             this.iv = iv;
         }
 
+        /// <summary>
+        /// Enumerates child elements only. Imported XML may carry text nodes
+        /// (stray text, or preserved whitespace) between the elements of a
+        /// container; enumerating an XmlNodeList as XmlElement threw
+        /// InvalidCastException on the first one instead of skipping it.
+        /// </summary>
+        private static IEnumerable<XmlElement> ChildElements(XmlElement element)
+        {
+            foreach (XmlNode node in element.ChildNodes)
+            {
+                if (node is XmlElement child)
+                    yield return child;
+            }
+        }
+
         #region Public Functions
         public List<WzObject> ParseXML(string path)
         {
@@ -57,7 +72,7 @@ namespace MapleLib.WzLib.Serializer
                 // The document element is not a directory level of its own, so
                 // its children start at zero like the ParseXMLWzDir call below.
                 total = CountImgs(mainElement, -1);
-                foreach (XmlElement subelement in mainElement)
+                foreach (XmlElement subelement in ChildElements(mainElement))
                 {
                     if (subelement.Name == "wzdir")
                         result.Add(ParseXMLWzDir(subelement, 0));
@@ -83,7 +98,7 @@ namespace MapleLib.WzLib.Serializer
         {
             ValidateDirectoryDepth(depth);
             int count = 0;
-            foreach (XmlElement child in element)
+            foreach (XmlElement child in ChildElements(element))
             {
                 if (child.Name == "wzimg")
                     count++;
@@ -99,7 +114,7 @@ namespace MapleLib.WzLib.Serializer
         {
             ValidateDirectoryDepth(depth);
             WzDirectory result = new WzDirectory(dirElement.GetAttribute("name"));
-            foreach (XmlElement subelement in dirElement)
+            foreach (XmlElement subelement in ChildElements(dirElement))
             {
                 if (subelement.Name == "wzdir")
                     result.AddDirectory(ParseXMLWzDir(subelement, depth + 1));
@@ -114,7 +129,7 @@ namespace MapleLib.WzLib.Serializer
         {
             string name = imgElement.GetAttribute("name");
             WzImage result = new WzImage(name);
-            foreach (XmlElement subelement in imgElement)
+            foreach (XmlElement subelement in ChildElements(imgElement))
             {
                 result.WzProperties.Add(ParsePropertyFromXMLElement(subelement, 0));
             }
@@ -149,7 +164,7 @@ namespace MapleLib.WzLib.Serializer
             {
                 case "imgdir":
                     WzSubProperty sub = new WzSubProperty(element.GetAttribute("name"));
-                    foreach (XmlElement subelement in element)
+                    foreach (XmlElement subelement in ChildElements(element))
                         sub.AddProperty(ParsePropertyFromXMLElement(subelement, depth + 1));
                     return sub;
 
@@ -181,7 +196,7 @@ namespace MapleLib.WzLib.Serializer
                             // image unowned, so dispose it with this scope on every path.
                             canvas.PngProperty.PNG = decodedBitmap;
                         }
-                        foreach (XmlElement subelement in element)
+                        foreach (XmlElement subelement in ChildElements(element))
                             canvas.AddProperty(ParsePropertyFromXMLElement(subelement, depth + 1));
                         return canvas;
                     }
@@ -234,7 +249,7 @@ namespace MapleLib.WzLib.Serializer
 
                 case "extended":
                     WzConvexProperty convex = new WzConvexProperty(element.GetAttribute("name"));
-                    foreach (XmlElement subelement in element)
+                    foreach (XmlElement subelement in ChildElements(element))
                         convex.AddProperty(ParsePropertyFromXMLElement(subelement, depth + 1));
                     return convex;
             }
