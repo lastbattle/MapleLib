@@ -806,7 +806,10 @@ namespace MapleLib.WzLib.WzProperties
                 var wzKey = this.wzReader?.WzKey ?? ParentImage?.reader?.WzKey;
                 if (wzKey == null)
                 {
-                    throw new Exception("Cannot decrypt listWz format PNG - no WzKey available. " +
+                    // DecodeBitmap contains InvalidDataException as the house
+                    // blank-image degrade; a raw Exception here would escape
+                    // GetBitmap and kill the tree build or preview leg.
+                    throw new InvalidDataException("Cannot decrypt listWz format PNG - no WzKey available. " +
                         $"wzReader={this.wzReader != null}, ParentImage={ParentImage != null}");
                 }
 
