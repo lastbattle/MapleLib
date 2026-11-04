@@ -472,14 +472,13 @@ namespace MapleLib.WzLib
                     {
                         case 0x1: // .lua
                             {
-                                if (IsLuaWzImage)
-                                {
-                                    WzLuaProperty lua = WzImageProperty.ParseLuaProperty(offset, reader, this, this);
-                                    properties.Add(lua);
-                                    parsed = true;
-                                    return true;
-                                }
-                                return false;
+                                // The leading byte identifies the block, not the
+                                // name; byte-imported images routinely arrive
+                                // with a provisional name that lacks ".lua".
+                                WzLuaProperty lua = WzImageProperty.ParseLuaProperty(offset, reader, this, this);
+                                properties.Add(lua);
+                                parsed = true;
+                                return true;
                             }
                         case WzImageHeaderByte_WithoutOffset:
                             {
@@ -489,7 +488,8 @@ namespace MapleLib.WzLib
 
                                 ushort val = reader.ReadUInt16();
                                 if (prop != "Property" || val != 0)
-                                    return false;
+                                    throw new InvalidDataException(
+                                        $"WZ image prologue mismatch: name '{prop}', version {val}.");
                                 break;
                             }
                         default:
@@ -497,7 +497,7 @@ namespace MapleLib.WzLib
                                 string error = "[WzImage] New Wz image header found. b = " + b;
                                 Helpers.ErrorLogger.Log(Helpers.ErrorLevel.MissingFeature, error);
                                 Debug.WriteLine(error);
-                                return false;
+                                throw new InvalidDataException($"Unknown WZ image header byte 0x{b:X2}.");
                             }
                     }
                     List<WzImageProperty> images = WzImageProperty.ParsePropertyList(offset, reader, this, this);
