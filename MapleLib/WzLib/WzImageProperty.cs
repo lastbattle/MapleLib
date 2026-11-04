@@ -259,6 +259,7 @@ namespace MapleLib.WzLib
             {
                 case 0x01:
                 case WzImage.WzImageHeaderByte_WithOffset:
+                    EnsureWithinBlock(reader, endOfBlock, "extended property name offset", sizeof(int));
                     return ExtractMore(reader, offset, endOfBlock, name, reader.ReadStringAtOffset(WzBinaryReader.AddOffset(offset, reader.ReadInt32())), parent, imgParent, depth);
                 case 0x00:
                 case WzImage.WzImageHeaderByte_WithoutOffset:
@@ -337,6 +338,7 @@ namespace MapleLib.WzLib
                             case 0:
                                 return new WzUOLProperty(name, reader.ReadString()) { Parent = parent };
                             case 1:
+                                EnsureWithinBlock(reader, eob, "UOL string offset", sizeof(int));
                                 return new WzUOLProperty(name, reader.ReadStringAtOffset(WzBinaryReader.AddOffset(offset, reader.ReadInt32()))) { Parent = parent };
                         }
                         throw new InvalidDataException("Unsupported WZ UOL subtype.");
