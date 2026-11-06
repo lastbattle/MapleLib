@@ -60,7 +60,7 @@ namespace MapleLib.WzLib.WzProperties
             return (int)payloadLength;
         }
 
-        private void ValidateDimensions()
+        internal void ValidateDimensions()
         {
             if (width <= 0 || height <= 0)
                 throw new InvalidDataException("PNG dimensions must be positive.");

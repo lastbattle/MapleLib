@@ -91,6 +91,18 @@ namespace MapleLib.WzLib.Spine
 
                 if (pngProperty != null && graphicsDevice != null)
                 {
+                    try
+                    {
+                        pngProperty.ValidateDimensions();
+                    }
+                    catch (System.IO.InvalidDataException)
+                    {
+                        // A hand-edited property can carry dimensions that the
+                        // parser would reject; leave the atlas page blank rather
+                        // than throwing while constructing GPU storage.
+                        return;
+                    }
+
                     Texture2D tex = new Texture2D(graphicsDevice, pngProperty.Width, pngProperty.Height, false, WzPngFormatExtensions.GetXNASurfaceFormat(pngProperty.Format));
                     ownedTextures.Add(tex);
 
