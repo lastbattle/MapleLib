@@ -143,6 +143,7 @@ namespace MapleLib.WzLib.Serializer
             if (useMemorySaving)
             {
                 string path = Path.GetTempFileName();
+                bool imageOwnsTemporaryFile = false;
                 try
                 {
                     using (WzBinaryWriter wzWriter = new WzBinaryWriter(File.Create(path), iv))
@@ -153,10 +154,18 @@ namespace MapleLib.WzLib.Serializer
 
                     bool successfullyParsedImage;
                     result = imgDeserializer.WzImageFromIMGFile(path, iv, name, out successfullyParsedImage);
+
+                    if (result.ParseEverything)
+                        File.Delete(path);
+                    else
+                    {
+                        result.BackingFilePath = path;
+                        imageOwnsTemporaryFile = true;
+                    }
                 }
                 finally
                 {
-                    if (result.ParseEverything)
+                    if (!imageOwnsTemporaryFile)
                         File.Delete(path);
                 }
             }
