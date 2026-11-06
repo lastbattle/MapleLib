@@ -746,6 +746,21 @@ namespace MapleLib.Helpers
         #endregion
 
         #region Encode
+        internal static void ValidateBitmapForCompression(Bitmap bmp)
+        {
+            ArgumentNullException.ThrowIfNull(bmp);
+            if (bmp.Width <= 0 || bmp.Height <= 0)
+                throw new ArgumentException("Bitmap dimensions must be positive.", nameof(bmp));
+            if (bmp.Width > WzLib.WzProperties.WzPngFormatExtensions.MaxDimension ||
+                bmp.Height > WzLib.WzProperties.WzPngFormatExtensions.MaxDimension)
+                throw new ArgumentException("Bitmap dimensions exceed the supported WZ limits.", nameof(bmp));
+
+            long pixelCount = (long)bmp.Width * bmp.Height;
+            long stagingBytes = checked(pixelCount * 4);
+            if (stagingBytes > WzLib.WzProperties.WzPngFormatExtensions.MaxDecodedSize)
+                throw new ArgumentException("Bitmap exceeds the supported WZ decoded-size limit.", nameof(bmp));
+        }
+
         /// <summary>
         /// Compresses the bmp to the selected SurfaceFormat byte[].
         /// </summary>
@@ -754,6 +769,8 @@ namespace MapleLib.Helpers
         /// <returns>Tuple of WzPngFormat and compressed byte array</returns>
         public static (WzPngFormat, byte[]) CompressImageToPngFormat(Bitmap bmp, SurfaceFormat format)
         {
+            ValidateBitmapForCompression(bmp);
+
             // For DXT3, we need to detect if it's a grayscale image to choose between Format3 and Format1026
             bool isGrayscale = false;
             if (format == SurfaceFormat.Dxt3)
@@ -772,6 +789,8 @@ namespace MapleLib.Helpers
         /// <returns>Tuple of WzPngFormat and compressed byte array</returns>
         public static (WzPngFormat, byte[]) CompressImageToPngFormat(Bitmap bmp, SurfaceFormat format, bool isGrayscale)
         {
+            ValidateBitmapForCompression(bmp);
+
             byte[] retPixelData;
             WzPngFormat retFormat;
             switch (format)

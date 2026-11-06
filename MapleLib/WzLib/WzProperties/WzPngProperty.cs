@@ -976,6 +976,7 @@ namespace MapleLib.WzLib.WzProperties
 
         internal void CompressPng(Bitmap bmp)
         {
+            PngUtility.ValidateBitmapForCompression(bmp);
             width = bmp.Width;
             height = bmp.Height;
 
