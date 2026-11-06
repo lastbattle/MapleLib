@@ -32,21 +32,42 @@ namespace MapleLib.WzLib.Serializer
                 // Create a copy of properties to avoid modification during enumeration
                 var properties = img.WzProperties.ToList();
 
-                using (TextWriter tw = new StreamWriter(File.Create(path)))
+                string temporaryPath = $"{path}.{Guid.NewGuid():N}.tmp";
+                try
                 {
-                    tw.Write("<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>");
-                    tw.Write(lineBreak);
-                    tw.Write("<imgdir name=\"");
-                    tw.Write(XmlUtil.SanitizeText(img.Name));
-                    tw.Write("\">");
-                    tw.Write(lineBreak);
-
-                    foreach (WzImageProperty property in properties)
+                    using (TextWriter tw = new StreamWriter(File.Create(temporaryPath)))
                     {
-                        WritePropertyToXML(tw, indent, property, path);
+                        tw.Write("<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>");
+                        tw.Write(lineBreak);
+                        tw.Write("<imgdir name=\"");
+                        tw.Write(XmlUtil.SanitizeText(img.Name));
+                        tw.Write("\">");
+                        tw.Write(lineBreak);
+
+                        foreach (WzImageProperty property in properties)
+                        {
+                            WritePropertyToXML(tw, indent, property, path);
+                        }
+                        tw.Write("</imgdir>");
+                        tw.Write(lineBreak);
                     }
-                    tw.Write("</imgdir>");
-                    tw.Write(lineBreak);
+
+                    if (File.Exists(path))
+                        File.Replace(temporaryPath, path, destinationBackupFileName: null);
+                    else
+                        File.Move(temporaryPath, path);
+                }
+                finally
+                {
+                    try
+                    {
+                        if (File.Exists(temporaryPath))
+                            File.Delete(temporaryPath);
+                    }
+                    catch (IOException)
+                    {
+                        // Cleanup must not mask the export result.
+                    }
                 }
             }
             catch (Exception ex)

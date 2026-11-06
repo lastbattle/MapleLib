@@ -761,15 +761,35 @@ namespace MapleLib.WzLib
                 string escapedName = MapleLib.WzLib.Serializer.ProgressingWzSerializer.EscapeInvalidFilePathNames(name ?? string.Empty);
                 string targetDirectory = Path.GetFullPath(path);
                 Directory.CreateDirectory(targetDirectory);
-                FileStream fs = File.Create(Path.Combine(targetDirectory, escapedName + ".xml"));
-                StreamWriter writer = new StreamWriter(fs);
+                string targetFile = Path.Combine(targetDirectory, escapedName + ".xml");
+                string temporaryFile = $"{targetFile}.{Guid.NewGuid():N}.tmp";
+                try
+                {
+                    using (StreamWriter writer = new StreamWriter(File.Create(temporaryFile)))
+                    {
+                        int level = 0;
+                        writer.WriteLine(XmlUtil.Indentation(level) + XmlUtil.OpenNamedTag("WzFile", this.name, true));
+                        this.wzDir.ExportXml(writer, oneFile, level, false);
+                        writer.WriteLine(XmlUtil.Indentation(level) + XmlUtil.CloseTag("WzFile"));
+                    }
 
-                int level = 0;
-                writer.WriteLine(XmlUtil.Indentation(level) + XmlUtil.OpenNamedTag("WzFile", this.name, true));
-                this.wzDir.ExportXml(writer, oneFile, level, false);
-                writer.WriteLine(XmlUtil.Indentation(level) + XmlUtil.CloseTag("WzFile"));
-
-                writer.Close();
+                    if (File.Exists(targetFile))
+                        File.Replace(temporaryFile, targetFile, destinationBackupFileName: null);
+                    else
+                        File.Move(temporaryFile, targetFile);
+                }
+                finally
+                {
+                    try
+                    {
+                        if (File.Exists(temporaryFile))
+                            File.Delete(temporaryFile);
+                    }
+                    catch (IOException)
+                    {
+                        // Cleanup must not mask the export result.
+                    }
+                }
             }
             else
             {

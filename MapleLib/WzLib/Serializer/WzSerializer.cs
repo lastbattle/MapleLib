@@ -286,9 +286,30 @@ namespace MapleLib.WzLib.Serializer
                 if (!luaFileName.EndsWith(".lua", StringComparison.OrdinalIgnoreCase))
                     luaFileName += ".lua";
                 string luaPath = Path.Combine(luaDirectory, luaFileName);
-                using (TextWriter twLua = new StreamWriter(File.Create(luaPath)))
+                string luaTemporaryPath = $"{luaPath}.{Guid.NewGuid():N}.tmp";
+                try
                 {
-                    twLua.Write(propertyLua.ToString());
+                    using (TextWriter twLua = new StreamWriter(File.Create(luaTemporaryPath)))
+                    {
+                        twLua.Write(propertyLua.ToString());
+                    }
+
+                    if (File.Exists(luaPath))
+                        File.Replace(luaTemporaryPath, luaPath, destinationBackupFileName: null);
+                    else
+                        File.Move(luaTemporaryPath, luaPath);
+                }
+                finally
+                {
+                    try
+                    {
+                        if (File.Exists(luaTemporaryPath))
+                            File.Delete(luaTemporaryPath);
+                    }
+                    catch (IOException)
+                    {
+                        // Cleanup must not mask the export result.
+                    }
                 }
             }
         }
