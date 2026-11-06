@@ -96,26 +96,49 @@ namespace MapleLib.WzLib
 
 		public static void SaveToDisk(string path, byte[] WzIv, List<string> listEntries)
 		{
-            using WzBinaryWriter wzWriter = new WzBinaryWriter(File.Create(path), WzIv);
-            // BaseStream flushes the writer; capture it before buffering entries.
-            Stream output = wzWriter.BaseStream;
-
-            for (int i = 0; i < listEntries.Count; i++)
+            string temporaryPath = $"{path}.{Guid.NewGuid():N}.tmp";
+            try
             {
-                string listEntry = listEntries[i];
-                if (i == listEntries.Count - 1 && listEntry.Length > 0)
-                    listEntry = listEntry.Substring(0, listEntry.Length - 1) + "/";
+                using (WzBinaryWriter wzWriter = new WzBinaryWriter(File.Create(temporaryPath), WzIv))
+                {
+                    // BaseStream flushes the writer; capture it before buffering entries.
+                    Stream output = wzWriter.BaseStream;
 
-                wzWriter.Write((int)listEntry.Length);
-                char[] encryptedChars = wzWriter.EncryptString(listEntry + (char)0);
-                if (BitConverter.IsLittleEndian)
-                {
-                    output.Write(MemoryMarshal.AsBytes(encryptedChars.AsSpan()));
+                    for (int i = 0; i < listEntries.Count; i++)
+                    {
+                        string listEntry = listEntries[i];
+                        if (i == listEntries.Count - 1 && listEntry.Length > 0)
+                            listEntry = listEntry.Substring(0, listEntry.Length - 1) + "/";
+
+                        wzWriter.Write((int)listEntry.Length);
+                        char[] encryptedChars = wzWriter.EncryptString(listEntry + (char)0);
+                        if (BitConverter.IsLittleEndian)
+                        {
+                            output.Write(MemoryMarshal.AsBytes(encryptedChars.AsSpan()));
+                        }
+                        else
+                        {
+                            for (int j = 0; j < encryptedChars.Length; j++)
+                                wzWriter.Write((short)encryptedChars[j]);
+                        }
+                    }
                 }
+
+                if (File.Exists(path))
+                    File.Replace(temporaryPath, path, destinationBackupFileName: null);
                 else
+                    File.Move(temporaryPath, path);
+            }
+            finally
+            {
+                try
                 {
-                    for (int j = 0; j < encryptedChars.Length; j++)
-                        wzWriter.Write((short)encryptedChars[j]);
+                    if (File.Exists(temporaryPath))
+                        File.Delete(temporaryPath);
+                }
+                catch (IOException)
+                {
+                    // Cleanup must not mask the save result.
                 }
             }
 		}
