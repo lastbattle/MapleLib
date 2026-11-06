@@ -452,16 +452,16 @@ namespace MapleLib.WzLib
                 img.UnparseImage();
 
                 int nameLen = WzTool.GetWzObjectValueLength(img.name, 4);
-                size += nameLen;
+                size = checked(size + nameLen);
                 int imgLen = img.size;
-                size += WzTool.GetCompressedIntLength(imgLen);
-                size += imgLen;
-                size += WzTool.GetCompressedIntLength(img.Checksum);
-                size += 4;
+                size = checked(size + WzTool.GetCompressedIntLength(imgLen));
+                size = checked(size + imgLen);
+                size = checked(size + WzTool.GetCompressedIntLength(img.Checksum));
+                size = checked(size + 4);
                 offsetSize += nameLen;
-                offsetSize += WzTool.GetCompressedIntLength(imgLen);
-                offsetSize += WzTool.GetCompressedIntLength(img.Checksum);
-                offsetSize += 4;
+                offsetSize = checked(offsetSize + WzTool.GetCompressedIntLength(imgLen));
+                offsetSize = checked(offsetSize + WzTool.GetCompressedIntLength(img.Checksum));
+                offsetSize = checked(offsetSize + 4);
 
                 //Debug.WriteLine("Writing image :" + img.FullPath);
             }
@@ -469,15 +469,15 @@ namespace MapleLib.WzLib
             foreach (WzDirectory dir in subDirs)
             {
                 int nameLen = WzTool.GetWzObjectValueLength(dir.name, 3);
-                size += nameLen;
-                size += dir.GenerateDataFile(useIv, bIsWzUserKeyDefault, prevOpenedStream);
-                size += WzTool.GetCompressedIntLength(dir.size);
-                size += WzTool.GetCompressedIntLength(dir.Checksum);
-                size += 4;
+                size = checked(size + nameLen);
+                size = checked(size + dir.GenerateDataFile(useIv, bIsWzUserKeyDefault, prevOpenedStream));
+                size = checked(size + WzTool.GetCompressedIntLength(dir.size));
+                size = checked(size + WzTool.GetCompressedIntLength(dir.Checksum));
+                size = checked(size + 4);
                 offsetSize += nameLen;
-                offsetSize += WzTool.GetCompressedIntLength(dir.size);
-                offsetSize += WzTool.GetCompressedIntLength(dir.Checksum);
-                offsetSize += 4;
+                offsetSize = checked(offsetSize + WzTool.GetCompressedIntLength(dir.size));
+                offsetSize = checked(offsetSize + WzTool.GetCompressedIntLength(dir.Checksum));
+                offsetSize = checked(offsetSize + 4);
 
                 //Debug.WriteLine("Writing dir :" + dir.FullPath);
             }
@@ -520,7 +520,7 @@ namespace MapleLib.WzLib
         internal uint GetOffsets(uint curOffset)
         {
             offset = curOffset;
-            curOffset += (uint)offsetSize;
+            curOffset = checked(curOffset + (uint)offsetSize);
             foreach (WzDirectory dir in subDirs)
             {
                 curOffset = dir.GetOffsets(curOffset);
@@ -532,7 +532,7 @@ namespace MapleLib.WzLib
             foreach (WzImage img in images)
             {
                 img.Offset = curOffset;
-                curOffset += (uint)img.BlockSize;
+                curOffset = checked(curOffset + (uint)img.BlockSize);
             }
             foreach (WzDirectory dir in subDirs)
             {

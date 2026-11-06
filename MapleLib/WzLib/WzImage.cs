@@ -608,7 +608,11 @@ namespace MapleLib.WzLib
 
                 writer.StringCache.Clear();
 
-                size = (int)(writer.BaseStream.Position - startPos);
+                long serializedLength = writer.BaseStream.Position - startPos;
+                if ((ulong)serializedLength > int.MaxValue)
+                    throw new InvalidDataException("Serialized WZ image exceeds the supported length.");
+
+                size = (int)serializedLength;
             }
             else
             {
