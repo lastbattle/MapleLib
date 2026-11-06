@@ -611,7 +611,7 @@ namespace MapleLib.Img
 
                     // Create .ini file with correct last index
                     string iniFilePath = Path.Combine(categoryOutputPath, $"{category}.ini");
-                    File.WriteAllText(iniFilePath, $"LastWzIndex|{lastWzIndex}");
+                    Helpers.AtomicFile.WriteAllText(iniFilePath, $"LastWzIndex|{lastWzIndex}");
 
                     int totalCount = allImgFiles.Count;
                     int processedCount = 0;
@@ -2651,7 +2651,7 @@ namespace MapleLib.Img
             var content = new StringBuilder();
             content.AppendLine($"LastWzIndex|{maxIndex}");
 
-            File.WriteAllText(iniPath, content.ToString());
+            Helpers.AtomicFile.WriteAllText(iniPath, content.ToString());
             Debug.WriteLine($"[Canvas] Created index file: {iniPath}");
         }
         #endregion

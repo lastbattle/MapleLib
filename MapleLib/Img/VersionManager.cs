@@ -564,7 +564,7 @@ namespace MapleLib.Img
                 if (File.Exists(manifestPath))
                 {
                     string json = JsonSerializer.Serialize(versionInfo, MapleJsonContext.Default.VersionInfo);
-                    File.WriteAllText(manifestPath, json);
+                    Helpers.AtomicFile.WriteAllText(manifestPath, json);
                 }
             }
             catch (IOException)

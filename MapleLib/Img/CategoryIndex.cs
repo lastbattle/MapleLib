@@ -157,7 +157,7 @@ namespace MapleLib.Img
         public void Save(string indexPath)
         {
             string json = JsonSerializer.Serialize(this, MapleJsonContext.Default.CategoryIndex);
-            File.WriteAllText(indexPath, json);
+            Helpers.AtomicFile.WriteAllText(indexPath, json);
         }
 
         /// <summary>
