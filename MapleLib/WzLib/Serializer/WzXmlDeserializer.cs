@@ -19,6 +19,9 @@ namespace MapleLib.WzLib.Serializer
     {
         public static NumberFormatInfo formattingInfo;
 
+        private const long MaxImportImageBytes = 64L * 1024 * 1024;
+        private const long MaxImportImageBase64Chars = (MaxImportImageBytes + 2) / 3 * 4;
+
         private readonly bool useMemorySaving;
         private readonly byte[] iv;
         private readonly WzImgDeserializer imgDeserializer = new WzImgDeserializer(false);
@@ -176,8 +179,12 @@ namespace MapleLib.WzLib.Serializer
                         WzCanvasProperty canvas = new WzCanvasProperty(element.GetAttribute("name"));
                         if (!element.HasAttribute("basedata"))
                             throw new NoBase64DataException("no base64 data in canvas element with name " + canvas.Name);
+                        string base64Image = element.GetAttribute("basedata");
+                        if (base64Image.Length > MaxImportImageBase64Chars)
+                            throw new InvalidDataException($"Canvas '{canvas.Name}' image payload exceeds the supported import size.");
+
                         canvas.PngProperty = new WzPngProperty();
-                        using (MemoryStream pngstream = new MemoryStream(Convert.FromBase64String(element.GetAttribute("basedata"))))
+                        using (MemoryStream pngstream = new MemoryStream(Convert.FromBase64String(base64Image)))
                         using (Image decodedImage = Image.FromStream(pngstream, true, true))
                         {
                             if (decodedImage is not Bitmap decodedBitmap)
