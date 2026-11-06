@@ -231,12 +231,13 @@ namespace MapleLib.WzLib
 
                         long eob = reader.BaseStream.Position + blockLength;
                         WzImageProperty exProp = ParseExtendedProp(reader, offset, eob, name, parent, parentImg, depth);
-                        EnsureWithinBlock(reader, eob, "extended property");
+                        // Sub-parsers can end past the declared block on real
+                        // archives; resync while the overrun stays in the parent.
+                        long afterProperty = reader.BaseStream.Position;
+                        if (afterProperty > endOfBlock)
+                            throw new InvalidDataException($"WZ extended property '{name}' reads {afterProperty - eob} bytes past its declared block (parent end {endOfBlock}).");
+                        reader.BaseStream.Position = eob;
                         properties.Add(exProp);
-                        if (reader.BaseStream.Position != eob)
-                        {
-                            reader.BaseStream.Position = eob;
-                        }
                         break;
                     default:
                         throw new InvalidDataException($"Unknown WZ property type at ParsePropertyList: {ptype}.");
