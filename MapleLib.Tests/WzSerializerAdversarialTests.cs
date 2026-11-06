@@ -59,7 +59,10 @@ public sealed class WzSerializerAdversarialTests
         try
         {
             new WzImgSerializer(new byte[4]).SerializeImage(image, path);
-            Assert.Equal(Path.GetFullPath(path), property.OutputPath);
+            Assert.NotNull(property.OutputPath);
+            // The serializer stages the image beside the target and renames it
+            // into place, so writers observe the staging path until completion.
+            Assert.StartsWith(Path.GetFullPath(path), property.OutputPath);
             var deserializer = new WzImgDeserializer(freeResources: true);
             using var decoded = deserializer.WzImageFromIMGFile(path, new byte[4], "decoded.img", out bool parsed);
             Assert.True(parsed);

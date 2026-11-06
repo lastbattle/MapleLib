@@ -88,28 +88,62 @@ namespace MapleLib.WzLib.Serializer
                 outPath += ".img";
             }
 
-            using (FileStream stream = File.Create(outPath))
+            string temporaryPath = $"{outPath}.{Guid.NewGuid():N}.tmp";
+            try
             {
-                byte[] iv = GetOutputIv(img);
-                if (img != null && img.GetType() == typeof(WzImage) && img.Changed &&
-                    (img.reader == null || img.parsed) && img.properties != null &&
-                    CanStageProperties(img.properties, 0))
+                using (FileStream stream = File.Create(temporaryPath))
                 {
-                    using var staging = new WzImgStagingStream(stream);
-                    using var wzWriter = new WzImgFileWriter(staging, iv);
-                    int previousSize = img.BlockSize;
-                    img.SaveImage(wzWriter);
-                    int serializedSize = img.BlockSize;
-                    // SaveImage commits size only after its writes succeed.
-                    // A failed materialization must leave the previous size.
-                    img.BlockSize = previousSize;
-                    staging.Complete();
-                    img.BlockSize = serializedSize;
+                    byte[] iv = GetOutputIv(img);
+                    if (img != null && img.GetType() == typeof(WzImage) && img.Changed &&
+                        (img.reader == null || img.parsed) && img.properties != null &&
+                        CanStageProperties(img.properties, 0))
+                    {
+                        using var staging = new WzImgStagingStream(stream);
+                        using var wzWriter = new WzImgFileWriter(staging, iv);
+                        int previousSize = img.BlockSize;
+                        img.SaveImage(wzWriter);
+                        int serializedSize = img.BlockSize;
+                        // SaveImage commits size only after its writes succeed.
+                        // A failed materialization must leave the previous size.
+                        img.BlockSize = previousSize;
+                        staging.Complete();
+                        img.BlockSize = serializedSize;
+                    }
+                    else
+                    {
+                        using var wzWriter = new WzImgFileWriter(stream, iv);
+                        img.SaveImage(wzWriter);
+                    }
+                }
+
+                if (File.Exists(outPath))
+                {
+                    File.Replace(temporaryPath, outPath, destinationBackupFileName: null);
                 }
                 else
                 {
-                    using var wzWriter = new WzImgFileWriter(stream, iv);
-                    img.SaveImage(wzWriter);
+                    File.Move(temporaryPath, outPath);
+                }
+            }
+            catch
+            {
+                // Preserve the partial image at the requested path when no
+                // previous output exists so failures stay diagnosable.
+                if (!File.Exists(outPath) && File.Exists(temporaryPath))
+                    File.Move(temporaryPath, outPath);
+
+                throw;
+            }
+            finally
+            {
+                try
+                {
+                    if (File.Exists(temporaryPath))
+                        File.Delete(temporaryPath);
+                }
+                catch (IOException)
+                {
+                    // Cleanup must not mask the serialization result.
                 }
             }
         }
