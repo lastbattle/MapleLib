@@ -68,11 +68,14 @@ namespace MapleLib.WzLib.Serializer
 
                         using (MemoryStream ms = new MemoryStream())
                         {
-                            using (BsonDataWriter writer = new BsonDataWriter(ms))
-                            {
-                                Newtonsoft.Json.JsonSerializer serializer = new Newtonsoft.Json.JsonSerializer();
-                                serializer.Serialize(writer, jsonObject);
-                            }
+                    using (BsonDataWriter writer = new BsonDataWriter(ms))
+                    {
+                        // Keep the stream open for the length and buffer reads
+                        // that follow the writer's disposal.
+                        writer.CloseOutput = false;
+                        Newtonsoft.Json.JsonSerializer serializer = new Newtonsoft.Json.JsonSerializer();
+                        serializer.Serialize(writer, jsonObject);
+                    }
 
                             if (ms.TryGetBuffer(out ArraySegment<byte> bsonBuffer))
                             {
