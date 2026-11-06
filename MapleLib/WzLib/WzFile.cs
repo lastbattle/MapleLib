@@ -684,6 +684,9 @@ namespace MapleLib.WzLib
             string tempFile = Path.Combine(
                 Path.GetDirectoryName(Path.GetFullPath(path)) ?? string.Empty,
                 Path.GetFileNameWithoutExtension(path) + ".TEMP");
+            string outputTemporaryFile = Path.Combine(
+                Path.GetDirectoryName(Path.GetFullPath(path)) ?? string.Empty,
+                $"{Path.GetFileNameWithoutExtension(path)}_{Guid.NewGuid():N}.tmp");
             try
             {
                 File.Create(tempFile).Close();
@@ -694,7 +697,7 @@ namespace MapleLib.WzLib
 
                 WzTool.StringCache.Clear();
 
-                using (WzBinaryWriter wzWriter = new WzBinaryWriter(File.Create(path), WzIv))
+                using (WzBinaryWriter wzWriter = new WzBinaryWriter(File.Create(outputTemporaryFile), WzIv))
                 {
                     wzWriter.Hash = versionHash;
 
@@ -726,11 +729,25 @@ namespace MapleLib.WzLib
                     }
                     wzWriter.StringCache.Clear();
                 }
+
+                if (File.Exists(path))
+                    File.Replace(outputTemporaryFile, path, destinationBackupFileName: null);
+                else
+                    File.Move(outputTemporaryFile, path);
             }
             finally
             {
                 if (File.Exists(tempFile))
                     File.Delete(tempFile);
+                try
+                {
+                    if (File.Exists(outputTemporaryFile))
+                        File.Delete(outputTemporaryFile);
+                }
+                catch (IOException)
+                {
+                    // Cleanup must not mask a successful save or replace.
+                }
             }
         }
 
