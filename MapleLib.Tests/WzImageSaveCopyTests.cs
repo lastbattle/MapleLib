@@ -15,7 +15,6 @@ public sealed class WzImageSaveCopyTests
     [InlineData(32)]
     [InlineData(8)]
     [InlineData(0)]
-    [InlineData(48)]
     public void UnchangedSaveCopiesAvailableDeclaredBytesAndRestoresPosition(int declaredSize)
     {
         byte[] payload = Enumerable.Range(0, 32).Select(value => (byte)(value * 7)).ToArray();
@@ -39,6 +38,27 @@ public sealed class WzImageSaveCopyTests
         Assert.Equal(2, source.Position);
         Assert.False(image.Changed);
         Assert.False(image.Parsed);
+    }
+
+    [Fact]
+    public void UnchangedSaveRejectsDeclaredBlockLargerThanSource()
+    {
+        byte[] payload = Enumerable.Range(0, 32).Select(value => (byte)(value * 7)).ToArray();
+        byte[] storage = new byte[5 + 7 + payload.Length];
+        payload.CopyTo(storage, 5 + 7);
+        using var source = new MemoryStream(storage, 5, 7 + payload.Length, writable: false);
+        source.Position = 7;
+        using var image = new WzImage("copy.img", source, WzMapleVersion.BMS) { BlockSize = 48 };
+        source.Position = 2;
+        using var destination = new MemoryStream();
+        destination.Write([0xA1, 0xB2, 0xC3]);
+        using var writer = new WzBinaryWriter(destination, new byte[4]);
+
+        var exception = Assert.Throws<InvalidDataException>(() => image.SaveImage(writer));
+
+        Assert.Contains("exceeds the containing stream", exception.Message, StringComparison.Ordinal);
+        Assert.Equal(3, destination.Length);
+        Assert.Equal(2, source.Position);
     }
 
     [Theory]
