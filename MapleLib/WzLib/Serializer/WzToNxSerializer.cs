@@ -58,9 +58,36 @@ namespace MapleLib.WzLib.Serializer
             if (outputDirectory.Length > 0)
                 Directory.CreateDirectory(outputDirectory);
 
-            using (FileStream fs = new FileStream(
-                    ProgressingWzSerializer.GetBoundOutputPath(outputDirectory, filename),
-                    FileMode.Create, FileAccess.ReadWrite, FileShare.None))
+            string outputPath = ProgressingWzSerializer.GetBoundOutputPath(outputDirectory, filename);
+            string temporaryPath = $"{outputPath}.{Guid.NewGuid():N}.tmp";
+            try
+            {
+                using (FileStream fs = new FileStream(temporaryPath, FileMode.Create, FileAccess.ReadWrite, FileShare.None))
+                {
+                    WritePayload(file, fs);
+                }
+
+                if (File.Exists(outputPath))
+                    File.Replace(temporaryPath, outputPath, destinationBackupFileName: null);
+                else
+                    File.Move(temporaryPath, outputPath);
+            }
+            finally
+            {
+                try
+                {
+                    if (File.Exists(temporaryPath))
+                        File.Delete(temporaryPath);
+                }
+                catch (IOException)
+                {
+                    // Cleanup must not mask the export result.
+                }
+            }
+        }
+
+        private void WritePayload(WzFile file, FileStream fs)
+        {
             using (BinaryWriter bw = new BinaryWriter(fs))
             {
                 DumpState state = new DumpState();
