@@ -435,10 +435,14 @@ namespace MapleLib.WzLib
             writer.Write((Int32)0); // Placeholder
             property.WriteValue(writer);
 
-            int len = (int)(writer.BaseStream.Position - beforePos);
+            long serializedLength = writer.BaseStream.Position - beforePos;
+            if ((ulong)serializedLength > int.MaxValue)
+                throw new InvalidDataException("Serialized WZ extended property exceeds the supported length.");
+
+            int len = (int)serializedLength;
             long newPos = writer.BaseStream.Position;
             writer.BaseStream.Position = beforePos;
-            writer.Write(len - 4);
+            writer.Write(checked(len - 4));
             writer.BaseStream.Position = newPos;
         }
         #endregion
