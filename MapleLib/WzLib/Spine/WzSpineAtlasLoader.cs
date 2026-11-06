@@ -110,11 +110,20 @@ namespace MapleLib.WzLib.Spine
 
                 if (stringJsonProp != null) // read json based 
                 {
-                    StringReader skeletonReader = new StringReader(stringJsonProp.GetString());
-                    SkeletonJson json = new SkeletonJson(atlas);
-                    data = json.ReadSkeletonData(skeletonReader);
+                    try
+                    {
+                        StringReader skeletonReader = new StringReader(stringJsonProp.GetString());
+                        SkeletonJson json = new SkeletonJson(atlas);
+                        data = json.ReadSkeletonData(skeletonReader);
 
-                    return true;
+                        return true;
+                    }
+                    catch (Exception)
+                    {
+                        // Malformed JSON is parser input, not a caller bug. The
+                        // binary branch already degrades to no skeleton.
+                        return false;
+                    }
                 } else
                 {
                     // try read binary based
