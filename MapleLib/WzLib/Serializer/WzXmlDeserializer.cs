@@ -21,6 +21,10 @@ namespace MapleLib.WzLib.Serializer
 
         private const long MaxImportImageBytes = 64L * 1024 * 1024;
         private const long MaxImportImageBase64Chars = (MaxImportImageBytes + 2) / 3 * 4;
+        private const long MaxImportSoundHeaderBytes = MemoryLimits.MAX_WZ_HEADER_BYTES;
+        private const long MaxImportSoundHeaderBase64Chars = (MaxImportSoundHeaderBytes + 2) / 3 * 4;
+        private const long MaxImportSoundDataBytes = MemoryLimits.MAX_WZ_PAYLOAD_BYTES;
+        private const long MaxImportSoundDataBase64Chars = (MaxImportSoundDataBytes + 2) / 3 * 4;
 
         private readonly bool useMemorySaving;
         private readonly byte[] iv;
@@ -236,10 +240,18 @@ namespace MapleLib.WzLib.Serializer
                     if (!element.HasAttribute("basedata") || !element.HasAttribute("basehead") || !element.HasAttribute("length")) throw new NoBase64DataException("no base64 data in sound element with name " + element.GetAttribute("name"));
                     if (!int.TryParse(element.GetAttribute("length"), NumberStyles.Integer, CultureInfo.InvariantCulture, out int soundLengthMs) || soundLengthMs < 0)
                         throw new InvalidDataException($"Sound '{element.GetAttribute("name")}' has an invalid length attribute.");
+
+                    string base64Header = element.GetAttribute("basehead");
+                    string baseData = element.GetAttribute("basedata");
+                    if (base64Header.Length > MaxImportSoundHeaderBase64Chars)
+                        throw new InvalidDataException($"Sound '{element.GetAttribute("name")}' header payload exceeds the supported import size.");
+                    if (baseData.Length > MaxImportSoundDataBase64Chars)
+                        throw new InvalidDataException($"Sound '{element.GetAttribute("name")}' data payload exceeds the supported import size.");
+
                     WzBinaryProperty sound = new WzBinaryProperty(element.GetAttribute("name"),
                         soundLengthMs,
-                        Convert.FromBase64String(element.GetAttribute("basehead")),
-                        Convert.FromBase64String(element.GetAttribute("basedata")));
+                        Convert.FromBase64String(base64Header),
+                        Convert.FromBase64String(baseData));
                     return sound;
 
                 case "string":
