@@ -231,7 +231,10 @@ namespace MapleLib.PacketLib
 				}
 				else
 				{
-					Helpers.ErrorLogger.Log(Helpers.ErrorLevel.Critical, "[Warning] Not enough data");
+				// Partial reads are normal for stream sockets.  A remote peer can
+				// produce them indefinitely, so keep them out of the shared
+				// process-wide error list.
+				System.Diagnostics.Debug.WriteLine("[Session] Partial packet; waiting for remainder.");
 					WaitForData(socketInfo);
 				}
 			}
