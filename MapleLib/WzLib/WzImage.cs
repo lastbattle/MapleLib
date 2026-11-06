@@ -46,6 +46,7 @@ namespace MapleLib.WzLib
         internal int blockStart = 0;
         internal long tempFileStart = 0;
         internal long tempFileEnd = 0;
+        internal string BackingFilePath { get; set; }
 
         private bool parseEverything = false;
 
@@ -128,6 +129,8 @@ namespace MapleLib.WzLib
         public override void Dispose()
         {
             name = null;
+            string backingFilePath = BackingFilePath;
+            BackingFilePath = null;
             if (properties != null)
             {
                 foreach (WzImageProperty prop in properties)
@@ -142,6 +145,17 @@ namespace MapleLib.WzLib
                 reader.Dispose();
             }
             reader = null;
+            if (backingFilePath != null)
+            {
+                try
+                {
+                    File.Delete(backingFilePath);
+                }
+                catch (IOException)
+                {
+                    // Best-effort cleanup; the image no longer owns the stream.
+                }
+            }
         }
         #endregion
 
