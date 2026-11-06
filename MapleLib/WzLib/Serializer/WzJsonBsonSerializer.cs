@@ -56,38 +56,56 @@ namespace MapleLib.WzLib.Serializer
                 WritePropertyToJsonBson(jsonObject, property, path);
             }
 
-            if (File.Exists(path))
-                File.Delete(path);
-
-            using (FileStream file = File.Create(path))
+            string temporaryPath = $"{path}.{Guid.NewGuid():N}.tmp";
+            try
             {
-                if (!bExportAsJson)
+                using (FileStream file = File.Create(temporaryPath))
                 {
-                    // BSON serialization using Newtonsoft.Json
-                    // as System.Text.Json doesn't support BSON natively yet.
-
-                    using (MemoryStream ms = new MemoryStream())
+                    if (!bExportAsJson)
                     {
-                        using (BsonDataWriter writer = new BsonDataWriter(ms))
-                        {
-                            Newtonsoft.Json.JsonSerializer serializer = new Newtonsoft.Json.JsonSerializer();
-                            serializer.Serialize(writer, jsonObject);
-                        }
+                        // BSON serialization using Newtonsoft.Json
+                        // as System.Text.Json doesn't support BSON natively yet.
 
-                        if (ms.TryGetBuffer(out ArraySegment<byte> bsonBuffer))
+                        using (MemoryStream ms = new MemoryStream())
                         {
-                            await file.WriteAsync(bsonBuffer.AsMemory(0, checked((int)ms.Length)));
-                        }
-                        else
-                        {
-                            byte[] bsonData = ms.ToArray();
-                            await file.WriteAsync(bsonData, 0, bsonData.Length);
+                            using (BsonDataWriter writer = new BsonDataWriter(ms))
+                            {
+                                Newtonsoft.Json.JsonSerializer serializer = new Newtonsoft.Json.JsonSerializer();
+                                serializer.Serialize(writer, jsonObject);
+                            }
+
+                            if (ms.TryGetBuffer(out ArraySegment<byte> bsonBuffer))
+                            {
+                                await file.WriteAsync(bsonBuffer.AsMemory(0, checked((int)ms.Length)));
+                            }
+                            else
+                            {
+                                byte[] bsonData = ms.ToArray();
+                                await file.WriteAsync(bsonData, 0, bsonData.Length);
+                            }
                         }
                     }
+                    else // JSON serialization
+                    {
+                        await JsonSerializer.SerializeAsync(file, jsonObject, MapleJsonContext.Default.DictionaryStringObject);
+                    }
                 }
-                else // JSON serialization
+
+                if (File.Exists(path))
+                    File.Replace(temporaryPath, path, destinationBackupFileName: null);
+                else
+                    File.Move(temporaryPath, path);
+            }
+            finally
+            {
+                try
                 {
-                    await JsonSerializer.SerializeAsync(file, jsonObject, MapleJsonContext.Default.DictionaryStringObject);
+                    if (File.Exists(temporaryPath))
+                        File.Delete(temporaryPath);
+                }
+                catch (IOException)
+                {
+                    // Cleanup must not mask the export result.
                 }
             }
 
