@@ -528,7 +528,7 @@ namespace MapleLib.WzLib.WzProperties
 
         public void SaveToFile(string file)
         {
-            File.WriteAllBytes(file, IsWaveFile ? GetBytesForWAVPlayback() : GetBytes(false));
+            MapleLib.Helpers.AtomicFile.WriteAllBytes(file, IsWaveFile ? GetBytesForWAVPlayback() : GetBytes(false));
         }
         #endregion
 

@@ -48,6 +48,42 @@ namespace MapleLib.Helpers
             }
         }
 
+        public static void WriteAllBytes(string path, byte[] contents)
+        {
+            ArgumentException.ThrowIfNullOrWhiteSpace(path);
+            ArgumentNullException.ThrowIfNull(contents);
+
+            string fullPath = Path.GetFullPath(path);
+            string directory = Path.GetDirectoryName(fullPath);
+            if (!string.IsNullOrEmpty(directory))
+                Directory.CreateDirectory(directory);
+
+            string temporaryPath = $"{fullPath}.{Guid.NewGuid():N}.tmp";
+            try
+            {
+                using (FileStream stream = new FileStream(
+                    temporaryPath,
+                    FileMode.CreateNew,
+                    FileAccess.Write,
+                    FileShare.None,
+                    bufferSize: 4096,
+                    FileOptions.WriteThrough))
+                {
+                    stream.Write(contents, 0, contents.Length);
+                    stream.Flush(flushToDisk: true);
+                }
+
+                if (File.Exists(fullPath))
+                    File.Replace(temporaryPath, fullPath, destinationBackupFileName: null);
+                else
+                    File.Move(temporaryPath, fullPath);
+            }
+            finally
+            {
+                TryDelete(temporaryPath);
+            }
+        }
+
         private static void TryDelete(string path)
         {
             try
