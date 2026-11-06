@@ -288,6 +288,7 @@ namespace MapleLib.WzLib.WzProperties
 
             this.fileBytes = new byte[data.Length];
             Array.Copy(data, fileBytes, data.Length);
+            soundDataLen = data.Length;
 
             ParseWzSoundPropertyHeader();
         }
