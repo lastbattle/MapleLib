@@ -848,13 +848,7 @@ namespace MapleLib.Img
             // Save it
             if (SaveImageToFile(newImage, fullPath))
             {
-                // Update category index
-                string categoryLower = category.ToLowerInvariant();
-                if (!_categoryIndex.ContainsKey(categoryLower))
-                {
-                    _categoryIndex[categoryLower] = new List<string>();
-                }
-                _categoryIndex[categoryLower].Add(relativePath);
+                AddToCategoryIndex(category, relativePath);
 
                 return newImage;
             }
@@ -882,12 +876,7 @@ namespace MapleLib.Img
                 // Remove from cache
                 RemoveFromCache(category, relativePath);
 
-                // Remove from category index
-                string categoryLower = category.ToLowerInvariant();
-                if (_categoryIndex.TryGetValue(categoryLower, out var paths))
-                {
-                    paths.Remove(relativePath);
-                }
+                RemoveFromCategoryIndex(category, relativePath);
 
                 return true;
             }
