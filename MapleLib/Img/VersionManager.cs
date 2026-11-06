@@ -309,46 +309,8 @@ namespace MapleLib.Img
                 throw new ArgumentException("VersionInfo must have a DirectoryPath set");
 
             string manifestPath = Path.Combine(versionInfo.DirectoryPath, MANIFEST_FILENAME);
-            string temporaryPath = $"{manifestPath}.{Guid.NewGuid():N}.tmp";
-
-            try
-            {
-                string json = JsonSerializer.Serialize(versionInfo, MapleJsonContext.Default.VersionInfo);
-                using (FileStream stream = new FileStream(
-                    temporaryPath,
-                    FileMode.CreateNew,
-                    FileAccess.Write,
-                    FileShare.None,
-                    bufferSize: 4096,
-                    FileOptions.WriteThrough))
-                using (var writer = new System.IO.StreamWriter(
-                    stream,
-                    new System.Text.UTF8Encoding(encoderShouldEmitUTF8Identifier: false),
-                    4096,
-                    leaveOpen: true))
-                {
-                    writer.Write(json);
-                    writer.Flush();
-                    stream.Flush(flushToDisk: true);
-                }
-
-                if (File.Exists(manifestPath))
-                    File.Replace(temporaryPath, manifestPath, destinationBackupFileName: null);
-                else
-                    File.Move(temporaryPath, manifestPath);
-            }
-            finally
-            {
-                try
-                {
-                    if (File.Exists(temporaryPath))
-                        File.Delete(temporaryPath);
-                }
-                catch (IOException)
-                {
-                    // Cleanup must not mask a successful save or replace.
-                }
-            }
+            string json = JsonSerializer.Serialize(versionInfo, MapleJsonContext.Default.VersionInfo);
+            Helpers.AtomicFile.WriteAllText(manifestPath, json);
         }
 
         /// <summary>

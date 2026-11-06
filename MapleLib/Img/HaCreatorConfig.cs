@@ -163,7 +163,6 @@ namespace MapleLib.Img
         /// </summary>
         public void Save(string configPath)
         {
-            string temporaryPath = $"{configPath}.{Guid.NewGuid():N}.tmp";
             try
             {
                 string directory = Path.GetDirectoryName(configPath);
@@ -174,44 +173,11 @@ namespace MapleLib.Img
 
                 string json = JsonSerializer.Serialize(this, MapleJsonContext.Default.HaCreatorConfig);
 
-                using (FileStream stream = new FileStream(
-                    temporaryPath,
-                    FileMode.CreateNew,
-                    FileAccess.Write,
-                    FileShare.None,
-                    bufferSize: 4096,
-                    FileOptions.WriteThrough))
-                using (var writer = new System.IO.StreamWriter(
-                    stream,
-                    new System.Text.UTF8Encoding(encoderShouldEmitUTF8Identifier: false),
-                    4096,
-                    leaveOpen: true))
-                {
-                    writer.Write(json);
-                    writer.Flush();
-                    stream.Flush(flushToDisk: true);
-                }
-
-                if (File.Exists(configPath))
-                    File.Replace(temporaryPath, configPath, destinationBackupFileName: null);
-                else
-                    File.Move(temporaryPath, configPath);
+                Helpers.AtomicFile.WriteAllText(configPath, json);
             }
             catch (Exception ex)
             {
                 System.Diagnostics.Debug.WriteLine($"Failed to save config: {ex.Message}");
-            }
-            finally
-            {
-                try
-                {
-                    if (File.Exists(temporaryPath))
-                        File.Delete(temporaryPath);
-                }
-                catch
-                {
-                    // Cleanup must not mask a successful save or replace.
-                }
             }
         }
 
