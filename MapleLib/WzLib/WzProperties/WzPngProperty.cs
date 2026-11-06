@@ -953,6 +953,10 @@ namespace MapleLib.WzLib.WzProperties
                 {
                     throw new InvalidDataException("Invalid listWz PNG block size.");
                 }
+                if (destinationOffset >= destination.Length || blockSize > destination.Length - destinationOffset)
+                {
+                    throw new InvalidDataException("listWz PNG blocks exceed the decoded image size.");
+                }
 
                 wzKey.EnsureKeySize(blockSize);
                 ReadOnlySpan<byte> key = wzKey.GetKeySpan();
