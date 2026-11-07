@@ -99,11 +99,12 @@ namespace MapleLib.WzLib.Spine
                 WzStringProperty stringJsonProp = null;
                 foreach (WzImageProperty child in childProperties)
                 {
-                    if (child.Name.EndsWith(".json"))
+                    if (child.Name.EndsWith(".json") && child is WzStringProperty jsonChild)
                     {
-                        // Preserve the original explicit cast and its exception
-                        // behavior for a matching non-string property.
-                        stringJsonProp = (WzStringProperty)child;
+                        // The suffix alone does not promise a string node in
+                        // authored content; skip a wrong type instead of
+                        // aborting before the binary fallback runs.
+                        stringJsonProp = jsonChild;
                         break;
                     }
                 }
