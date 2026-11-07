@@ -196,60 +196,70 @@ namespace MapleLib.WzLib.Serializer
                 case "canvas":
                     {
                         WzCanvasProperty canvas = new WzCanvasProperty(element.GetAttribute("name"));
-                        if (!element.HasAttribute("basedata"))
-                            throw new NoBase64DataException("no base64 data in canvas element with name " + canvas.Name);
                         string base64Image = element.GetAttribute("basedata");
-                        if (base64Image.Length > MaxImportImageBase64Chars)
-                            throw new InvalidDataException($"Canvas '{canvas.Name}' image payload exceeds the supported import size.");
-
                         canvas.PngProperty = new WzPngProperty();
-                        byte[] imagePayload;
-                        try
+                        if (base64Image.Length == 0)
                         {
-                            imagePayload = Convert.FromBase64String(base64Image);
+                            // The exporter omits basedata when a canvas has no
+                            // decodable payload (empty payload, or a link that
+                            // resolved to nothing). Treat it as an empty
+                            // canvas instead of rejecting the whole dump.
+                            canvas.PngProperty.Width = ReadOptionalDimension(element, "width");
+                            canvas.PngProperty.Height = ReadOptionalDimension(element, "height");
                         }
-                        catch (FormatException ex)
+                        else
                         {
-                            throw new InvalidDataException($"Canvas '{canvas.Name}' basedata is not valid base64.", ex);
-                        }
+                            if (base64Image.Length > MaxImportImageBase64Chars)
+                                throw new InvalidDataException($"Canvas '{canvas.Name}' image payload exceeds the supported import size.");
 
-                        // GDI+ may still read from the stream while the
-                        // decoded image is consumed below, so keep it alive
-                        // for the whole scope.
-                        using MemoryStream pngstream = new(imagePayload);
-                        Image decodedImage;
-                        try
-                        {
-                            decodedImage = Image.FromStream(pngstream, true, true);
-                        }
-                        catch (Exception ex) when (ex is ArgumentException or ExternalException or OutOfMemoryException)
-                        {
-                            // GDI+ reports malformed image data as ArgumentException
-                            // or ExternalException, and some corrupt streams as
-                            // OutOfMemoryException.
-                            throw new InvalidDataException($"Canvas '{canvas.Name}' basedata does not decode to an image.", ex);
-                        }
-
-                        using (decodedImage)
-                        {
-                            if (decodedImage is not Bitmap decodedBitmap)
-                                throw new InvalidDataException($"Canvas '{canvas.Name}' basedata does not decode to a bitmap image.");
-
-                            // Imported XML is untrusted content: hold it to the same
-                            // dimension and decoded-size limits the binary parser
-                            // enforces before the property retains any of it.
-                            long decodedBytes = (long)decodedBitmap.Width * decodedBitmap.Height * 4L;
-                            if (decodedBitmap.Width <= 0 || decodedBitmap.Height <= 0 ||
-                                decodedBitmap.Width > WzPngFormatExtensions.MaxDimension ||
-                                decodedBitmap.Height > WzPngFormatExtensions.MaxDimension ||
-                                decodedBytes > WzPngFormatExtensions.MaxDecodedSize)
+                            byte[] imagePayload;
+                            try
                             {
-                                throw new InvalidDataException($"Canvas '{canvas.Name}' dimensions {decodedBitmap.Width}x{decodedBitmap.Height} exceed the supported import limits.");
+                                imagePayload = Convert.FromBase64String(base64Image);
+                            }
+                            catch (FormatException ex)
+                            {
+                                throw new InvalidDataException($"Canvas '{canvas.Name}' basedata is not valid base64.", ex);
                             }
 
-                            // The PNG setter consumes the pixels only and leaves the
-                            // image unowned, so dispose it with this scope on every path.
-                            canvas.PngProperty.PNG = decodedBitmap;
+                            // GDI+ may still read from the stream while the
+                            // decoded image is consumed below, so keep it alive
+                            // for the whole scope.
+                            using MemoryStream pngstream = new(imagePayload);
+                            Image decodedImage;
+                            try
+                            {
+                                decodedImage = Image.FromStream(pngstream, true, true);
+                            }
+                            catch (Exception ex) when (ex is ArgumentException or ExternalException or OutOfMemoryException)
+                            {
+                                // GDI+ reports malformed image data as ArgumentException
+                                // or ExternalException, and some corrupt streams as
+                                // OutOfMemoryException.
+                                throw new InvalidDataException($"Canvas '{canvas.Name}' basedata does not decode to an image.", ex);
+                            }
+
+                            using (decodedImage)
+                            {
+                                if (decodedImage is not Bitmap decodedBitmap)
+                                    throw new InvalidDataException($"Canvas '{canvas.Name}' basedata does not decode to a bitmap image.");
+
+                                // Imported XML is untrusted content: hold it to the same
+                                // dimension and decoded-size limits the binary parser
+                                // enforces before the property retains any of it.
+                                long decodedBytes = (long)decodedBitmap.Width * decodedBitmap.Height * 4L;
+                                if (decodedBitmap.Width <= 0 || decodedBitmap.Height <= 0 ||
+                                    decodedBitmap.Width > WzPngFormatExtensions.MaxDimension ||
+                                    decodedBitmap.Height > WzPngFormatExtensions.MaxDimension ||
+                                    decodedBytes > WzPngFormatExtensions.MaxDecodedSize)
+                                {
+                                    throw new InvalidDataException($"Canvas '{canvas.Name}' dimensions {decodedBitmap.Width}x{decodedBitmap.Height} exceed the supported import limits.");
+                                }
+
+                                // The PNG setter consumes the pixels only and leaves the
+                                // image unowned, so dispose it with this scope on every path.
+                                canvas.PngProperty.PNG = decodedBitmap;
+                            }
                         }
                         foreach (XmlElement subelement in ChildElements(element))
                             canvas.AddProperty(ParsePropertyFromXMLElement(subelement, depth + 1));
@@ -335,6 +345,15 @@ namespace MapleLib.WzLib.Serializer
         private static string DescribeBadNumber(XmlElement element, string attributeName, string raw)
         {
             return $"XML {element.Name} '{element.GetAttribute("name")}' has an invalid '{attributeName}' value '{raw}'.";
+        }
+
+        private static int ReadOptionalDimension(XmlElement element, string attributeName)
+        {
+            string raw = element.GetAttribute(attributeName);
+            if (int.TryParse(raw, NumberStyles.Integer, CultureInfo.InvariantCulture, out int value) && value > 0)
+                return value;
+
+            return 0;
         }
 
         private static int ParseIntAttribute(XmlElement element, string attributeName)
