@@ -431,7 +431,7 @@ public sealed class RedTeamImageLoadingTests
     }
 
     [Fact]
-    public void CyclicUolLinks_AreRejectedByLinkAndTypedResolution()
+    public void CyclicUolLinks_FallBackForLinkResolutionAndRejectTypedResolution()
     {
         var image = new WzImage("test.img");
         var first = new WzUOLProperty("A", "B");
@@ -439,7 +439,8 @@ public sealed class RedTeamImageLoadingTests
         image.AddProperty(first);
         image.AddProperty(second);
 
-        Assert.Throws<InvalidDataException>(() => first.GetLinkedWzImageProperty());
+        Assert.Same(first, first.GetLinkedWzImageProperty());
+        Assert.Same(second, second.GetLinkedWzImageProperty());
         Assert.Throws<InvalidDataException>(() => first.GetString());
     }
 

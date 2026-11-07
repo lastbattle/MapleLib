@@ -312,9 +312,16 @@ namespace MapleLib.WzLib
                 }
                 if (ret == null)
                     return null;
-                currentProperties = ret.WzProperties;
-                if (currentProperties == null && !remainingPath.IsEmpty)
-                    return null;
+                // Only descend when another segment follows. Fetching
+                // WzProperties for the final node resolves a UOL target, so a
+                // cyclic UOL used to throw even though the path itself was
+                // complete.
+                if (!remainingPath.IsEmpty)
+                {
+                    currentProperties = ret.WzProperties;
+                    if (currentProperties == null)
+                        return null;
+                }
             }
 
             return ret;

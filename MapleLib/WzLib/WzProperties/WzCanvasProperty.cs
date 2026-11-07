@@ -307,17 +307,30 @@ namespace MapleLib.WzLib.WzProperties {
         /// <returns></returns>
         public Bitmap GetLinkedWzCanvasBitmap() {
             WzImageProperty linkedProperty = GetLinkedWzImageProperty();
-            if (linkedProperty is WzCanvasProperty linkedCanvas)
+            try
             {
-                return linkedCanvas.GetBitmap();
+                if (linkedProperty is WzCanvasProperty linkedCanvas)
+                {
+                    return linkedCanvas.GetBitmap();
+                }
+                if (linkedProperty is WzPngProperty linkedPng)
+                {
+                    return linkedPng.GetBitmap();
+                }
+                if (linkedProperty is WzUOLProperty linkedUol)
+                {
+                    return linkedUol.GetBitmap();
+                }
             }
-            if (linkedProperty is WzPngProperty linkedPng)
+            catch (InvalidDataException)
             {
-                return linkedPng.GetBitmap();
+                // A cyclic or unreadable UOL chain has no target bitmap. Fall
+                // through to this canvas's own image just like any other
+                // broken link instead of aborting the caller.
             }
-            if (linkedProperty is WzUOLProperty linkedUol)
+            catch (NotImplementedException)
             {
-                return linkedUol.GetBitmap();
+                // The link resolved to a node without a bitmap view.
             }
 
             Debug.WriteLine($"Canvas link did not resolve to bitmap data: {FullPath}");

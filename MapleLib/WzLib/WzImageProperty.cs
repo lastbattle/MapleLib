@@ -469,7 +469,12 @@ namespace MapleLib.WzLib
             while (thisWzImage is WzUOLProperty uol)
             {
                 if (!visited.Add(thisWzImage))
-                    throw new InvalidDataException("Cyclic UOL link detected.");
+                {
+                    // A cycle is just another broken link for a canvas
+                    // resolver; the caller's fallback (usually this node's own
+                    // bitmap) is preferable to aborting the whole export.
+                    return this;
+                }
 
                 if (uol.LinkValue is WzImageProperty newWzImage)
                     thisWzImage = newWzImage;
