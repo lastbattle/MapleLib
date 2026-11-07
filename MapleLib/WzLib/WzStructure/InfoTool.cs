@@ -1,5 +1,6 @@
 using System;
 using System.Drawing;
+using System.IO;
 using MapleLib.WzLib.WzProperties;
 
 namespace MapleLib.WzLib.WzStructure
@@ -7,9 +8,10 @@ namespace MapleLib.WzLib.WzStructure
     public static class InfoTool
     {
         // WzObject.GetX throws NotImplementedException for a property type
-        // without that view, and every caller here is a consumer of authored
-        // content, so a wrong node type degrades to the accessor default
-        // instead of aborting the whole map load.
+        // without that view. A UOL node instead throws InvalidDataException
+        // when its link is missing or cyclic. Every caller here is a consumer
+        // of authored content, so either shape degrades to the accessor
+        // default instead of aborting the whole map load.
         private static T ReadOrDefault<T>(WzImageProperty source, Func<WzImageProperty, T> read, T fallback)
         {
             if (source == null)
@@ -19,7 +21,7 @@ namespace MapleLib.WzLib.WzStructure
             {
                 return read(source);
             }
-            catch (NotImplementedException)
+            catch (Exception ex) when (ex is NotImplementedException or InvalidDataException)
             {
                 return fallback;
             }
@@ -38,7 +40,7 @@ namespace MapleLib.WzLib.WzStructure
 
         public static string GetOptionalString(this WzImageProperty source)
         {
-            return source == null ? null : source.GetString();
+            return ReadOrDefault(source, static property => property.GetString(), null);
         }
 
         public static WzStringProperty SetOptionalString(string value)
@@ -105,6 +107,22 @@ namespace MapleLib.WzLib.WzStructure
         #endregion
 
         #region Rectangle
+        private static WzImageProperty TryGetChild(WzImageProperty source, string name)
+        {
+            if (source == null)
+                return null;
+
+            try
+            {
+                return source[name];
+            }
+            catch (InvalidDataException)
+            {
+                // UOL with a broken or cyclic link has no child view.
+                return null;
+            }
+        }
+
         /// <summary>
         /// Gets System.Drawing.Rectangle from "lt" and "rb"
         /// </summary>
@@ -112,11 +130,21 @@ namespace MapleLib.WzLib.WzStructure
         /// <returns></returns>
         public static Rectangle GetLtRbRectangle(this WzImageProperty parentSource)
         {
-            if (parentSource?.WzProperties == null)
+            bool hasChildren;
+            try
+            {
+                hasChildren = parentSource?.WzProperties != null;
+            }
+            catch (InvalidDataException)
+            {
+                hasChildren = false;
+            }
+
+            if (!hasChildren)
                 return Rectangle.Empty;
 
-            WzVectorProperty lt = InfoTool.GetOptionalVector(parentSource["lt"]);
-            WzVectorProperty rb = InfoTool.GetOptionalVector(parentSource["rb"]);
+            WzVectorProperty lt = InfoTool.GetOptionalVector(TryGetChild(parentSource, "lt"));
+            WzVectorProperty rb = InfoTool.GetOptionalVector(TryGetChild(parentSource, "rb"));
 
             int left = lt.X?.Value ?? 0;
             int top = lt.Y?.Value ?? 0;
