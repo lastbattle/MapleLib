@@ -542,6 +542,33 @@ public sealed class WzSerializerAdversarialTests
         }
     }
 
+    [Fact]
+    public void AddedDirectory_InheritsIvForUnicodeSave()
+    {
+        string root = Directory.CreateTempSubdirectory().FullName;
+        string path = Path.Combine(root, "nested.wz");
+        try
+        {
+            using var file = new WzFile(1, WzMapleVersion.BMS) { Name = "nested.wz" };
+            var nested = new WzDirectory("nested");
+            var image = new WzImage("text.img") { Changed = true };
+            const string unicode = "메이플스토리 é 日本語";
+            image.AddProperty(new WzStringProperty("unicode", unicode));
+            file.WzDirectory.AddDirectory(nested);
+            nested.AddImage(image);
+
+            file.SaveToDisk(path);
+
+            using var parsed = new WzFile(path, WzMapleVersion.BMS);
+            Assert.Equal(WzFileParseStatus.Success, parsed.ParseWzFile());
+            Assert.Equal(unicode, parsed.WzDirectory["nested"]?["text.img"]?["unicode"]?.GetString());
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
     private sealed class CountingFileSerializer : IWzFileSerializer
     {
         public int SerializeCount { get; private set; }

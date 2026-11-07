@@ -627,6 +627,10 @@ namespace MapleLib.WzLib
 
             subDirs.Add(dir);
             dir.wzFile = wzFile;
+            // Image writers below this directory use WzIv. A freshly built
+            // directory has none, so inherit the parent's (or the archive's)
+            // or a save below it fails with the key-size guard.
+            dir.WzIv ??= WzIv ?? wzFile?.WzIv;
             dir.Parent = this;
             AddToIndex(dir, directoryIndex, ref nullDirectoryIndex);
         }
