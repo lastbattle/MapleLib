@@ -53,7 +53,10 @@ namespace MapleLib.WzLib
         /// </summary>
         public WzDirectory WzDirectory
         {
-            get { return wzDir; }
+            // A failed (or not yet attempted) parse must still leave a usable
+            // empty directory: callers index this member without checking
+            // WzFileParseStatus.
+            get { return wzDir ??= new WzDirectory(); }
         }
 
         /// <summary>
@@ -181,6 +184,11 @@ namespace MapleLib.WzLib
             mapleStoryPatchVersion = gameVersion;
             maplepLocalVersion = version;
 
+            // Match the empty-file constructor so a failed parse leaves a
+            // writable empty archive instead of null state.
+            this.Header = WzHeader.GetDefault();
+            this.wzDir = new WzDirectory();
+
             if (version == WzMapleVersion.GETFROMZLZ)
             {
                 using (FileStream zlzStream = File.OpenRead(Path.Combine(Path.GetDirectoryName(filePath), "ZLZ.dll")))
@@ -202,6 +210,11 @@ namespace MapleLib.WzLib
             path = filePath;
             mapleStoryPatchVersion = -1;
             maplepLocalVersion = WzMapleVersion.CUSTOM;
+
+            // Match the empty-file constructor so a failed parse leaves a
+            // writable empty archive instead of null state.
+            this.Header = WzHeader.GetDefault();
+            this.wzDir = new WzDirectory();
 
             this.WzIv = wzIv;
         }
