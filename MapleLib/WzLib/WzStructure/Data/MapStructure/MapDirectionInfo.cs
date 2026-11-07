@@ -3,10 +3,33 @@ using MapleLib.WzLib.WzProperties;
 using MapleLib.WzLib.WzStructure;
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 
 namespace MapleLib.WzLib.WzStructure.Data.MapStructure
 {
+    /// <summary>
+    /// Authored direction nodes can be UOLs; a broken or cyclic link makes the
+    /// child collection getter throw InvalidDataException.
+    /// </summary>
+    internal static class MapDirectionPropertyReader
+    {
+        internal static WzPropertyCollection Children(WzImageProperty property)
+        {
+            if (property == null)
+                return null;
+
+            try
+            {
+                return property.WzProperties;
+            }
+            catch (InvalidDataException)
+            {
+                return null;
+            }
+        }
+    }
+
     /// <summary>
     /// A spatial direction trigger stored under a map's top-level directionInfo node.
     /// Unknown fields are retained so older and newer client variants round-trip safely.
@@ -25,10 +48,11 @@ namespace MapleLib.WzLib.WzStructure.Data.MapStructure
         internal static MapDirectionEvent FromProperty(WzImageProperty property)
         {
             MapDirectionEvent result = new() { Name = property.Name };
-            if (property.WzProperties == null)
+            WzPropertyCollection children = MapDirectionPropertyReader.Children(property);
+            if (children == null)
                 return result;
 
-            foreach (WzImageProperty child in property.WzProperties)
+            foreach (WzImageProperty child in children)
             {
                 switch (child.Name)
                 {
@@ -42,10 +66,11 @@ namespace MapleLib.WzLib.WzStructure.Data.MapStructure
                         result.ForcedInput = InfoTool.GetInt(child);
                         break;
                     case "EventQ":
-                        if (child.WzProperties == null)
+                        WzPropertyCollection queueChildren = MapDirectionPropertyReader.Children(child);
+                        if (queueChildren == null)
                             break;
 
-                        foreach (WzImageProperty queueItem in child.WzProperties.OrderBy(p => ParseIndex(p.Name)))
+                        foreach (WzImageProperty queueItem in queueChildren.OrderBy(p => ParseIndex(p.Name)))
                         {
                             if (queueItem is WzStringProperty stringProperty)
                             {
@@ -116,11 +141,12 @@ namespace MapleLib.WzLib.WzStructure.Data.MapStructure
 
         public static MapDirectionInfo FromProperty(WzImageProperty property)
         {
-            if (property?.WzProperties == null)
+            WzPropertyCollection children = MapDirectionPropertyReader.Children(property);
+            if (children == null)
                 return null;
 
             MapDirectionInfo result = new();
-            foreach (WzImageProperty child in property.WzProperties)
+            foreach (WzImageProperty child in children)
             {
                 if (child is WzSubProperty && int.TryParse(child.Name, out _))
                     result.Events.Add(MapDirectionEvent.FromProperty(child));

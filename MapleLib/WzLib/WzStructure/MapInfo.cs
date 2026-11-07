@@ -8,6 +8,7 @@ using SharpDX.Direct2D1.Effects;
 using System;
 using System.Collections.Generic;
 using System.Drawing;
+using System.IO;
 using System.Linq;
 using System.Text;
 
@@ -100,6 +101,40 @@ namespace MapleLib.WzLib.WzStructure
     public class MapInfo //Credits to Bui for some of the info
     {
         public static MapInfo Default = new MapInfo();
+
+        // Authored nodes can be UOLs, and a broken or cyclic link makes both
+        // the child indexer and the WzProperties getter raise
+        // InvalidDataException. MapInfo is a consumer of authored content, so
+        // treat such a node as having no readable children.
+        private static WzPropertyCollection ReadChildren(WzImageProperty property)
+        {
+            if (property == null)
+                return null;
+
+            try
+            {
+                return property.WzProperties;
+            }
+            catch (InvalidDataException)
+            {
+                return null;
+            }
+        }
+
+        private static WzImageProperty ReadChild(WzImageProperty property, string name)
+        {
+            if (property == null)
+                return null;
+
+            try
+            {
+                return property[name];
+            }
+            catch (InvalidDataException)
+            {
+                return null;
+            }
+        }
 
         private WzImage image = null;
 
@@ -262,7 +297,7 @@ namespace MapleLib.WzLib.WzStructure
 
             // A crafted image may carry info as a scalar instead of a
             // container node; the authored fields then all read as defaults.
-            foreach (WzImageProperty prop in (IEnumerable<WzImageProperty>)infoImage?.WzProperties ?? [])
+            foreach (WzImageProperty prop in (IEnumerable<WzImageProperty>)ReadChildren(infoImage) ?? [])
             {
                 // Client builds occasionally vary the casing of optional
                 // audio fields. Recognize those spellings while retaining the
@@ -454,10 +489,10 @@ namespace MapleLib.WzLib.WzStructure
                         lvForceMove = InfoTool.GetInt(prop);
                         break;
                     case "timeMob":
-                        startHour = InfoTool.GetOptionalInt(prop["startHour"]);
-                        endHour = InfoTool.GetOptionalInt(prop["endHour"]);
-                        int? id = InfoTool.GetOptionalInt(prop["id"]);
-                        string message = InfoTool.GetOptionalString(prop["message"]);
+                        startHour = InfoTool.GetOptionalInt(ReadChild(prop, "startHour"));
+                        endHour = InfoTool.GetOptionalInt(ReadChild(prop, "endHour"));
+                        int? id = InfoTool.GetOptionalInt(ReadChild(prop, "id"));
+                        string message = InfoTool.GetOptionalString(ReadChild(prop, "message"));
                         if (id == null || message == null || (startHour == null ^ endHour == null))
                         {
                             ErrorLogger.Log(ErrorLevel.IncorrectStructure, "timeMob" + loggerSuffix);
@@ -484,10 +519,10 @@ namespace MapleLib.WzLib.WzStructure
                         decInterval = InfoTool.GetInt(prop);
                         break;
                     case "autoLieDetector":
-                        startHour = InfoTool.GetOptionalInt(prop["startHour"]);
-                        endHour = InfoTool.GetOptionalInt(prop["endHour"]);
-                        int? interval = InfoTool.GetOptionalInt(prop["interval"]);
-                        int? propInt = InfoTool.GetOptionalInt(prop["prop"]);
+                        startHour = InfoTool.GetOptionalInt(ReadChild(prop, "startHour"));
+                        endHour = InfoTool.GetOptionalInt(ReadChild(prop, "endHour"));
+                        int? interval = InfoTool.GetOptionalInt(ReadChild(prop, "interval"));
+                        int? propInt = InfoTool.GetOptionalInt(ReadChild(prop, "prop"));
                         if (startHour == null || endHour == null || interval == null || propInt == null)
                         {
                             ErrorLogger.Log(ErrorLevel.IncorrectStructure, "autoLieDetector" + loggerSuffix);
@@ -505,9 +540,10 @@ namespace MapleLib.WzLib.WzStructure
                         if (prop is WzSubProperty) { // if its a WzSubProperty, then its a list of ints.  "Map002.wz\\Map\\Map2\\211000200.img\\info\\protectItem\\0"
                             WzSubProperty subProp = prop as WzSubProperty;
                             protectItem = new List<int>();
-                            if (subProp.WzProperties != null && subProp.WzProperties.Count > 0) {
-                                foreach (WzImageProperty item in subProp.WzProperties) {
-                                    protectItem.Add(item.GetInt());
+                            WzPropertyCollection subChildren = ReadChildren(subProp);
+                            if (subChildren != null && subChildren.Count > 0) {
+                                foreach (WzImageProperty item in subChildren) {
+                                    protectItem.Add(InfoTool.GetInt(item));
                                 }
                             }
                         }
@@ -531,9 +567,10 @@ namespace MapleLib.WzLib.WzStructure
                         break;
                     case "allowedItem":
                         allowedItem = new List<int>();
-                        if (prop.WzProperties != null && prop.WzProperties.Count > 0)
-                            foreach (WzImageProperty item in prop.WzProperties)
-                                allowedItem.Add(item.GetInt());
+                        WzPropertyCollection allowedChildren = ReadChildren(prop);
+                        if (allowedChildren != null && allowedChildren.Count > 0)
+                            foreach (WzImageProperty item in allowedChildren)
+                                allowedItem.Add(InfoTool.GetInt(item));
                         break;
                     case "recovery":
                         recovery = InfoTool.GetFloat(prop);
@@ -785,12 +822,12 @@ namespace MapleLib.WzLib.WzStructure
         {
             Rectangle? result = null;
             WzImageProperty info = image?["info"];
-            if (info?["VRLeft"] != null)
+            if (ReadChild(info, "VRLeft") != null)
             {
-                int left = InfoTool.GetInt(info["VRLeft"]);
-                int right = InfoTool.GetInt(info["VRRight"]);
-                int top = InfoTool.GetInt(info["VRTop"]);
-                int bottom = InfoTool.GetInt(info["VRBottom"]);
+                int left = InfoTool.GetInt(ReadChild(info, "VRLeft"));
+                int right = InfoTool.GetInt(ReadChild(info, "VRRight"));
+                int top = InfoTool.GetInt(ReadChild(info, "VRTop"));
+                int bottom = InfoTool.GetInt(ReadChild(info, "VRBottom"));
                 result = new Rectangle(left, top, right - left, bottom - top);
             }
             return result;
