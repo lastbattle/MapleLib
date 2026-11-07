@@ -17,7 +17,12 @@ namespace MapleLib.WzLib.Serializer
     /// </summary>
     public class WzXmlDeserializer : ProgressingWzSerializer
     {
-        public static NumberFormatInfo formattingInfo;
+        // The writers always emit numbers with an invariant separator. Parsing
+        // through the ambient culture turned "0.25" into 25 on comma-decimal
+        // locales (and "0,25" into garbage on dot-decimal ones). Invert the
+        // preference: invariant first, ambient culture only as a fallback for
+        // hand-edited files.
+        public static NumberFormatInfo formattingInfo = NumberFormatInfo.InvariantInfo;
 
         private const long MaxImportImageBytes = 64L * 1024 * 1024;
         private const long MaxImportImageBase64Chars = (MaxImportImageBytes + 2) / 3 * 4;
@@ -225,11 +230,11 @@ namespace MapleLib.WzLib.Serializer
                     }
 
                 case "int":
-                    WzIntProperty compressedInt = new WzIntProperty(element.GetAttribute("name"), int.Parse(element.GetAttribute("value"), formattingInfo));
+                    WzIntProperty compressedInt = new WzIntProperty(element.GetAttribute("name"), ParseIntAttribute(element, "value"));
                     return compressedInt;
 
                 case "double":
-                    WzDoubleProperty doubleProp = new WzDoubleProperty(element.GetAttribute("name"), double.Parse(element.GetAttribute("value"), formattingInfo));
+                    WzDoubleProperty doubleProp = new WzDoubleProperty(element.GetAttribute("name"), ParseDoubleAttribute(element, "value"));
                     return doubleProp;
 
                 case "null":
@@ -259,11 +264,11 @@ namespace MapleLib.WzLib.Serializer
                     return stringProp;
 
                 case "short":
-                    WzShortProperty shortProp = new WzShortProperty(element.GetAttribute("name"), short.Parse(element.GetAttribute("value"), formattingInfo));
+                    WzShortProperty shortProp = new WzShortProperty(element.GetAttribute("name"), ParseShortAttribute(element, "value"));
                     return shortProp;
 
                 case "long":
-                    WzLongProperty longProp = new WzLongProperty(element.GetAttribute("name"), long.Parse(element.GetAttribute("value"), formattingInfo));
+                    WzLongProperty longProp = new WzLongProperty(element.GetAttribute("name"), ParseLongAttribute(element, "value"));
                     return longProp;
 
                 case "uol":
@@ -271,11 +276,11 @@ namespace MapleLib.WzLib.Serializer
                     return uol;
 
                 case "vector":
-                    WzVectorProperty vector = new WzVectorProperty(element.GetAttribute("name"), new WzIntProperty("x", Convert.ToInt32(element.GetAttribute("x"))), new WzIntProperty("y", Convert.ToInt32(element.GetAttribute("y"))));
+                    WzVectorProperty vector = new WzVectorProperty(element.GetAttribute("name"), new WzIntProperty("x", ParseIntAttribute(element, "x")), new WzIntProperty("y", ParseIntAttribute(element, "y")));
                     return vector;
 
                 case "float":
-                    WzFloatProperty floatProp = new WzFloatProperty(element.GetAttribute("name"), float.Parse(element.GetAttribute("value"), formattingInfo));
+                    WzFloatProperty floatProp = new WzFloatProperty(element.GetAttribute("name"), ParseFloatAttribute(element, "value"));
                     return floatProp;
 
                 case "extended":
@@ -285,6 +290,71 @@ namespace MapleLib.WzLib.Serializer
                     return convex;
             }
             throw new InvalidDataException("unknown XML prop " + element.Name);
+        }
+
+        private static string DescribeBadNumber(XmlElement element, string attributeName, string raw)
+        {
+            return $"XML {element.Name} '{element.GetAttribute("name")}' has an invalid '{attributeName}' value '{raw}'.";
+        }
+
+        private static int ParseIntAttribute(XmlElement element, string attributeName)
+        {
+            string raw = element.GetAttribute(attributeName);
+            if (int.TryParse(raw, NumberStyles.Integer, CultureInfo.InvariantCulture, out int value) ||
+                int.TryParse(raw, NumberStyles.Integer, CultureInfo.CurrentCulture, out value))
+            {
+                return value;
+            }
+
+            throw new InvalidDataException(DescribeBadNumber(element, attributeName, raw));
+        }
+
+        private static short ParseShortAttribute(XmlElement element, string attributeName)
+        {
+            string raw = element.GetAttribute(attributeName);
+            if (short.TryParse(raw, NumberStyles.Integer, CultureInfo.InvariantCulture, out short value) ||
+                short.TryParse(raw, NumberStyles.Integer, CultureInfo.CurrentCulture, out value))
+            {
+                return value;
+            }
+
+            throw new InvalidDataException(DescribeBadNumber(element, attributeName, raw));
+        }
+
+        private static long ParseLongAttribute(XmlElement element, string attributeName)
+        {
+            string raw = element.GetAttribute(attributeName);
+            if (long.TryParse(raw, NumberStyles.Integer, CultureInfo.InvariantCulture, out long value) ||
+                long.TryParse(raw, NumberStyles.Integer, CultureInfo.CurrentCulture, out value))
+            {
+                return value;
+            }
+
+            throw new InvalidDataException(DescribeBadNumber(element, attributeName, raw));
+        }
+
+        private static float ParseFloatAttribute(XmlElement element, string attributeName)
+        {
+            string raw = element.GetAttribute(attributeName);
+            if (float.TryParse(raw, NumberStyles.Float, CultureInfo.InvariantCulture, out float value) ||
+                float.TryParse(raw, NumberStyles.Float, CultureInfo.CurrentCulture, out value))
+            {
+                return value;
+            }
+
+            throw new InvalidDataException(DescribeBadNumber(element, attributeName, raw));
+        }
+
+        private static double ParseDoubleAttribute(XmlElement element, string attributeName)
+        {
+            string raw = element.GetAttribute(attributeName);
+            if (double.TryParse(raw, NumberStyles.Float, CultureInfo.InvariantCulture, out double value) ||
+                double.TryParse(raw, NumberStyles.Float, CultureInfo.CurrentCulture, out value))
+            {
+                return value;
+            }
+
+            throw new InvalidDataException(DescribeBadNumber(element, attributeName, raw));
         }
 
         /// <summary>
