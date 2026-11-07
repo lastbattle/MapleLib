@@ -17,8 +17,13 @@ namespace MapleLib.WzLib.Serializer
 
         protected static void CreateDirSafe(ref string path)
         {
-            if (path.Substring(path.Length - 1, 1) == @"\")
+            // A bare output name has no directory part, and a root-relative
+            // path can trim down to nothing; both need a usable base for the
+            // collision loop and CreateDirectory.
+            if (path.Length > 0 && path[path.Length - 1] == '\\')
                 path = path.Substring(0, path.Length - 1);
+            if (path.Length == 0)
+                path = ".";
 
             string basePath = path;
             int curridx = 0;

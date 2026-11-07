@@ -418,6 +418,30 @@ public sealed class WzSerializerAdversarialTests
         Assert.Equal(1, zero.PngProperty.Width);
     }
 
+    [Fact]
+    public void ClassicXmlSerializer_AcceptsEmptyOutputPath()
+    {
+        string root = Directory.CreateTempSubdirectory().FullName;
+        string previousDirectory = Environment.CurrentDirectory;
+        try
+        {
+            Environment.CurrentDirectory = root;
+            var directory = new WzDirectory("root");
+            var image = new WzImage("a.img") { Changed = true };
+            directory.AddImage(image);
+            image.AddProperty(new WzStringProperty("p", "x"));
+
+            new WzClassicXmlSerializer(1, LineBreak.Windows, true).SerializeDirectory(directory, "");
+
+            Assert.NotEmpty(Directory.GetFiles(root, "*", SearchOption.AllDirectories));
+        }
+        finally
+        {
+            Environment.CurrentDirectory = previousDirectory;
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
     private sealed class CountingFileSerializer : IWzFileSerializer
     {
         public int SerializeCount { get; private set; }
