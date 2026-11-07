@@ -234,13 +234,19 @@ namespace SharpJson {
 		}
 
 		private int GetLastIndexOfNumber (int index) {
-			int lastIndex = _json.AsSpan(index).IndexOfAnyExcept(NumberChars);
-			return index + lastIndex - 1;
+			int relative = _json.AsSpan(index).IndexOfAnyExcept(NumberChars);
+			if (relative < 0)
+				relative = _json.Length - index;
+			return index + relative - 1;
 		}
 
 		private void SkipWhiteSpaces () {
+			if (_index >= _json.Length)
+				return;
+
 			if (char.IsWhiteSpace(_json[_index])) {
-				_index += _json.AsSpan(_index).IndexOfAnyExcept(WhiteSpaceChars);
+				int relative = _json.AsSpan(_index).IndexOfAnyExcept(WhiteSpaceChars);
+				_index = relative < 0 ? _json.Length : _index + relative;
 			}
 		}
 
