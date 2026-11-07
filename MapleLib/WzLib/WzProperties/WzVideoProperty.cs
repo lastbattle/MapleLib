@@ -183,7 +183,9 @@ namespace MapleLib.WzLib.WzProperties
 
         public override void WriteValue(WzBinaryWriter writer)
         {
-            var data = GetBytes(false);
+            // A lazy payload whose backing reader is gone reports as null;
+            // resave it as an empty payload.
+            var data = GetBytes(false) ?? Array.Empty<byte>();
             writer.WriteStringValue(CANVAS_VIDEO_HEADER, WzImage.WzImageHeaderByte_WithoutOffset, WzImage.WzImageHeaderByte_WithOffset);
             writer.Write((byte)0);
             if (properties.Count > 0)
@@ -269,6 +271,11 @@ namespace MapleLib.WzLib.WzProperties
             byte[] ret_bytes = _bytes;
             this._bytes = null;
             return ret_bytes;
+        }
+
+        public override byte[] GetBytes()
+        {
+            return GetBytes(false);
         }
     }
 }
