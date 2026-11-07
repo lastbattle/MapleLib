@@ -47,7 +47,7 @@ namespace MapleLib.WzLib.WzProperties {
             foreach (WzImageProperty prop in properties) {
                 clone.AddProperty(prop.DeepClone());
             }
-            clone.imageProp = (WzPngProperty)imageProp.DeepClone();
+            clone.imageProp = (WzPngProperty)PngProperty.DeepClone();
             return clone;
         }
 
@@ -542,7 +542,15 @@ namespace MapleLib.WzLib.WzProperties {
         /// </summary>
         public WzPngProperty PngProperty {
             get {
-                return imageProp;
+                // A canvas node created through the public constructors has
+                // no image yet; an empty canvas is legal, so give every
+                // writer/exporter a live node instead of a null view.
+                return imageProp ??= new WzPngProperty
+                {
+                    Width = 1,
+                    Height = 1,
+                    Format = WzPngFormat.Format1,
+                };
             }
             set {
                 imageProp = value;

@@ -395,6 +395,29 @@ public sealed class WzSerializerAdversarialTests
         }
     }
 
+    [Fact]
+    public void BareAndZeroDimensionCanvas_SaveAndReparse()
+    {
+        using var image = new WzImage("bare.img") { Changed = true };
+        image.AddProperty(new WzCanvasProperty("bare"));
+        image.AddProperty(new WzCanvasProperty("zero") { PngProperty = new WzPngProperty() });
+
+        byte[] bytes;
+        using (var ms = new MemoryStream())
+        {
+            using (var writer = new WzBinaryWriter(ms, WzTool.GetIvByMapleVersion(WzMapleVersion.BMS)))
+                image.SaveImage(writer);
+            bytes = ms.ToArray();
+        }
+
+        using var parsed = new WzImgDeserializer(false, false)
+            .WzImageFromIMGBytes(bytes, WzMapleVersion.BMS, "bare.img", freeResources: true);
+        var bare = Assert.IsType<WzCanvasProperty>(parsed["bare"]);
+        var zero = Assert.IsType<WzCanvasProperty>(parsed["zero"]);
+        Assert.Equal(1, bare.PngProperty.Width);
+        Assert.Equal(1, zero.PngProperty.Width);
+    }
+
     private sealed class CountingFileSerializer : IWzFileSerializer
     {
         public int SerializeCount { get; private set; }
