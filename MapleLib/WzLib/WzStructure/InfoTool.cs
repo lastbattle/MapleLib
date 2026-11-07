@@ -76,7 +76,7 @@ namespace MapleLib.WzLib.WzStructure
 
         public static int? GetOptionalInt(this WzImageProperty source, int? default_ = null)
         {
-            return source == null ? default_ : source.GetInt();
+            return ReadOrDefault(source, static property => (int?)property.GetInt(), default_);
         }
 
         public static WzIntProperty SetOptionalInt(int? value)
@@ -223,7 +223,7 @@ namespace MapleLib.WzLib.WzStructure
 
         public static long? GetOptionalLong(this WzImageProperty source)
         {
-            return source == null ? (long?)null : source.GetLong();
+            return ReadOrDefault(source, static property => (long?)property.GetLong(), null);
         }
 
         public static WzLongProperty SetOptionalLong(long? value)
@@ -235,9 +235,7 @@ namespace MapleLib.WzLib.WzStructure
         #region Boolean
         public static bool GetBool(this WzImageProperty source)
         {
-            if (source == null) 
-                return false;
-            return source.GetInt() == 1;
+            return ReadOrDefault(source, static property => property.GetInt() == 1, false);
         }
 
         public static WzIntProperty SetBool(bool value)
@@ -247,8 +245,7 @@ namespace MapleLib.WzLib.WzStructure
 
         public static MapleBool GetOptionalBool(this WzImageProperty source)
         {
-            if (source == null) return MapleBool.NotExist;
-            else return source.GetInt() == 1;
+            return ReadOrDefault<MapleBool>(source, static property => property.GetInt() == 1, MapleBool.NotExist);
         }
 
         public static WzIntProperty SetOptionalBool(this MapleBool value)
@@ -278,7 +275,7 @@ namespace MapleLib.WzLib.WzStructure
 
         public static float? GetOptionalFloat(this WzImageProperty source)
         {
-            return source == null ? (float?)null : source.GetFloat();
+            return ReadOrDefault(source, static property => (float?)property.GetFloat(), null);
         }
 
         public static WzFloatProperty SetOptionalFloat(float? value)
