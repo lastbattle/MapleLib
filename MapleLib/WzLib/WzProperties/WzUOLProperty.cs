@@ -24,7 +24,16 @@ namespace MapleLib.WzLib.WzProperties
 		#region Inherited Members
         public override void SetValue(object value)
         {
-            val = (string)value;
+            // Editors hand over whatever their active control holds. Accept
+            // the shapes a link can represent instead of requiring a string
+            // instance and failing an int or string-property edit.
+            val = value switch
+            {
+                null => null,
+                string text => text,
+                WzStringProperty textProperty => textProperty.Value,
+                _ => value.ToString(),
+            };
         }
 
         public override WzImageProperty DeepClone()
