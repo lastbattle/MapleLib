@@ -77,8 +77,10 @@ namespace MapleLib.WzLib
             if (canvas == null)
                 return false;
 
-            bool hasInlink = canvas.ContainsInlinkProperty();
-            bool hasOutlink = canvas.ContainsOutlinkProperty();
+            string inlink = (canvas[WzCanvasProperty.InlinkPropertyName] as WzStringProperty)?.Value;
+            string outlink = (canvas[WzCanvasProperty.OutlinkPropertyName] as WzStringProperty)?.Value;
+            bool hasInlink = !string.IsNullOrEmpty(inlink);
+            bool hasOutlink = !string.IsNullOrEmpty(outlink);
 
             if (!hasInlink && !hasOutlink)
                 return false;
@@ -276,8 +278,14 @@ namespace MapleLib.WzLib
         /// <returns>True if a link was resolved, false otherwise</returns>
         private bool TryResolveCanvasLink(WzCanvasProperty canvas, string imagePath, ref string[] pathNames, int depth, string currentName)
         {
-            bool hasInlink = canvas.ContainsInlinkProperty();
-            bool hasOutlink = canvas.ContainsOutlinkProperty();
+            // The link getters treat a non-string child as absent, so the
+            // presence checks must not be based on the child merely existing.
+            // A crafted int link used to pass the check and then throw on the
+            // direct WzStringProperty cast below, aborting the whole image pass.
+            string inlink = (canvas[WzCanvasProperty.InlinkPropertyName] as WzStringProperty)?.Value;
+            string outlink = (canvas[WzCanvasProperty.OutlinkPropertyName] as WzStringProperty)?.Value;
+            bool hasInlink = !string.IsNullOrEmpty(inlink);
+            bool hasOutlink = !string.IsNullOrEmpty(outlink);
 
             if (!hasInlink && !hasOutlink)
                 return false;
@@ -295,9 +303,7 @@ namespace MapleLib.WzLib
                 path = string.Join("/", pathNames, 0, depth + 2);
             }
             string linkType = hasInlink ? "_inlink" : "_outlink";
-            string linkValue = hasInlink
-                ? ((WzStringProperty)canvas[WzCanvasProperty.InlinkPropertyName])?.Value ?? "unknown"
-                : ((WzStringProperty)canvas[WzCanvasProperty.OutlinkPropertyName])?.Value ?? "unknown";
+            string linkValue = hasInlink ? inlink : outlink;
 
             // Try to resolve _inlink first (within same image)
             if (hasInlink)
