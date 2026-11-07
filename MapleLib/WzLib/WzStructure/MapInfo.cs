@@ -859,7 +859,7 @@ namespace MapleLib.WzLib.WzStructure
             info["forcedReturn"] = InfoTool.SetInt(forcedReturn);
             info["hideMinimap"] = InfoTool.SetBool(hideMinimap);
             info["mapDesc"] = InfoTool.SetOptionalString(mapDesc);
-            info["mapName"] = InfoTool.SetOptionalString(mapDesc);
+            info["mapName"] = InfoTool.SetOptionalString(mapName);
             info["mapMark"] = InfoTool.SetString(mapMark);
             info["mobRate"] = InfoTool.SetFloat(mobRate);
             info["moveLimit"] = InfoTool.SetOptionalInt(moveLimit);
