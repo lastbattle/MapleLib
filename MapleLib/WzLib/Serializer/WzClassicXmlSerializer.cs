@@ -26,8 +26,11 @@ namespace MapleLib.WzLib.Serializer
                     img.ParseImage();
                 curr++;
 
-                // Create directory if it doesn't exist
-                Directory.CreateDirectory(Path.GetDirectoryName(path));
+                // A bare file name has no directory part; CreateDirectory("")
+                // throws ArgumentException.
+                string? directory = Path.GetDirectoryName(path);
+                if (!string.IsNullOrEmpty(directory))
+                    Directory.CreateDirectory(directory);
 
                 // Create a copy of properties to avoid modification during enumeration
                 var properties = img.WzProperties.ToList();
