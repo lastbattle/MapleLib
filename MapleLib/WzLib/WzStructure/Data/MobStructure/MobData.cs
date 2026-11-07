@@ -105,7 +105,7 @@ namespace MapleLib.WzLib.WzStructure.Data.MobStructure
 
             var data = new MobData { MobId = mobId };
 
-            WzSubProperty info = (WzSubProperty)mobImage["info"];
+            WzSubProperty info = mobImage["info"] as WzSubProperty;
             if (info == null)
                 return data;
 
@@ -126,7 +126,7 @@ namespace MapleLib.WzLib.WzStructure.Data.MobStructure
                             linkedImage.ParseImage();
                         linkMobImage = linkedImage;
                         // Update info to linked mob's info
-                        var linkedInfo = (WzSubProperty)linkedImage["info"];
+                        var linkedInfo = linkedImage["info"] as WzSubProperty;
                         if (linkedInfo != null)
                             info = linkedInfo;
                     }
@@ -190,7 +190,7 @@ namespace MapleLib.WzLib.WzStructure.Data.MobStructure
             data.ElemAttr = elemAttr != null ? InfoTool.GetString(elemAttr) : "";
 
             // Parse revive data
-            WzSubProperty reviveData = (WzSubProperty)info["revive"];
+            WzSubProperty reviveData = info["revive"] as WzSubProperty;
             if (reviveData != null)
             {
                 foreach (WzImageProperty mobid in reviveData.WzProperties)
@@ -199,7 +199,7 @@ namespace MapleLib.WzLib.WzStructure.Data.MobStructure
                 }
             }
 
-            WzSubProperty damagedBySelectedMob = (WzSubProperty)info["damagedBySelectedMob"];
+            WzSubProperty damagedBySelectedMob = info["damagedBySelectedMob"] as WzSubProperty;
             if (damagedBySelectedMob != null)
             {
                 foreach (WzImageProperty mobid in damagedBySelectedMob.WzProperties)
@@ -213,11 +213,14 @@ namespace MapleLib.WzLib.WzStructure.Data.MobStructure
             }
 
             // Parse skill data
-            WzSubProperty skillData = (WzSubProperty)info["skill"];
+            WzSubProperty skillData = info["skill"] as WzSubProperty;
             if (skillData != null)
             {
-                foreach (WzSubProperty skill in skillData.WzProperties)
+                foreach (WzImageProperty skillNode in skillData.WzProperties)
                 {
+                    if (skillNode is not WzSubProperty skill)
+                        continue;
+
                     var mobSkill = new MobSkillData
                     {
                         SourceIndex = int.TryParse(skill.Name, out int sourceIndex) ? sourceIndex : data.SkillData.Count,
@@ -237,7 +240,7 @@ namespace MapleLib.WzLib.WzStructure.Data.MobStructure
             }
 
             // Parse self-destruction data
-            WzSubProperty selfDData = (WzSubProperty)info["selfDestruction"];
+            WzSubProperty selfDData = info["selfDestruction"] as WzSubProperty;
             if (selfDData != null)
             {
                 data.SelfDestruction = new MobSelfDestructionData
@@ -256,7 +259,7 @@ namespace MapleLib.WzLib.WzStructure.Data.MobStructure
             }
 
             // Parse banish data
-            WzSubProperty banishData = (WzSubProperty)info["ban"];
+            WzSubProperty banishData = info["ban"] as WzSubProperty;
             if (banishData != null)
             {
                 data.Banish = new MobBanishData
@@ -269,11 +272,14 @@ namespace MapleLib.WzLib.WzStructure.Data.MobStructure
             }
 
             // Parse attack data
-            WzSubProperty attackDataProp = (WzSubProperty)info["attack"];
+            WzSubProperty attackDataProp = info["attack"] as WzSubProperty;
             if (attackDataProp != null)
             {
-                foreach (WzSubProperty attack in attackDataProp.WzProperties)
+                foreach (WzImageProperty attackNode in attackDataProp.WzProperties)
                 {
+                    if (attackNode is not WzSubProperty attack)
+                        continue;
+
                     if (!byte.TryParse(attack.Name, out byte attackNum))
                         continue;
 
