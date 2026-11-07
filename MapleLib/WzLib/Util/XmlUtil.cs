@@ -12,7 +12,10 @@ namespace MapleLib.WzLib.Util
 
 		public static string SanitizeText(string text)
 		{
-			int length = text.Length; // Preserve the existing NullReferenceException for null input.
+			// Parameterless nodes and cleared values carry no text; the XML
+			// namespaces spell that as an empty attribute value.
+			text ??= string.Empty;
+			int length = text.Length;
 			int firstSpecialCharacter = FirstIndexNeedingEscape(text);
 			if (firstSpecialCharacter < 0)
 				return text;

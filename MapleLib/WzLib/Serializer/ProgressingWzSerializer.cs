@@ -43,7 +43,9 @@ namespace MapleLib.WzLib.Serializer
         /// <param name="path"></param>
         public static string EscapeInvalidFilePathNames(string path)
         {
-            ArgumentNullException.ThrowIfNull(path);
+            // A nameless node still needs an output stem; the empty escape
+            // below yields "_".
+            path ??= string.Empty;
 
             ReadOnlySpan<char> input = path.AsSpan();
             int invalidIndex = input.IndexOfAny(InvalidPathCharacters);

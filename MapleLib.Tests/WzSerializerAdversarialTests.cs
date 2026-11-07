@@ -520,6 +520,28 @@ public sealed class WzSerializerAdversarialTests
         }
     }
 
+    [Fact]
+    public void ClassicXmlSerializer_ExportsNamelessNodes()
+    {
+        string root = Directory.CreateTempSubdirectory().FullName;
+        try
+        {
+            var directory = new WzDirectory("root");
+            var image = new WzImage { Changed = true };
+            image.AddProperty(new WzStringProperty("p", "x"));
+            directory.AddImage(image);
+            directory.AddDirectory(new WzDirectory());
+
+            new WzClassicXmlSerializer(1, LineBreak.Windows, false).SerializeDirectory(directory, root);
+
+            Assert.NotEmpty(Directory.GetFiles(root, "*.xml", SearchOption.AllDirectories));
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
     private sealed class CountingFileSerializer : IWzFileSerializer
     {
         public int SerializeCount { get; private set; }

@@ -19,8 +19,8 @@ public sealed class XmlUtilTests
     }
 
     [Fact]
-    public void SanitizeText_PreservesNullFailure()
+    public void SanitizeText_TreatsNullAsEmpty()
     {
-        Assert.Throws<NullReferenceException>(() => XmlUtil.SanitizeText(null!));
+        Assert.Equal(string.Empty, XmlUtil.SanitizeText(null!));
     }
 }
