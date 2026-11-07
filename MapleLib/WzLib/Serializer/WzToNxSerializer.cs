@@ -148,11 +148,11 @@ namespace MapleLib.WzLib.Serializer
                     soundCount = (uint)state.MP3s.Count;
                     ulong[] offsets = new ulong[soundCount];
                     long cId = 0L;
-                    foreach (WzBinaryProperty mNode in state.MP3s)
+                    foreach (Func<byte[]> getBlob in state.MP3s)
                     {
                         fs.EnsureMultiple(8);
                         offsets[cId++] = (ulong)bw.BaseStream.Position;
-                        WriteMP3(mNode, bw);
+                        WriteMP3(getBlob(), bw);
                     }
                     fs.EnsureMultiple(8);
                     soundOffset = (ulong)bw.BaseStream.Position;
@@ -219,10 +219,9 @@ namespace MapleLib.WzLib.Serializer
             bw.Write(compressed, 8, payloadLength);
         }
 
-        private void WriteMP3(WzBinaryProperty node, BinaryWriter bw)
+        private void WriteMP3(byte[] data, BinaryWriter bw)
         {
-            byte[] i = node.GetBytes();
-            bw.Write(i);
+            bw.Write(data);
         }
 
         private void WriteString(string s, BinaryWriter bw)
@@ -376,6 +375,8 @@ namespace MapleLib.WzLib.Serializer
                 type = 5; // (4)
             else if (node is WzBinaryProperty)
                 type = 6; // (4)
+            else if (node is WzRawDataProperty || node is WzVideoProperty)
+                type = 6; // opaque blob; NX has no dedicated raw/video type
             else
                 throw new InvalidOperationException("Unhandled WZ node type [1]");
 
@@ -428,16 +429,32 @@ namespace MapleLib.WzLib.Serializer
             else if (node is WzBinaryProperty)
             {
                 WzBinaryProperty wzmp = (WzBinaryProperty)node;
-                bw.Write(ds.AddMP3(wzmp));
+                byte[] soundBytes = wzmp.GetBytes() ?? Array.Empty<byte>();
+                bw.Write(ds.AddBlob(soundBytes));
                 bool flag18 = true;
                 if (flag18)
                 {
-                    bw.Write((uint)wzmp.GetBytes().Length);
+                    bw.Write((uint)soundBytes.Length);
                 }
                 else
                 {
                     bw.Write(0);
                 }
+            }
+            else if (node is WzRawDataProperty rawProperty)
+            {
+                // The NX schema has no raw/video node type. Store the payload
+                // in the same blob table the sound nodes use so it survives
+                // instead of aborting the whole export.
+                byte[] rawBytes = rawProperty.GetBytes(false) ?? Array.Empty<byte>();
+                bw.Write(ds.AddBlob(rawBytes));
+                bw.Write((uint)rawBytes.Length);
+            }
+            else if (node is WzVideoProperty videoProperty)
+            {
+                byte[] videoBytes = videoProperty.GetBytes(false) ?? Array.Empty<byte>();
+                bw.Write(ds.AddBlob(videoBytes));
+                bw.Write((uint)videoBytes.Length);
             }
             switch (type)
             {
@@ -456,7 +473,7 @@ namespace MapleLib.WzLib.Serializer
             {
                 Canvases = new List<WzCanvasProperty>();
                 Strings = new Dictionary<string, uint>(StringComparer.Ordinal) { { "", 0 } };
-                MP3s = new List<WzBinaryProperty>();
+                MP3s = new List<Func<byte[]>>();
                 UOLs = new Dictionary<WzUOLProperty, Action<BinaryWriter, byte[]>>();
                 Nodes = new Dictionary<WzObject, uint>();
             }
@@ -465,7 +482,7 @@ namespace MapleLib.WzLib.Serializer
 
             public Dictionary<string, uint> Strings { get; }
 
-            public List<WzBinaryProperty> MP3s { get; }
+            public List<Func<byte[]>> MP3s { get; }
 
             public Dictionary<WzUOLProperty, Action<BinaryWriter, byte[]>> UOLs { get; }
 
@@ -478,10 +495,10 @@ namespace MapleLib.WzLib.Serializer
                 return ret;
             }
 
-            public uint AddMP3(WzBinaryProperty node)
+            public uint AddBlob(byte[] data)
             {
                 uint ret = (uint)MP3s.Count;
-                MP3s.Add(node);
+                MP3s.Add(() => data);
                 return ret;
             }
 
