@@ -10,12 +10,10 @@ namespace MapleLib.WzLib.Util
 	public class XmlUtil
 	{
 
-		private static readonly SearchValues<char> specialCharacters = SearchValues.Create("\"'&<>");
-
 		public static string SanitizeText(string text)
 		{
 			int length = text.Length; // Preserve the existing NullReferenceException for null input.
-			int firstSpecialCharacter = text.AsSpan().IndexOfAny(specialCharacters);
+			int firstSpecialCharacter = FirstIndexNeedingEscape(text);
 			if (firstSpecialCharacter < 0)
 				return text;
 
@@ -23,17 +21,68 @@ namespace MapleLib.WzLib.Util
 			fixedText.Append(text.AsSpan(0, firstSpecialCharacter));
 			for (int i = firstSpecialCharacter; i < length; i++)
 			{
-				switch (text[i])
+				char c = text[i];
+				switch (c)
 				{
 					case '"': fixedText.Append("&quot;"); break;
 					case '\'': fixedText.Append("&apos;"); break;
 					case '&': fixedText.Append("&amp;"); break;
 					case '<': fixedText.Append("&lt;"); break;
 					case '>': fixedText.Append("&gt;"); break;
-					default: fixedText.Append(text[i]); break;
+					default:
+						if (char.IsHighSurrogate(c) && i + 1 < length && char.IsLowSurrogate(text[i + 1]))
+						{
+							// A surrogate pair is valid XML content.
+							fixedText.Append(c);
+							fixedText.Append(text[++i]);
+						}
+						else if (char.IsSurrogate(c) || c < 0x20 || c == 0xFFFE || c == 0xFFFF)
+						{
+							// The XML reader rejects numeric references to
+							// characters outside the Char production, so those
+							// code points are dropped rather than encoded.
+							fixedText.Append('_');
+						}
+						else
+						{
+							fixedText.Append(c);
+						}
+						break;
 				}
 			}
 			return fixedText.ToString();
+		}
+
+		/// <summary>
+		/// Attribute text must survive the XML reader on import. Control
+		/// characters, U+FFFE/U+FFFF and unpaired surrogates are invalid XML 1.0
+		/// content, and literal tab/LF/CR would be normalized to spaces, so all
+		/// of them travel as numeric character references.
+		/// </summary>
+		private static int FirstIndexNeedingEscape(string text)
+		{
+			for (int i = 0; i < text.Length; i++)
+			{
+				char c = text[i];
+				if (char.IsSurrogate(c))
+				{
+					bool paired = char.IsHighSurrogate(c) && i + 1 < text.Length && char.IsLowSurrogate(text[i + 1]);
+					if (!paired)
+						return i;
+
+					i++; // the low half of a valid pair needs no escaping
+					continue;
+				}
+
+				if (c == '"' || c == '\'' || c == '&' || c == '<' || c == '>' ||
+					(c < 0x20 && c != '\t' && c != '\n' && c != '\r') ||
+					c > 0xFFFD || c == 0xFFFE || c == 0xFFFF)
+				{
+					return i;
+				}
+			}
+
+			return -1;
 		}
 
 		public static string OpenNamedTag(string tag, string name, bool finish)
