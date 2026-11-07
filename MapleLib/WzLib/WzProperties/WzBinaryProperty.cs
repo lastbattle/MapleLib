@@ -114,11 +114,28 @@ namespace MapleLib.WzLib.WzProperties
         {
             byte[] data = GetBytes(false) ?? Array.Empty<byte>();
 
+            // The reader always consumes the fixed GUID header, one unknown
+            // byte and the wave-format length before the payload. A sound whose
+            // header is gone (or too short to hold that envelope) still needs
+            // those bytes or the reparsed payload is misaligned.
+            byte[] headerBytes;
+            if (header == null || header.Length < soundHeader.Length + 1)
+            {
+                // One trailing zero doubles as the unknown byte and the
+                // zero-length wave-format field the reader peeks at.
+                headerBytes = new byte[soundHeader.Length + 1];
+                soundHeader.CopyTo(headerBytes, 0);
+            }
+            else
+            {
+                headerBytes = header;
+            }
+
             writer.WriteStringValue("Sound_DX8", WzImage.WzImageHeaderByte_WithoutOffset, WzImage.WzImageHeaderByte_WithOffset);
             writer.Write((byte)0);
             writer.WriteCompressedInt(data.Length);
             writer.WriteCompressedInt(len_ms);
-            writer.Write(header);
+            writer.Write(headerBytes);
             writer.Write(data);
         }
         public override void ExportXml(StreamWriter writer, int level)

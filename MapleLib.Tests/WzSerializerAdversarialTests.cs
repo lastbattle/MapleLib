@@ -442,6 +442,29 @@ public sealed class WzSerializerAdversarialTests
         }
     }
 
+    [Fact]
+    public void SoundWithNullHeader_SavesAndReparsesPayload()
+    {
+        using var image = new WzImage("sound.img") { Changed = true };
+        var sound = new WzBinaryProperty("sfx", 10, Array.Empty<byte>(), new byte[] { 1, 2, 3 });
+        sound.Header = null!;
+        image.AddProperty(sound);
+
+        byte[] bytes;
+        using (var ms = new MemoryStream())
+        {
+            using (var writer = new WzBinaryWriter(ms, WzTool.GetIvByMapleVersion(WzMapleVersion.BMS)))
+                image.SaveImage(writer);
+            bytes = ms.ToArray();
+        }
+
+        using var parsed = new WzImgDeserializer(false, false)
+            .WzImageFromIMGBytes(bytes, WzMapleVersion.BMS, "sound.img", freeResources: true);
+        var roundTripped = Assert.IsType<WzBinaryProperty>(parsed["sfx"]);
+        Assert.Equal(new byte[] { 1, 2, 3 }, roundTripped.GetBytes(false));
+        Assert.Equal(WzBinaryProperty.soundHeader.Length + 1, roundTripped.Header.Length);
+    }
+
     private sealed class CountingFileSerializer : IWzFileSerializer
     {
         public int SerializeCount { get; private set; }

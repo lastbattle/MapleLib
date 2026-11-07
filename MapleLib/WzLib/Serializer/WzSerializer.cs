@@ -146,7 +146,9 @@ namespace MapleLib.WzLib.Serializer
                     tw.Write("\" length=\"");
                     tw.Write(property7.Length);
                     tw.Write("\" basehead=\"");
-                    tw.Write(Convert.ToBase64String(property7.Header));
+                    // A sound without a recovered header exports as an empty
+                    // basehead; the binary writer rebuilds the fixed envelope.
+                    tw.Write(Convert.ToBase64String(property7.Header ?? Array.Empty<byte>()));
                     tw.Write("\" basedata=\"");
                     // A lazy payload whose backing reader is gone reports as
                     // null; export it as an empty payload.
