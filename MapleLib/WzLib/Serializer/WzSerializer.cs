@@ -272,7 +272,19 @@ namespace MapleLib.WzLib.Serializer
             }
             else if (prop is WzLuaProperty propertyLua)
             {
-                string parentName = propertyLua.Parent.Name;
+                // A detached clone has no parent; fall back to the property
+                // name so the sidecar file still gets a usable stem.
+                string parentName = propertyLua.Parent?.Name ?? propertyLua.Name ?? "lua";
+
+                // The sidecar alone is not enough: the XML element is what the
+                // importer sees, so the script also travels in the element.
+                tw.Write(depth);
+                tw.Write("<lua name=\"");
+                tw.Write(XmlUtil.SanitizeText(prop.Name));
+                tw.Write("\" value=\"");
+                tw.Write(XmlUtil.SanitizeText(propertyLua.ToString()));
+                tw.Write("\"/>");
+                tw.Write(lineBreak);
 
                 tw.Write(depth);
                 tw.Write(lineBreak);

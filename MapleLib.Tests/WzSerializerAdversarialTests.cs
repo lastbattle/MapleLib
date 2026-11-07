@@ -312,6 +312,61 @@ public sealed class WzSerializerAdversarialTests
         }
     }
 
+    [Fact]
+    public void ClassicXml_RoundTripsLuaPropertyWithNewlines()
+    {
+        string root = Directory.CreateTempSubdirectory().FullName;
+        string xmlPath = Path.Combine(root, "lua.xml");
+        try
+        {
+            using var image = new WzImage("lua.img") { Changed = true };
+            var lua = new WzLuaProperty("Script", Array.Empty<byte>());
+            lua.SetString("print('a')\r\nprint('b')");
+            image.AddProperty(lua);
+
+            new WzClassicXmlSerializer(1, LineBreak.Windows, exportbase64: true).SerializeImage(image, xmlPath);
+
+            var imported = new WzXmlDeserializer(false, new byte[16]).ParseXML(xmlPath);
+            var roundTripped = Assert.IsType<WzLuaProperty>(
+                Assert.IsType<WzImage>(Assert.Single(imported)).WzProperties.Single());
+            Assert.Equal("print('a')\r\nprint('b')", roundTripped.GetString());
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void XmlImporter_AcceptsPropertyExporterLuaTag()
+    {
+        string root = Directory.CreateTempSubdirectory().FullName;
+        string xmlPath = Path.Combine(root, "lua.xml");
+        try
+        {
+            using var image = new WzImage("lua.img") { Changed = true };
+            var lua = new WzLuaProperty("Script", Array.Empty<byte>());
+            lua.SetString("print('tag')");
+            image.AddProperty(lua);
+
+            using (var writer = new StreamWriter(File.Create(xmlPath)))
+            {
+                writer.WriteLine("<imgdir name=\"lua.img\">");
+                lua.ExportXml(writer, 1);
+                writer.WriteLine("</imgdir>");
+            }
+
+            var imported = new WzXmlDeserializer(false, new byte[16]).ParseXML(xmlPath);
+            var roundTripped = Assert.IsType<WzLuaProperty>(
+                Assert.IsType<WzImage>(Assert.Single(imported)).WzProperties.Single());
+            Assert.Equal("print('tag')", roundTripped.GetString());
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
     private sealed class CountingFileSerializer : IWzFileSerializer
     {
         public int SerializeCount { get; private set; }

@@ -334,6 +334,15 @@ namespace MapleLib.WzLib.Serializer
                     WzUOLProperty uol = new WzUOLProperty(element.GetAttribute("name"), element.GetAttribute("value"));
                     return uol;
 
+                case "lua":
+                case "WzLua":
+                    // "lua" is the classic dump form; "WzLua" is what
+                    // WzLuaProperty.ExportXml writes. Both carry the decoded
+                    // source in the value attribute.
+                    WzLuaProperty lua = new(element.GetAttribute("name"), Array.Empty<byte>());
+                    lua.SetString(element.GetAttribute("value"));
+                    return lua;
+
                 case "vector":
                     WzVectorProperty vector = new WzVectorProperty(element.GetAttribute("name"), new WzIntProperty("x", ParseIntAttribute(element, "x")), new WzIntProperty("y", ParseIntAttribute(element, "y")));
                     return vector;
