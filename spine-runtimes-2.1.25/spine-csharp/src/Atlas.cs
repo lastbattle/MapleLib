@@ -186,6 +186,7 @@ namespace Spine {
 
 		static String readValue (TextReader reader) {
 			String line = reader.ReadLine();
+			if (line == null) throw new ArgumentException("Unexpected end of atlas file.");
 			int colon = line.IndexOf(':');
 			if (colon == -1) throw new Exception("Invalid line: " + line);
 			return line.Substring(colon + 1).Trim();
@@ -194,6 +195,7 @@ namespace Spine {
 		/// <summary>Returns the number of tuple values read (1, 2 or 4).</summary>
 		static int readTuple (TextReader reader, String[] tuple) {
 			String line = reader.ReadLine();
+			if (line == null) throw new ArgumentException("Unexpected end of atlas file.");
 			int colon = line.IndexOf(':');
 			if (colon == -1) throw new Exception("Invalid line: " + line);
 			int i = 0, lastMatch = colon + 1;

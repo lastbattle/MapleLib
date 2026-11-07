@@ -55,8 +55,12 @@ namespace MapleLib.WzLib.Spine
             {
                 atlas = new Atlas(atlasReader, string.Empty, textureLoader);
             }
-            catch (ArgumentException)
+            catch (Exception)
             {
+                // Malformed atlas fields are authored-content failures, not
+                // caller bugs. The binary branch below already degrades the
+                // same way, so keep an incompletely populated atlas from
+                // escaping as a parse exception.
                 return null;
             }
 
