@@ -552,8 +552,8 @@ namespace MapleLib {
 
             foreach (string line in iniFileLines)
             {
-                string[] iniFileSplit = iniFileLines[0].Split('|');
-                if (iniFileSplit[0] == "LastWzIndex")
+                string[] iniFileSplit = line.Split('|');
+                if (iniFileSplit[0].Trim() == "LastWzIndex")
                 {
                     if (iniFileSplit.Length <= 1)
                         throw new Exception(".ini file does not contain LastWzIndex information.");
