@@ -27,7 +27,7 @@ namespace MapleLib
 
             return value.PropertyType switch
             {
-                WzPropertyType.String => ((WzStringProperty)value).Value,
+                WzPropertyType.String => ((WzStringProperty)value).Value ?? fallback,
                 WzPropertyType.Int => ((WzIntProperty)value).Value.ToString(),
                 _ => fallback
             };
@@ -113,6 +113,10 @@ namespace MapleLib
             else if (value.PropertyType == WzPropertyType.String)
             {
                 string strdata = ((WzStringProperty)value).Value;
+                if (strdata == null)
+                {
+                    return def;
+                }
                 if (int.TryParse(strdata, out int parsedValue))
                 {
                     return parsedValue;
