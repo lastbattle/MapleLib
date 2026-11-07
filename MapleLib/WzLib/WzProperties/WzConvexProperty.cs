@@ -106,7 +106,8 @@ namespace MapleLib.WzLib.WzProperties
                     return GetFromParentPath(Parent, path);
 
                 isFirstSegment = false;
-                ret = ret.WzProperties.Find(segment);
+                // Scalars in the middle of a path have no child collection.
+                ret = ret.WzProperties?.Find(segment);
                 if (ret == null)
                     return null;
             }

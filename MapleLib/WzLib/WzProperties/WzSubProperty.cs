@@ -111,7 +111,10 @@ namespace MapleLib.WzLib.WzProperties
                     return GetFromParentPath(Parent, path);
 
                 isFirstSegment = false;
-                ret = ret.WzProperties.Find(segment);
+                // A path can descend through a scalar node (banMap stored as
+                // an int, for example); scalars have no child collection, so
+                // the walk is simply unresolved instead of throwing.
+                ret = ret.WzProperties?.Find(segment);
                 if (ret == null)
                     return null;
             }
