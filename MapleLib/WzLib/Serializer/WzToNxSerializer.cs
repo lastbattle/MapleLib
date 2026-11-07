@@ -202,7 +202,12 @@ namespace MapleLib.WzLib.Serializer
         private void WriteBitmap(WzCanvasProperty node, BinaryWriter bw)
         {
             Bitmap b = node.PngProperty.GetBitmap();
-            byte[] compressed = GetCompressedBitmap(b);
+            // Empty or undecodable canvas payloads have no bitmap view; keep
+            // the bitmap slot (with an empty LZ4 envelope) instead of faulting
+            // the whole NX export.
+            byte[] compressed = b == null
+                ? LZ4Codec.WrapHC(Array.Empty<byte>())
+                : GetCompressedBitmap(b);
             int payloadLength = compressed.Length - 8;
             if (payloadLength < 0)
             {
