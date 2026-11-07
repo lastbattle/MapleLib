@@ -318,7 +318,16 @@ namespace MapleLib.WzLib
                 // complete.
                 if (!remainingPath.IsEmpty)
                 {
-                    currentProperties = ret.WzProperties;
+                    try
+                    {
+                        currentProperties = ret.WzProperties;
+                    }
+                    catch (InvalidDataException)
+                    {
+                        // A cyclic UOL in the middle of the path has no
+                        // reachable child view; the whole lookup is unknown.
+                        return null;
+                    }
                     if (currentProperties == null)
                         return null;
                 }

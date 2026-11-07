@@ -306,9 +306,9 @@ namespace MapleLib.WzLib.WzProperties {
         /// </summary>
         /// <returns></returns>
         public Bitmap GetLinkedWzCanvasBitmap() {
-            WzImageProperty linkedProperty = GetLinkedWzImageProperty();
             try
             {
+                WzImageProperty linkedProperty = GetLinkedWzImageProperty();
                 if (linkedProperty is WzCanvasProperty linkedCanvas)
                 {
                     return linkedCanvas.GetBitmap();
