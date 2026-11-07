@@ -343,6 +343,39 @@ namespace MapleLib.WzLib.Serializer
                     lua.SetString(element.GetAttribute("value"));
                     return lua;
 
+                case "png":
+                case "PNG":
+                    {
+                        WzPngProperty png = new();
+                        string pngBase64 = element.GetAttribute("basedata");
+                        int width = ReadOptionalDimension(element, "width");
+                        int height = ReadOptionalDimension(element, "height");
+                        WzPngFormat pngFormat = ParsePngFormatAttribute(element);
+                        if (pngBase64.Length == 0)
+                        {
+                            png.Width = width > 0 ? width : 1;
+                            png.Height = height > 0 ? height : 1;
+                            png.Format = pngFormat;
+                        }
+                        else
+                        {
+                            if (pngBase64.Length > MaxImportImageBase64Chars)
+                                throw new InvalidDataException($"PNG '{png.Name}' image payload exceeds the supported import size.");
+                            byte[] pngBytes;
+                            try
+                            {
+                                pngBytes = Convert.FromBase64String(pngBase64);
+                            }
+                            catch (FormatException ex)
+                            {
+                                throw new InvalidDataException($"PNG '{png.Name}' basedata is not valid base64.", ex);
+                            }
+
+                            png.SetCompressedBytes(pngBytes, width > 0 ? width : 1, height > 0 ? height : 1, pngFormat);
+                        }
+                        return png;
+                    }
+
                 case "vector":
                     WzVectorProperty vector = new WzVectorProperty(element.GetAttribute("name"), new WzIntProperty("x", ParseIntAttribute(element, "x")), new WzIntProperty("y", ParseIntAttribute(element, "y")));
                     return vector;
@@ -372,6 +405,18 @@ namespace MapleLib.WzLib.Serializer
                 return value;
 
             return 0;
+        }
+
+        private static WzPngFormat ParsePngFormatAttribute(XmlElement element)
+        {
+            string raw = element.GetAttribute("format");
+            if (int.TryParse(raw, NumberStyles.Integer, CultureInfo.InvariantCulture, out int value) &&
+                Enum.IsDefined(typeof(WzPngFormat), value))
+            {
+                return (WzPngFormat)value;
+            }
+
+            return WzPngFormat.Format1;
         }
 
         private static int ParseIntAttribute(XmlElement element, string attributeName)

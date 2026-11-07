@@ -569,6 +569,39 @@ public sealed class WzSerializerAdversarialTests
         }
     }
 
+    [Fact]
+    public void ClassicXml_RoundTripsStandalonePngNode()
+    {
+        string root = Directory.CreateTempSubdirectory().FullName;
+        string path = Path.Combine(root, "png.xml");
+        try
+        {
+            using var image = new WzImage("png.img") { Changed = true };
+            var png = new WzPngProperty();
+            using (var bitmap = new System.Drawing.Bitmap(2, 2, System.Drawing.Imaging.PixelFormat.Format32bppArgb))
+            {
+                bitmap.SetPixel(1, 1, System.Drawing.Color.FromArgb(255, 10, 200, 30));
+                png.PNG = bitmap;
+            }
+            image.AddProperty(png);
+
+            new WzClassicXmlSerializer(1, LineBreak.Windows, true).SerializeImage(image, path);
+
+            var imported = new WzXmlDeserializer(false, new byte[16]).ParseXML(path);
+            var roundTripped = Assert.IsType<WzPngProperty>(
+                Assert.IsType<WzImage>(Assert.Single(imported))["PNG"]);
+            Assert.Equal(2, roundTripped.Width);
+            Assert.Equal(2, roundTripped.Height);
+            using var decoded = roundTripped.GetImage(false);
+            Assert.NotNull(decoded);
+            Assert.InRange(decoded!.GetPixel(1, 1).G, 192, 208);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
     private sealed class CountingFileSerializer : IWzFileSerializer
     {
         public int SerializeCount { get; private set; }

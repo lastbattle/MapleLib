@@ -328,6 +328,27 @@ namespace MapleLib.WzLib.Serializer
                     }
                 }
             }
+            else if (prop is WzPngProperty propertyPng)
+            {
+                // A standalone PNG node (not wrapped by a canvas) had no
+                // branch here and was silently dropped from the dump.
+                tw.Write(depth);
+                tw.Write("<png name=\"");
+                tw.Write(XmlUtil.SanitizeText(prop.Name));
+                tw.Write("\" width=\"");
+                tw.Write(propertyPng.Width.ToString(CultureInfo.InvariantCulture));
+                tw.Write("\" height=\"");
+                tw.Write(propertyPng.Height.ToString(CultureInfo.InvariantCulture));
+                tw.Write("\" format=\"");
+                tw.Write(((int)propertyPng.Format).ToString(CultureInfo.InvariantCulture));
+                if (bExportBase64Data)
+                {
+                    tw.Write("\" basedata=\"");
+                    tw.Write(Convert.ToBase64String(propertyPng.GetCompressedBytesForExtraction(false) ?? Array.Empty<byte>()));
+                }
+                tw.Write("\"/>");
+                tw.Write(lineBreak);
+            }
         }
 
         /// <summary>
