@@ -468,6 +468,32 @@ public sealed class WzSerializerAdversarialTests
         Assert.Null(clone.Header);
     }
 
+    [Fact]
+    public void NamelessNodesAndNullUolValue_SaveAndReparse()
+    {
+        string root = Directory.CreateTempSubdirectory().FullName;
+        string path = Path.Combine(root, "names.wz");
+        try
+        {
+            using var file = new WzFile(1, WzMapleVersion.BMS) { Name = "names.wz" };
+            var image = new WzImage { Changed = true };
+            image.AddProperty(new WzUOLProperty("link", null!));
+            file.WzDirectory.AddImage(image);
+            file.WzDirectory.AddDirectory(new WzDirectory());
+
+            file.SaveToDisk(path);
+
+            using var parsed = new WzFile(path, WzMapleVersion.BMS);
+            Assert.Equal(WzFileParseStatus.Success, parsed.ParseWzFile());
+            Assert.Single(parsed.WzDirectory.WzImages);
+            Assert.Single(parsed.WzDirectory.WzDirectories);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
     private sealed class CountingFileSerializer : IWzFileSerializer
     {
         public int SerializeCount { get; private set; }

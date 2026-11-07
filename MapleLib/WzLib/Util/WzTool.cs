@@ -51,6 +51,7 @@ namespace MapleLib.WzLib.Util
 
         public static int GetWzObjectValueLength(string s, byte type)
         {
+            s ??= string.Empty;
             string storeName = type + "_" + s;
             if (s.Length > 4 && StringCache.ContainsKey(storeName))
             {

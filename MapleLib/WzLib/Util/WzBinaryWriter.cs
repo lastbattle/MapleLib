@@ -55,6 +55,8 @@ namespace MapleLib.WzLib.Util
         /// <param name="withOffset">bNewID_0x1b  0x1B</param>
         public void WriteStringValue(string str, int withoutOffset, int withOffset)
         {
+            // Nameless nodes and a cleared UOL value reach here as null.
+            str ??= string.Empty;
             // if length is > 4 and the string cache contains the string
             // writes the offset instead
             if (str.Length > 4 && StringCache.TryGetValue(str, out int cachedOffset))
@@ -80,6 +82,9 @@ namespace MapleLib.WzLib.Util
         /// <returns>true if the Wz object value is written as an offset in the Wz file, else if not</returns>
         public bool WriteWzObjectValue(string stringObjectValue, WzDirectoryType type)
         {
+            // Parameterless WzImage/WzDirectory nodes carry no name; the
+            // on-disk string form spells that like an empty name.
+            stringObjectValue ??= string.Empty;
             string storeName = $"{(byte)type}_{stringObjectValue}";
 
             // if length is > 4 and the string cache contains the string
@@ -103,6 +108,7 @@ namespace MapleLib.WzLib.Util
 
         public override void Write(string value)
         {
+            value ??= string.Empty;
             if (value.Length == 0)
             {
                 Write((byte)0);
