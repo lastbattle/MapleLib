@@ -29,6 +29,11 @@ namespace MapleLib.WzLib.Util
 					case '&': fixedText.Append("&amp;"); break;
 					case '<': fixedText.Append("&lt;"); break;
 					case '>': fixedText.Append("&gt;"); break;
+					// Attribute value normalization folds literal whitespace
+					// to spaces, so these travel as character references.
+					case '\t': fixedText.Append("&#x9;"); break;
+					case '\n': fixedText.Append("&#xA;"); break;
+					case '\r': fixedText.Append("&#xD;"); break;
 					default:
 						if (char.IsHighSurrogate(c) && i + 1 < length && char.IsLowSurrogate(text[i + 1]))
 						{
@@ -75,7 +80,7 @@ namespace MapleLib.WzLib.Util
 				}
 
 				if (c == '"' || c == '\'' || c == '&' || c == '<' || c == '>' ||
-					(c < 0x20 && c != '\t' && c != '\n' && c != '\r') ||
+					c < 0x20 ||
 					c > 0xFFFD || c == 0xFFFE || c == 0xFFFF)
 				{
 					return i;

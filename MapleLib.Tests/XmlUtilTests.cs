@@ -12,7 +12,7 @@ public sealed class XmlUtilTests
     [InlineData("\"'&<>", "&quot;&apos;&amp;&lt;&gt;")]
     [InlineData("before & after <tag attr=\"value\">'", "before &amp; after &lt;tag attr=&quot;value&quot;&gt;&apos;")]
     [InlineData("메이플스토리 日本語 é", "메이플스토리 日本語 é")]
-    [InlineData("line\ncontrol\tcharacters", "line\ncontrol\tcharacters")]
+    [InlineData("line\r\ncontrol\tcharacters", "line&#xD;&#xA;control&#x9;characters")]
     public void SanitizeText_PreservesCurrentEscaping(string input, string expected)
     {
         Assert.Equal(expected, XmlUtil.SanitizeText(input));
