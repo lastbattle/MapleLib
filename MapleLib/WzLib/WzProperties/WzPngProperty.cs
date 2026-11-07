@@ -356,34 +356,44 @@ namespace MapleLib.WzLib.WzProperties
             {
                 if (compressedImageBytes == null)
                 {
-                    if (wzReader == null)
-                        return null;
-
-                    lock (wzReader)// lock WzBinaryReader, allowing it to be loaded from multiple threads at once
+                    try
                     {
-                        long pos = this.wzReader.BaseStream.Position;
-                        try
+                        if (wzReader == null)
+                            return null;
+
+                        lock (wzReader)// lock WzBinaryReader, allowing it to be loaded from multiple threads at once
                         {
-                            if (offs < 0 || offs > this.wzReader.BaseStream.Length - sizeof(int))
-                                throw new InvalidDataException("PNG payload offset is outside the containing stream.");
-
-                            this.wzReader.BaseStream.Position = offs;
-                            int len = ReadPayloadLength(this.wzReader, "PNG payload");
-                            EnsureAvailable(this.wzReader, 1, "PNG payload marker");
-                            this.wzReader.BaseStream.Position += 1;
-                            EnsureAvailable(this.wzReader, len, "PNG payload");
-
-                            if (len > 0)
+                            long pos = this.wzReader.BaseStream.Position;
+                            try
                             {
-                                compressedImageBytes = this.wzReader.ReadBytes(len);
-                                if (compressedImageBytes.Length != len)
-                                    throw new InvalidDataException("PNG payload is truncated.");
+                                if (offs < 0 || offs > this.wzReader.BaseStream.Length - sizeof(int))
+                                    throw new InvalidDataException("PNG payload offset is outside the containing stream.");
+
+                                this.wzReader.BaseStream.Position = offs;
+                                int len = ReadPayloadLength(this.wzReader, "PNG payload");
+                                EnsureAvailable(this.wzReader, 1, "PNG payload marker");
+                                this.wzReader.BaseStream.Position += 1;
+                                EnsureAvailable(this.wzReader, len, "PNG payload");
+
+                                if (len > 0)
+                                {
+                                    compressedImageBytes = this.wzReader.ReadBytes(len);
+                                    if (compressedImageBytes.Length != len)
+                                        throw new InvalidDataException("PNG payload is truncated.");
+                                }
+                            }
+                            finally
+                            {
+                                this.wzReader.BaseStream.Position = pos;
                             }
                         }
-                        finally
-                        {
-                            this.wzReader.BaseStream.Position = pos;
-                        }
+                    }
+                    catch (ObjectDisposedException)
+                    {
+                        // The image was parsed eagerly and its backing reader
+                        // closed afterwards; an un-retained payload has no
+                        // source anymore, so report it as absent.
+                        return null;
                     }
 
                     if (!saveInMemory)

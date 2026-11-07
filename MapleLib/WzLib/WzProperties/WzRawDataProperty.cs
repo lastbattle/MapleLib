@@ -1,6 +1,7 @@
 ﻿using MapleLib.WzLib.Util;
 using System.IO;
 
+using System;
 namespace MapleLib.WzLib.WzProperties
 {
     public class WzRawDataProperty : WzExtended, IPropertyContainer
@@ -164,40 +165,47 @@ namespace MapleLib.WzLib.WzProperties
             if (this._bytes != null) // check in-memory
                 return this._bytes;
 
-            if (this._wzReader == null)
-                return null;
-
-            // read if none; the reader is shared by all lazy properties in an
-            // image, so serialize cursor movement and restore it atomically.
-            lock (_wzReader)
+            try
             {
-                var currentPos = _wzReader.BaseStream.Position;
-                try
-                {
-                    if (_rawDataOffset < 0 || _rawDataOffset > _wzReader.BaseStream.Length)
-                        throw new InvalidDataException("Raw data offset is outside the containing stream.");
+                if (this._wzReader == null)
+                    return null;
 
-                    this._wzReader.BaseStream.Position = _rawDataOffset;
-                    EnsurePayloadAvailable(_wzReader, _length, "Raw data");
-                    this._bytes = _wzReader.ReadBytes(_length);
-                    if (this._bytes.Length != _length)
-                        throw new InvalidDataException("Raw data is truncated.");
-                }
-                finally
+                // read if none; the reader is shared by all lazy properties in an
+                // image, so serialize cursor movement and restore it atomically.
+                lock (_wzReader)
                 {
-                    this._wzReader.BaseStream.Position = currentPos;
+                    var currentPos = _wzReader.BaseStream.Position;
+                    try
+                    {
+                        if (_rawDataOffset < 0 || _rawDataOffset > _wzReader.BaseStream.Length)
+                            throw new InvalidDataException("Raw data offset is outside the containing stream.");
+
+                        this._wzReader.BaseStream.Position = _rawDataOffset;
+                        EnsurePayloadAvailable(_wzReader, _length, "Raw data");
+                        this._bytes = _wzReader.ReadBytes(_length);
+                        if (this._bytes.Length != _length)
+                            throw new InvalidDataException("Raw data is truncated.");
+                    }
+                    finally
+                    {
+                        this._wzReader.BaseStream.Position = currentPos;
+                    }
                 }
             }
+            catch (ObjectDisposedException)
+            {
+                // Parsed eagerly with the reader closed afterwards.
+                return null;
+            }
+
             if (saveInMemory)
             {
                 return this._bytes;
             }
-            else
-            {
-                byte[] ret_bytes = _bytes;
-                this._bytes = null;
-                return ret_bytes;
-            }
+
+            byte[] ret_bytes = _bytes;
+            this._bytes = null;
+            return ret_bytes;
         }
 
         /// <summary>

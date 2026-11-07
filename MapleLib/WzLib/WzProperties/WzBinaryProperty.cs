@@ -492,9 +492,10 @@ namespace MapleLib.WzLib.WzProperties
         {
             if (fileBytes != null)
                 return fileBytes;
-            else
+
+            try
             {
-                if (wzReader == null) 
+                if (wzReader == null)
                     return null;
 
                 lock (wzReader)
@@ -516,15 +517,22 @@ namespace MapleLib.WzLib.WzProperties
                         wzReader.BaseStream.Position = currentPos;
                     }
                 }
-                if (saveInMemory)
-                    return fileBytes;
-                else
-                {
-                    byte[] result = fileBytes;
-                    fileBytes = null;
-                    return result;
-                }
             }
+            catch (ObjectDisposedException)
+            {
+                // Parsed eagerly with the reader closed afterwards; the
+                // payload source no longer exists.
+                return null;
+            }
+
+            if (saveInMemory)
+                return fileBytes;
+            else
+                        {
+                byte[] result = fileBytes;
+                fileBytes = null;
+                return result;
+                    }
         }
 
         public void SaveToFile(string file)
