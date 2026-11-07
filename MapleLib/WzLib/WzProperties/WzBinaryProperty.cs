@@ -275,8 +275,17 @@ namespace MapleLib.WzLib.WzProperties
             {
                 otherProperty.ParseWzSoundPropertyHeader();
             }
-            this.header = new byte[otherProperty.header.Length];
-            Array.Copy(otherProperty.header, this.header, otherProperty.header.Length);
+            // A header that is still null after the parse attempt (missing
+            // backing reader) stays null; WriteValue synthesizes the envelope.
+            if (otherProperty.header == null)
+            {
+                this.header = null;
+            }
+            else
+            {
+                this.header = new byte[otherProperty.header.Length];
+                Array.Copy(otherProperty.header, this.header, otherProperty.header.Length);
+            }
 
             if (otherProperty.fileBytes == null)
                 this.fileBytes = otherProperty.GetBytes(false);

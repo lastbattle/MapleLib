@@ -463,6 +463,9 @@ public sealed class WzSerializerAdversarialTests
         var roundTripped = Assert.IsType<WzBinaryProperty>(parsed["sfx"]);
         Assert.Equal(new byte[] { 1, 2, 3 }, roundTripped.GetBytes(false));
         Assert.Equal(WzBinaryProperty.soundHeader.Length + 1, roundTripped.Header.Length);
+
+        var clone = Assert.IsType<WzBinaryProperty>(sound.DeepClone());
+        Assert.Null(clone.Header);
     }
 
     private sealed class CountingFileSerializer : IWzFileSerializer
