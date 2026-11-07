@@ -342,9 +342,10 @@ namespace MapleLib.WzLib
         /// <param name="prop">Property to add</param>
         public void AddProperty(WzImageProperty prop)
         {
+            ArgumentNullException.ThrowIfNull(prop);
             if (this[prop.Name] != null)
             {
-                throw new Exception(string.Format("Trying to add a WzImageProperty with a name ['{0}'] that is already being used by another property.", prop.Name));
+                throw new InvalidOperationException(string.Format("Trying to add a WzImageProperty with a name ['{0}'] that is already being used by another property.", prop.Name));
             }
             if (reader != null && !parsed)
             {
