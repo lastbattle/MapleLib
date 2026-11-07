@@ -175,7 +175,10 @@ namespace MapleLib.WzLib.Util
             mapleVersionSuccessRates.Add(WzMapleVersion.GMS, GetDecryptionSuccessRate(wzFilePath, WzMapleVersion.GMS, ref version));
             mapleVersionSuccessRates.Add(WzMapleVersion.EMS, GetDecryptionSuccessRate(wzFilePath, WzMapleVersion.EMS, ref version));
             mapleVersionSuccessRates.Add(WzMapleVersion.BMS, GetDecryptionSuccessRate(wzFilePath, WzMapleVersion.BMS, ref version));
-            fileVersion = (short)version;
+            // None of the three probes assigns a version when every parse
+            // fails; the cast used to throw before the result could be
+            // reported. -1 is the same "unknown" sentinel WzFile uses.
+            fileVersion = version ?? -1;
             WzMapleVersion mostSuitableVersion = WzMapleVersion.GMS;
             double maxSuccessRate = 0;
 
