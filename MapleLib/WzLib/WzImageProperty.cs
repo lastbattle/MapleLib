@@ -91,7 +91,10 @@ namespace MapleLib.WzLib
 
         public override void Remove()
         {
-            ((IPropertyContainer)Parent).RemoveProperty(this);
+            // DeepClone detaches a property; removing it again is a no-op
+            // rather than a null/cast failure in the delete action.
+            if (Parent is IPropertyContainer container)
+                container.RemoveProperty(this);
         }
 
         public virtual void ExportXml(StreamWriter writer, int level)

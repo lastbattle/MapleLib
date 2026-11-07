@@ -913,7 +913,10 @@ namespace MapleLib.WzLib
 
         public override void Remove()
         {
-            ((WzDirectory)Parent).RemoveDirectory(this);
+            // A standalone directory, or the root directory owned by a
+            // WzFile, has no WzDirectory parent to detach from.
+            if (Parent is WzDirectory parent)
+                parent.RemoveDirectory(this);
         }
     }
 }

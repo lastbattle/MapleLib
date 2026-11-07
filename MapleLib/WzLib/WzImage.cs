@@ -409,10 +409,8 @@ namespace MapleLib.WzLib
 
         public override void Remove()
         {
-            if (Parent != null)
-            {
-                ((WzDirectory)Parent).RemoveImage(this);
-            }
+            if (Parent is WzDirectory parent)
+                parent.RemoveImage(this);
         }
         #endregion
 
