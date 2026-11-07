@@ -148,7 +148,9 @@ namespace MapleLib.WzLib.Serializer
                     tw.Write("\" basehead=\"");
                     tw.Write(Convert.ToBase64String(property7.Header));
                     tw.Write("\" basedata=\"");
-                    tw.Write(Convert.ToBase64String(property7.GetBytes(false)));
+                    // A lazy payload whose backing reader is gone reports as
+                    // null; export it as an empty payload.
+                    tw.Write(Convert.ToBase64String(property7.GetBytes(false) ?? Array.Empty<byte>()));
                     tw.Write("\"/>");
                     tw.Write(lineBreak);
                 }
@@ -386,7 +388,7 @@ namespace MapleLib.WzLib.Serializer
                     if (bExportBase64Data)
                     {
                         propJson["basehead"] = Convert.ToBase64String(binaryProp.Header);
-                        propJson["basedata"] = Convert.ToBase64String(binaryProp.GetBytes(false));
+                        propJson["basedata"] = Convert.ToBase64String(binaryProp.GetBytes(false) ?? Array.Empty<byte>());
                     }
                     break;
 

@@ -112,7 +112,7 @@ namespace MapleLib.WzLib.WzProperties
         public override WzPropertyType PropertyType { get { return WzPropertyType.Sound; } }
         public override void WriteValue(WzBinaryWriter writer)
         {
-            byte[] data = GetBytes(false);
+            byte[] data = GetBytes(false) ?? Array.Empty<byte>();
 
             writer.WriteStringValue("Sound_DX8", WzImage.WzImageHeaderByte_WithoutOffset, WzImage.WzImageHeaderByte_WithOffset);
             writer.Write((byte)0);
@@ -478,7 +478,9 @@ namespace MapleLib.WzLib.WzProperties
             if (!IsWaveFile)
                 throw new InvalidOperationException("Only PCM audio can be converted to a WAV stream.");
 
-            byte[] soundBytes = GetBytes(false);
+            // A lazy payload whose backing reader is gone reports as null;
+            // export it as an empty payload instead of aborting.
+            byte[] soundBytes = GetBytes(false) ?? Array.Empty<byte>();
             using MemoryStream wavStream = new MemoryStream();
             using (WaveFileWriter writer = new WaveFileWriter(wavStream, wavFormat))
             {
@@ -537,7 +539,7 @@ namespace MapleLib.WzLib.WzProperties
 
         public void SaveToFile(string file)
         {
-            MapleLib.Helpers.AtomicFile.WriteAllBytes(file, IsWaveFile ? GetBytesForWAVPlayback() : GetBytes(false));
+            MapleLib.Helpers.AtomicFile.WriteAllBytes(file, IsWaveFile ? GetBytesForWAVPlayback() : (GetBytes(false) ?? Array.Empty<byte>()));
         }
         #endregion
 
