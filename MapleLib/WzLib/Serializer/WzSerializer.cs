@@ -67,36 +67,36 @@ namespace MapleLib.WzLib.Serializer
             if (prop is WzCanvasProperty)
             {
                 WzCanvasProperty property3 = (WzCanvasProperty)prop;
+                string pngBase64 = null;
                 if (bExportBase64Data)
                 {
-                    MemoryStream stream = new MemoryStream();
-                    property3.PngProperty.GetImage(false).Save(stream, ImageFormat.Png);
-                    string pngBase64 = EncodeStreamBase64(stream);
-                    stream.Close();
-                    tw.Write(depth);
-                    tw.Write("<canvas name=\"");
-                    tw.Write(XmlUtil.SanitizeText(property3.Name));
-                    tw.Write("\" width=\"");
-                    tw.Write(property3.PngProperty.Width);
-                    tw.Write("\" height=\"");
-                    tw.Write(property3.PngProperty.Height);
+                    using (MemoryStream stream = new MemoryStream())
+                    using (Bitmap canvasImage = property3.PngProperty?.GetImage(false))
+                    {
+                        // An empty or undecodable payload has no bitmap view;
+                        // omit basedata rather than faulting the whole export.
+                        if (canvasImage != null)
+                        {
+                            canvasImage.Save(stream, ImageFormat.Png);
+                            pngBase64 = EncodeStreamBase64(stream);
+                        }
+                    }
+                }
+
+                tw.Write(depth);
+                tw.Write("<canvas name=\"");
+                tw.Write(XmlUtil.SanitizeText(property3.Name));
+                tw.Write("\" width=\"");
+                tw.Write(property3.PngProperty.Width);
+                tw.Write("\" height=\"");
+                tw.Write(property3.PngProperty.Height);
+                if (pngBase64 != null)
+                {
                     tw.Write("\" basedata=\"");
                     tw.Write(pngBase64);
-                    tw.Write("\">");
-                    tw.Write(lineBreak);
                 }
-                else
-                {
-                    tw.Write(depth);
-                    tw.Write("<canvas name=\"");
-                    tw.Write(XmlUtil.SanitizeText(property3.Name));
-                    tw.Write("\" width=\"");
-                    tw.Write(property3.PngProperty.Width);
-                    tw.Write("\" height=\"");
-                    tw.Write(property3.PngProperty.Height);
-                    tw.Write("\">");
-                    tw.Write(lineBreak);
-                }
+                tw.Write("\">");
+                tw.Write(lineBreak);
                 string newDepth = depth + indent;
                 foreach (WzImageProperty property in property3.WzProperties)
                 {

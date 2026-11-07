@@ -201,7 +201,10 @@ namespace MapleLib.WzLib.WzProperties {
 
             // Write image - use GetCompressedBytesForExtraction to convert listWz format
             // to standard zlib format, ensuring PNG can be read without the original WzKey
-            byte[] bytes = PngProperty.GetCompressedBytesForExtraction(false);
+            // A legal empty payload leaves the compressed byte array null;
+            // write the same empty envelope the parser accepts instead of
+            // dereferencing it.
+            byte[] bytes = PngProperty.GetCompressedBytesForExtraction(false) ?? Array.Empty<byte>();
             writer.Write(checked(bytes.Length + 1));
             writer.Write((byte)0); // header? see WzImageProperty.ParseExtendedProp "0x00"
             writer.Write(bytes);
