@@ -1376,7 +1376,11 @@ namespace MapleLib {
         /// <param name="name"></param>
         /// <returns></returns>
         public WzMainDirectory GetMainDirectoryByName(string name) {
-            return _wzDirs[GetWzKey(name)];
+            // Match the indexer beside this method: an archive that is not
+            // loaded resolves to null instead of throwing at the probe site.
+            if (name == null)
+                return null;
+            return _wzDirs.TryGetValue(GetWzKey(name), out WzMainDirectory directory) ? directory : null;
         }
 
         /// <summary>
