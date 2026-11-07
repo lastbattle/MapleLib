@@ -77,9 +77,18 @@ namespace MapleLib.WzLib.Serializer
                 MaxCharactersFromEntities = 1_000_000,
             };
 
-            using (XmlReader reader = XmlReader.Create(path, readerSettings))
+            try
             {
+                using XmlReader reader = XmlReader.Create(path, readerSettings);
                 doc.Load(reader);
+            }
+            catch (ArgumentException ex)
+            {
+                // XmlReader validates the declaration and reports a bad
+                // version as a bare ArgumentException ("Wrong XML version
+                // information..."), outside the XmlException family the rest
+                // of the importer uses.
+                throw new InvalidDataException("XML declaration is invalid.", ex);
             }
             XmlElement mainElement = (XmlElement)doc.DocumentElement;
             curr = 0;
