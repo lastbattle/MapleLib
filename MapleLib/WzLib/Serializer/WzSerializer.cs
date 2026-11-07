@@ -401,7 +401,7 @@ namespace MapleLib.WzLib.Serializer
                     propJson[FIELD_LENGTH_NAME] = binaryProp.Length.ToString();
                     if (bExportBase64Data)
                     {
-                        propJson["basehead"] = Convert.ToBase64String(binaryProp.Header);
+                        propJson["basehead"] = Convert.ToBase64String(binaryProp.Header ?? Array.Empty<byte>());
                         propJson["basedata"] = Convert.ToBase64String(binaryProp.GetBytes(false) ?? Array.Empty<byte>());
                     }
                     break;
@@ -451,7 +451,7 @@ namespace MapleLib.WzLib.Serializer
 
                 case WzLuaProperty luaProp:
                     propJson[FIELD_TYPE_NAME] = "lua";
-                    propJson[FIELD_FILENAME_NAME] = luaProp.Parent.Name;
+                    propJson[FIELD_FILENAME_NAME] = luaProp.Parent?.Name ?? luaProp.Name ?? "lua";
                     if (bExportBase64Data)
                     {
                         propJson[FIELD_BASEDATA_NAME] = luaProp.ToString();
@@ -463,7 +463,9 @@ namespace MapleLib.WzLib.Serializer
                     break;
             }
 
-            string jPropertyName = prop.Name;
+            // Parameterless nodes carry no name; a null dictionary key is not
+            // allowed and the value already uses the same empty spelling.
+            string jPropertyName = prop.Name ?? string.Empty;
 
             // making the assumption that only the first wz image will be used, everything is dropped since its not going to be read in wz anyway
             // FullPath = "Item.wz\\Install\\0380.img\\03800572\\info\\icon\\foothold\\foothold" <<< double 'foothold' here :( 

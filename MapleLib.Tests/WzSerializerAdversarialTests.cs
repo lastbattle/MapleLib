@@ -1,5 +1,6 @@
 using System.IO;
 using System.Linq;
+using System.Text.Json;
 using MapleLib.WzLib;
 using MapleLib.WzLib.Serializer;
 using MapleLib.WzLib.WzProperties;
@@ -487,6 +488,31 @@ public sealed class WzSerializerAdversarialTests
             Assert.Equal(WzFileParseStatus.Success, parsed.ParseWzFile());
             Assert.Single(parsed.WzDirectory.WzImages);
             Assert.Single(parsed.WzDirectory.WzDirectories);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void JsonSerializer_ToleratesNullHeaderAndNamelessNode()
+    {
+        string root = Directory.CreateTempSubdirectory().FullName;
+        string path = Path.Combine(root, "dump.json");
+        try
+        {
+            using var image = new WzImage("json.img") { Changed = true };
+            var sound = new WzBinaryProperty("sfx", 5, Array.Empty<byte>(), new byte[] { 1, 2, 3 });
+            sound.Header = null!;
+            image.AddProperty(sound);
+            image.AddProperty(new WzIntProperty { Value = 7 });
+
+            new WzJsonBsonSerializer(1, LineBreak.Windows, true, true).SerializeImage(image, path);
+
+            using var document = JsonDocument.Parse(File.ReadAllText(path));
+            Assert.Equal("5", document.RootElement.GetProperty("sfx").GetProperty("_length").GetString());
+            Assert.Equal(7, document.RootElement.GetProperty("").GetProperty("_value").GetInt32());
         }
         finally
         {
