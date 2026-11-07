@@ -6,6 +6,7 @@ using System.Drawing;
 using System.Globalization;
 using System.IO;
 using System.Linq;
+using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading.Tasks;
 using System.Xml;
@@ -202,8 +203,34 @@ namespace MapleLib.WzLib.Serializer
                             throw new InvalidDataException($"Canvas '{canvas.Name}' image payload exceeds the supported import size.");
 
                         canvas.PngProperty = new WzPngProperty();
-                        using (MemoryStream pngstream = new MemoryStream(Convert.FromBase64String(base64Image)))
-                        using (Image decodedImage = Image.FromStream(pngstream, true, true))
+                        byte[] imagePayload;
+                        try
+                        {
+                            imagePayload = Convert.FromBase64String(base64Image);
+                        }
+                        catch (FormatException ex)
+                        {
+                            throw new InvalidDataException($"Canvas '{canvas.Name}' basedata is not valid base64.", ex);
+                        }
+
+                        // GDI+ may still read from the stream while the
+                        // decoded image is consumed below, so keep it alive
+                        // for the whole scope.
+                        using MemoryStream pngstream = new(imagePayload);
+                        Image decodedImage;
+                        try
+                        {
+                            decodedImage = Image.FromStream(pngstream, true, true);
+                        }
+                        catch (Exception ex) when (ex is ArgumentException or ExternalException or OutOfMemoryException)
+                        {
+                            // GDI+ reports malformed image data as ArgumentException
+                            // or ExternalException, and some corrupt streams as
+                            // OutOfMemoryException.
+                            throw new InvalidDataException($"Canvas '{canvas.Name}' basedata does not decode to an image.", ex);
+                        }
+
+                        using (decodedImage)
                         {
                             if (decodedImage is not Bitmap decodedBitmap)
                                 throw new InvalidDataException($"Canvas '{canvas.Name}' basedata does not decode to a bitmap image.");
