@@ -109,22 +109,15 @@ namespace MapleLib.WzLib
         #region Extended Properties Parsing
         internal static void WritePropertyList(WzBinaryWriter writer, List<WzImageProperty> properties)
         {
-            if (properties.Count == 1 && properties[0] is WzLuaProperty)
+            writer.Write((ushort)0);
+            writer.WriteCompressedInt(properties.Count);
+            foreach (WzImageProperty imgProperty in properties)
             {
-                properties[0].WriteValue(writer);
-            }
-            else
-            {
-                writer.Write((ushort)0);
-                writer.WriteCompressedInt(properties.Count);
-                foreach (WzImageProperty imgProperty in properties)
-                {
-                    writer.WriteStringValue(imgProperty.Name, 0x00, 0x01);
-                    if (imgProperty is WzExtended extended)
-                        WriteExtendedValue(writer, extended);
-                    else
-                        imgProperty.WriteValue(writer);
-                }
+                writer.WriteStringValue(imgProperty.Name, 0x00, 0x01);
+                if (imgProperty is WzExtended extended)
+                    WriteExtendedValue(writer, extended);
+                else
+                    imgProperty.WriteValue(writer);
             }
         }
 
@@ -187,6 +180,26 @@ namespace MapleLib.WzLib
                 byte ptype = reader.ReadByte();
                 switch (ptype) // header value
                 {
+                    case 1: // lua
+                        {
+                            // A WzLuaProperty starts with this byte in both the
+                            // image-level form and a list entry; the container
+                            // header is no longer suppressed for a single lua
+                            // child, so the entry is a normal list member.
+                            EnsureWithinBlock(reader, endOfBlock, "lua length", 1);
+                            int luaLength = reader.ReadCompressedInt();
+                            long remainingForLua = endOfBlock - reader.BaseStream.Position;
+                            if (luaLength < 0 || luaLength > MaxLuaPropertyLength ||
+                                remainingForLua < 0 || luaLength > remainingForLua || luaLength > reader.Available())
+                                throw new InvalidDataException($"Invalid Lua property length: {luaLength}.");
+
+                            byte[] luaBytes = reader.ReadBytes(luaLength);
+                            if (luaBytes.Length != luaLength)
+                                throw new InvalidDataException("Lua property data is truncated.");
+
+                            properties.Add(new WzLuaProperty(name, luaBytes) { Parent = parent });
+                            break;
+                        }
                     case 0:
                         properties.Add(new WzNullProperty(name) { Parent = parent });
                         break;

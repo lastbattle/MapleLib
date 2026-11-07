@@ -128,11 +128,9 @@ namespace MapleLib.WzLib.WzProperties
         /// <param name="writer"></param>
         public override void WriteValue(WzBinaryWriter writer)
         {
-            bool bIsLuaProperty = properties.Count == 1 && properties[0] is WzLuaProperty;
-
-            if (!bIsLuaProperty)
-                writer.WriteStringValue("Property", WzImage.WzImageHeaderByte_WithoutOffset, WzImage.WzImageHeaderByte_WithOffset);
-
+            // Always keep the Property prologue; the single-lua shortcut is
+            // applied by WzImage.SaveImage for the image-level form only.
+            writer.WriteStringValue("Property", WzImage.WzImageHeaderByte_WithoutOffset, WzImage.WzImageHeaderByte_WithOffset);
             WzImageProperty.WritePropertyList(writer, properties);
         }
 

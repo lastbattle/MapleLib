@@ -619,8 +619,17 @@ namespace MapleLib.WzLib
 
                 long startPos = writer.BaseStream.Position;
 
-                imgProp.AddPropertiesForWzImageDumping(WzProperties);
-                imgProp.WriteValue(writer);
+                if (WzProperties.Count == 1 && WzProperties[0] is WzLuaProperty luaOnly)
+                {
+                    // Keep the client's image-level lua form (0x01 <length>
+                    // <bytes>); nested containers use the normal list entry.
+                    luaOnly.WriteValue(writer);
+                }
+                else
+                {
+                    imgProp.AddPropertiesForWzImageDumping(WzProperties);
+                    imgProp.WriteValue(writer);
+                }
 
                 writer.StringCache.Clear();
 
