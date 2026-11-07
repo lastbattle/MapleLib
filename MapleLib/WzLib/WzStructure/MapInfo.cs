@@ -866,7 +866,12 @@ namespace MapleLib.WzLib.WzStructure
             info["returnMap"] = InfoTool.SetInt(returnMap);
             info["town"] = InfoTool.SetBool(town);
             info["version"] = InfoTool.SetInt(version);
-            info["fieldLimit"] = InfoTool.SetInt((int)fieldLimit);
+            // Keep the historical 32-bit node shape while a value still fits;
+            // wider masks (the model is a long and HaCreator renders it as a
+            // ulong bit set) need the long form or their high bits are lost.
+            info["fieldLimit"] = fieldLimit is >= int.MinValue and <= int.MaxValue
+                ? InfoTool.SetInt((int)fieldLimit)
+                : InfoTool.SetLong(fieldLimit);
             info["timeLimit"] = InfoTool.SetOptionalInt(timeLimit);
             info["lvLimit"] = InfoTool.SetOptionalInt(lvLimit);
 
