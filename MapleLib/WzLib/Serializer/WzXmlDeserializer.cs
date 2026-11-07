@@ -280,10 +280,23 @@ namespace MapleLib.WzLib.Serializer
                     if (baseData.Length > MaxImportSoundDataBase64Chars)
                         throw new InvalidDataException($"Sound '{element.GetAttribute("name")}' data payload exceeds the supported import size.");
 
-                    WzBinaryProperty sound = new WzBinaryProperty(element.GetAttribute("name"),
+                    string soundName = element.GetAttribute("name");
+                    byte[] soundHeaderBytes;
+                    byte[] soundDataBytes;
+                    try
+                    {
+                        soundHeaderBytes = Convert.FromBase64String(base64Header);
+                        soundDataBytes = Convert.FromBase64String(baseData);
+                    }
+                    catch (FormatException ex)
+                    {
+                        throw new InvalidDataException($"Sound '{soundName}' has base64 payload that does not decode.", ex);
+                    }
+
+                    WzBinaryProperty sound = new WzBinaryProperty(soundName,
                         soundLengthMs,
-                        Convert.FromBase64String(base64Header),
-                        Convert.FromBase64String(baseData));
+                        soundHeaderBytes,
+                        soundDataBytes);
                     return sound;
 
                 case "string":
