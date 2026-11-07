@@ -165,10 +165,13 @@ namespace MapleLib.WzLib.Serializer
                 foreach (KeyValuePair<WzUOLProperty, Action<BinaryWriter, byte[]>> pair in state.UOLs)
                 {
                     WzObject result = pair.Key.LinkValue;
-                    bool flag3 = result == null;
-                    if (!flag3)
+                    // LinkValue caches its first resolution, so a target removed
+                    // after that first read is resolved yet absent from the node
+                    // set. A bare indexer lookup killed the whole export; leave
+                    // the zero link words in place instead.
+                    if (result != null && state.Nodes.TryGetValue(result, out uint targetId))
                     {
-                        bw.BaseStream.Position = (long)(nodeOffset + state.GetNodeID(result) * 20U + 4UL);
+                        bw.BaseStream.Position = (long)(nodeOffset + targetId * 20U + 4UL);
                         bw.BaseStream.ReadExactly(uolReplace);
                         pair.Value(bw, uolReplace);
                     }

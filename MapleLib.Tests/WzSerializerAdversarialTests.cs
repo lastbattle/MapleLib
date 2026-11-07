@@ -367,6 +367,34 @@ public sealed class WzSerializerAdversarialTests
         }
     }
 
+    [Fact]
+    public void NxSerializer_SurvivesStaleUolTarget()
+    {
+        string root = Directory.CreateTempSubdirectory().FullName;
+        string output = Path.Combine(root, "out");
+        Directory.CreateDirectory(output);
+        try
+        {
+            using var file = new WzFile(1, WzMapleVersion.BMS) { Name = "test.wz" };
+            var image = new WzImage("a.img") { Changed = true };
+            file.WzDirectory.AddImage(image);
+            var target = new WzIntProperty("a", 5);
+            image.AddProperty(target);
+            var link = new WzUOLProperty("u", "../a.img/a");
+            image.AddProperty(link);
+            _ = link.LinkValue;
+            image.RemoveProperty(target);
+
+            new WzToNxSerializer().SerializeFile(file, output);
+
+            Assert.True(File.Exists(Path.Combine(root, "test.nx")));
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
     private sealed class CountingFileSerializer : IWzFileSerializer
     {
         public int SerializeCount { get; private set; }
