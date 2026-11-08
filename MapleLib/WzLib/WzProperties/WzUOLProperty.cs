@@ -1,6 +1,3 @@
-//uncomment to enable automatic UOL resolving, comment to disable it
-#define UOLRES
-
 using System.IO;
 using System.Collections.Generic;
 using MapleLib.WzLib.Util;
@@ -47,11 +44,7 @@ namespace MapleLib.WzLib.WzProperties
         {
             get
             {
-#if UOLRES
                 return LinkValue;
-#else
-                return this;
-#endif
             }
         }
 		/// <summary>
@@ -69,7 +62,6 @@ namespace MapleLib.WzLib.WzProperties
 		/// </summary>
 		public override string Name { get { return name; } set { name = value; } }
 
-#if UOLRES
 		public override WzPropertyCollection WzProperties
 		{
 			get
@@ -94,7 +86,6 @@ namespace MapleLib.WzLib.WzProperties
 			WzObject target = ResolveLinkValue();
 			return target is WzImageProperty property ? property.GetFromPath(path) : target is WzImage image ? image.GetFromPath(path) : null;
 		}
-#endif
 
 		/// <summary>
 		/// The WzPropertyType of the property
@@ -129,7 +120,6 @@ namespace MapleLib.WzLib.WzProperties
 		/// </summary>
 		public string Value { get { return val; } set { val = value; } }
 
-#if UOLRES
         public WzObject LinkValue {
             get {
                 if (linkVal == null) {
@@ -191,7 +181,6 @@ namespace MapleLib.WzLib.WzProperties
             }
             return current;
         }
-#endif
 
         /// <summary>
         /// Creates a blank WzUOLProperty
@@ -220,7 +209,6 @@ namespace MapleLib.WzLib.WzProperties
 		#endregion
 
         #region Cast Values
-#if UOLRES
         public override int GetInt()
         {
             return (ResolveLinkValue() ?? throw new InvalidDataException("UOL link target could not be resolved.")).GetInt();
@@ -265,12 +253,6 @@ namespace MapleLib.WzLib.WzProperties
         {
             return (ResolveLinkValue() ?? throw new InvalidDataException("UOL link target could not be resolved.")).GetBytes();
         }
-#else
-        public override string GetString()
-        {
-            return val;
-        }
-#endif
         public override string ToString()
         {
             return val;
