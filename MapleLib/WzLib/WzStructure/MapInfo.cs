@@ -102,38 +102,17 @@ namespace MapleLib.WzLib.WzStructure
     {
         public static MapInfo Default = new MapInfo();
 
-        // Authored nodes can be UOLs, and a broken or cyclic link makes both
-        // the child indexer and the WzProperties getter raise
-        // InvalidDataException. MapInfo is a consumer of authored content, so
-        // treat such a node as having no readable children.
+        // Authored nodes can be UOLs; the safe accessors on WzImageProperty
+        // treat a broken or cyclic link and scalar nodes as having no
+        // readable children instead of raising.
         private static WzPropertyCollection ReadChildren(WzImageProperty property)
         {
-            if (property == null)
-                return null;
-
-            try
-            {
-                return property.WzProperties;
-            }
-            catch (InvalidDataException)
-            {
-                return null;
-            }
+            return property?.GetChildrenOrDefault();
         }
 
         private static WzImageProperty ReadChild(WzImageProperty property, string name)
         {
-            if (property == null)
-                return null;
-
-            try
-            {
-                return property[name];
-            }
-            catch (InvalidDataException)
-            {
-                return null;
-            }
+            return property?.GetChildOrDefault(name);
         }
 
         private WzImage image = null;

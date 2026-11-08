@@ -75,7 +75,7 @@ namespace MapleLib.WzLib.WzProperties
             clone._bytes = new byte[_length]; 
             // A lazy payload whose backing reader is gone reports as null;
             // clone with the declared-length zero buffer.
-            (GetBytes(false) ?? Array.Empty<byte>()).CopyTo(clone._bytes, 0);
+            GetBytesOrEmpty().CopyTo(clone._bytes, 0);
 
             return clone;
         }
@@ -106,7 +106,7 @@ namespace MapleLib.WzLib.WzProperties
 
         public override void WriteValue(WzBinaryWriter writer)
         {
-            var data = GetBytes(false) ?? Array.Empty<byte>();
+            var data = GetBytesOrEmpty();
             writer.WriteStringValue(RAW_DATA_HEADER, WzImage.WzImageHeaderByte_WithoutOffset,
                 WzImage.WzImageHeaderByte_WithOffset);
             writer.Write(_type);
@@ -213,6 +213,11 @@ namespace MapleLib.WzLib.WzProperties
         public override byte[] GetBytes()
         {
             return GetBytes(false);
+        }
+
+        public override byte[] GetBytesOrEmpty()
+        {
+            return GetBytes(false) ?? Array.Empty<byte>();
         }
 
         /// <summary>

@@ -374,39 +374,6 @@ namespace MapleLib.WzLib.WzStructure.Data.MobStructure
                    ?? GetMobAttackHitEffectPath(attack?["hit"]);
         }
 
-        // Authored hit-effect nodes can be any WZ type, including a UOL with a
-        // broken or cyclic link whose child indexer / WzProperties getter
-        // raises InvalidDataException.
-        private static WzPropertyCollection TryGetChildren(WzImageProperty property)
-        {
-            if (property == null)
-                return null;
-
-            try
-            {
-                return property.WzProperties;
-            }
-            catch (InvalidDataException)
-            {
-                return null;
-            }
-        }
-
-        private static WzImageProperty TryGetChild(WzImageProperty property, string name)
-        {
-            if (property == null)
-                return null;
-
-            try
-            {
-                return property[name];
-            }
-            catch (InvalidDataException)
-            {
-                return null;
-            }
-        }
-
         private static string GetMobAttackHitEffectPath(WzImageProperty property)
         {
             if (property == null)
@@ -447,7 +414,7 @@ namespace MapleLib.WzLib.WzStructure.Data.MobStructure
                 return sequencePath;
             }
 
-            WzPropertyCollection propertyChildren = TryGetChildren(property);
+            WzPropertyCollection propertyChildren = property?.GetChildrenOrDefault();
             if (propertyChildren != null && propertyChildren.Count > 0)
             {
                 string headerValuePath = GetMobAttackHitEffectHeaderValueRecordPath(property);
@@ -626,7 +593,7 @@ namespace MapleLib.WzLib.WzStructure.Data.MobStructure
 
                 for (int i = 0; i < preferredChildNames.Length; i++)
                 {
-                    string value = GetMobAttackHitEffectPath(TryGetChild(property, preferredChildNames[i]));
+                    string value = GetMobAttackHitEffectPath(property?.GetChildOrDefault(preferredChildNames[i]));
                     if (!string.IsNullOrWhiteSpace(value))
                     {
                         return AddMobAttackHitEffectMetadataTokensToPath(property, value);
@@ -648,7 +615,7 @@ namespace MapleLib.WzLib.WzStructure.Data.MobStructure
 
         private static string GetMobAttackHitEffectSequencePath(WzImageProperty property)
         {
-            WzPropertyCollection sequenceChildren = TryGetChildren(property);
+            WzPropertyCollection sequenceChildren = property?.GetChildrenOrDefault();
             if (sequenceChildren == null || sequenceChildren.Count == 0)
             {
                 return null;
@@ -1375,14 +1342,14 @@ namespace MapleLib.WzLib.WzStructure.Data.MobStructure
 
             for (int i = 0; i < frameFieldNames.Length; i++)
             {
-                string frameFieldValue = GetMobAttackHitEffectScalarString(TryGetChild(record, frameFieldNames[i]));
+                string frameFieldValue = GetMobAttackHitEffectScalarString(record?.GetChildOrDefault(frameFieldNames[i]));
                 if (TryParseMobAttackHitEffectRecordFrameIndex(frameFieldValue, out frameIndex))
                 {
                     return true;
                 }
             }
 
-            WzPropertyCollection recordChildren = TryGetChildren(record);
+            WzPropertyCollection recordChildren = record?.GetChildrenOrDefault();
             if (recordChildren != null)
             {
                 foreach (WzImageProperty child in recordChildren)
@@ -2687,7 +2654,7 @@ namespace MapleLib.WzLib.WzStructure.Data.MobStructure
 
         private static string GetMobAttackHitEffectScalarString(WzImageProperty property)
         {
-            if (property == null || TryGetChildren(property)?.Count > 0 == true)
+            if (property == null || property.GetChildrenOrDefault()?.Count > 0 == true)
             {
                 return null;
             }

@@ -1078,11 +1078,15 @@ namespace MapleLib.WzLib
 
         public List<WzObject> GetObjectsFromImage(WzImage img)
         {
-            var objList = new List<WzObject>(img.WzProperties.Count);
-            foreach (WzImageProperty property in img.WzProperties)
+            var objList = new List<WzObject>();
+            if (img.WzProperties is { } imgProperties)
             {
-                objList.Add(property);
-                AppendObjectsFromProperty(property, objList);
+                objList.Capacity = imgProperties.Count;
+                foreach (WzImageProperty property in imgProperties)
+                {
+                    objList.Add(property);
+                    AppendObjectsFromProperty(property, objList);
+                }
             }
             return objList;
         }

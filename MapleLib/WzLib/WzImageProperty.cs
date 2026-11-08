@@ -62,6 +62,50 @@ namespace MapleLib.WzLib
             }
         }
 
+        /// <summary>
+        /// Safe child lookup for consumer code: scalar properties have no
+        /// child view, and a UOL with a broken or cyclic link reports no
+        /// child instead of raising InvalidDataException from the accessors.
+        /// </summary>
+        public WzImageProperty GetChildOrDefault(string name)
+        {
+            try
+            {
+                return this[name];
+            }
+            catch (InvalidDataException)
+            {
+                return null;
+            }
+        }
+
+        /// <summary>
+        /// Child collection with the same tolerance as
+        /// GetChildOrDefault(string): non-container properties and
+        /// unresolvable links report no children.
+        /// </summary>
+        public WzPropertyCollection GetChildrenOrDefault()
+        {
+            try
+            {
+                return WzProperties;
+            }
+            catch (InvalidDataException)
+            {
+                return null;
+            }
+        }
+
+        /// <summary>
+        /// Payload bytes for export paths. A lazy payload whose backing reader
+        /// is gone, and properties without a byte payload, report as empty
+        /// instead of null so callers cannot miss the check.
+        /// </summary>
+        public virtual byte[] GetBytesOrEmpty()
+        {
+            return Array.Empty<byte>();
+        }
+
         public abstract WzPropertyType PropertyType { get; }
 
         /// <summary>

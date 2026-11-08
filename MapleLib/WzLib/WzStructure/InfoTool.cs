@@ -107,22 +107,6 @@ namespace MapleLib.WzLib.WzStructure
         #endregion
 
         #region Rectangle
-        private static WzImageProperty TryGetChild(WzImageProperty source, string name)
-        {
-            if (source == null)
-                return null;
-
-            try
-            {
-                return source[name];
-            }
-            catch (InvalidDataException)
-            {
-                // UOL with a broken or cyclic link has no child view.
-                return null;
-            }
-        }
-
         /// <summary>
         /// Gets System.Drawing.Rectangle from "lt" and "rb"
         /// </summary>
@@ -130,21 +114,13 @@ namespace MapleLib.WzLib.WzStructure
         /// <returns></returns>
         public static Rectangle GetLtRbRectangle(this WzImageProperty parentSource)
         {
-            bool hasChildren;
-            try
-            {
-                hasChildren = parentSource?.WzProperties != null;
-            }
-            catch (InvalidDataException)
-            {
-                hasChildren = false;
-            }
+            bool hasChildren = parentSource?.GetChildrenOrDefault() != null;
 
             if (!hasChildren)
                 return Rectangle.Empty;
 
-            WzVectorProperty lt = InfoTool.GetOptionalVector(TryGetChild(parentSource, "lt"));
-            WzVectorProperty rb = InfoTool.GetOptionalVector(TryGetChild(parentSource, "rb"));
+            WzVectorProperty lt = InfoTool.GetOptionalVector(parentSource?.GetChildOrDefault("lt"));
+            WzVectorProperty rb = InfoTool.GetOptionalVector(parentSource?.GetChildOrDefault("rb"));
 
             int left = lt.X?.Value ?? 0;
             int top = lt.Y?.Value ?? 0;

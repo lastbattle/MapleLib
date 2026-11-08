@@ -112,7 +112,7 @@ namespace MapleLib.WzLib.WzProperties
         public override WzPropertyType PropertyType { get { return WzPropertyType.Sound; } }
         public override void WriteValue(WzBinaryWriter writer)
         {
-            byte[] data = GetBytes(false) ?? Array.Empty<byte>();
+            byte[] data = GetBytesOrEmpty();
 
             // The reader always consumes the fixed GUID header, one unknown
             // byte and the wave-format length before the payload. A sound whose
@@ -506,7 +506,7 @@ namespace MapleLib.WzLib.WzProperties
 
             // A lazy payload whose backing reader is gone reports as null;
             // export it as an empty payload instead of aborting.
-            byte[] soundBytes = GetBytes(false) ?? Array.Empty<byte>();
+            byte[] soundBytes = GetBytesOrEmpty();
             using MemoryStream wavStream = new MemoryStream();
             using (WaveFileWriter writer = new WaveFileWriter(wavStream, wavFormat))
             {
@@ -573,6 +573,11 @@ namespace MapleLib.WzLib.WzProperties
         public override byte[] GetBytes()
         {
             return GetBytes(false);
+        }
+
+        public override byte[] GetBytesOrEmpty()
+        {
+            return GetBytes(false) ?? Array.Empty<byte>();
         }
         #endregion
     }

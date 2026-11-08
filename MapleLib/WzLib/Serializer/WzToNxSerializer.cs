@@ -330,8 +330,11 @@ namespace MapleLib.WzLib.Serializer
             }
             if (node is WzImage image)
             {
-                List<WzObject> childs = new List<WzObject>(image.WzProperties.Count);
-                childs.AddRange(image.WzProperties);
+                if (image.WzProperties is not { } imgProperties)
+                    return new List<WzObject>();
+
+                List<WzObject> childs = new List<WzObject>(imgProperties.Count);
+                childs.AddRange(imgProperties);
                 return childs;
             }
             if (node is WzImageProperty property && node is not WzUOLProperty && property.WzProperties is { } properties)
@@ -347,7 +350,7 @@ namespace MapleLib.WzLib.Serializer
             if (node is WzDirectory directory)
                 return directory.WzImages.Count + directory.WzDirectories.Count;
             if (node is WzImage image)
-                return image.WzProperties.Count;
+                return image.WzProperties?.Count ?? 0;
             if (node is WzImageProperty property && node is not WzUOLProperty)
                 return property.WzProperties?.Count ?? 0;
             return 0;

@@ -143,12 +143,12 @@ namespace MapleLib.WzLib.Spine
                         WzImageProperty linkedProperty = property.GetLinkedWzImageProperty() ?? property;
                         if (linkedProperty is WzBinaryProperty binProp)
                         {
-                            data = ReadBinarySkeleton(atlas, binProp.GetBytes(false));
+                            data = ReadBinarySkeleton(atlas, binProp.GetBytesOrEmpty());
                             return data != null;
                         }
                         if (linkedProperty is WzRawDataProperty rawProp && property.Name.EndsWith(".skel", StringComparison.OrdinalIgnoreCase))
                         {
-                            data = ReadBinarySkeleton(atlas, rawProp.GetBytes(false));
+                            data = ReadBinarySkeleton(atlas, rawProp.GetBytesOrEmpty());
                             return data != null;
                         }
                       
