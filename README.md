@@ -33,7 +33,7 @@ MapleLib is a .NET library designed to work with MapleStory's file formats and n
    git clone https://github.com/lastbattle/MapleLib.git
    ```
 2. Open the solution in Visual Studio or use the .NET CLI.
-3. Restore NuGet packages and build the project targeting .NET 8.0 or compatible framework.
+3. Restore NuGet packages and build the project targeting .NET 10 (`net10.0-windows`).
 
 No NuGet package is currently available; build from source for use in your projects.
 
@@ -156,6 +156,35 @@ if (img != null)
 #### List.wz Files (Pre-Big Bang)
 
 If `WzTool.IsListFile(filePath)`, open with a specialized editor (e.g., ListEditor in HaRepacker).
+
+## Safety contracts and safe usage
+
+MapleLib follows three library-wide rules: parsing normalizes content, the
+safe accessors tolerate hostile or unusual trees, and writers may assume
+normalized state. In practice:
+
+- navigate with `GetChildOrDefault(name)` and `GetChildrenOrDefault()`
+  instead of casting nodes; scalars and broken or cyclic UOL links report no
+  child view instead of throwing
+- read export payload bytes through `GetBytesOrEmpty()`; lazy payloads whose
+  backing reader was closed report as empty, never null
+- expect documented exception families (`InvalidDataException` and friends)
+  from the public parse entry points; seeded mutation tests pin them
+
+The full contract list, including the nullable rollout state, lives in
+[docs/safety-contracts.md](docs/safety-contracts.md).
+
+```csharp
+// Tolerant navigation: scalars and broken/cyclic links yield nothing.
+if (mob.GetChildOrDefault("info") is { } info &&
+    info.GetChildOrDefault("hp") is WzIntProperty hp)
+{
+    int hitPoints = hp.Value;
+}
+
+// Payload bytes for export paths; empty, never null.
+byte[] pngBytes = canvas.GetBytesOrEmpty();
+```
 
 ## Additional Examples
 
