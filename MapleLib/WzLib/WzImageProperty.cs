@@ -1,3 +1,6 @@
+// Nullable annotations are adopted file by file; see docs/safety-contracts.md.
+#nullable enable
+
 using System;
 using System.Drawing;
 using System.IO;
@@ -22,11 +25,11 @@ namespace MapleLib.WzLib
         private const int MaxLuaPropertyLength = 64 * 1024 * 1024;
 
         #region Virtual\Abstrcat Members
-        public virtual WzPropertyCollection WzProperties { get { return null; } }
+        public virtual WzPropertyCollection? WzProperties { get { return null; } }
 
-        public virtual new WzImageProperty this[string name] { get { return null; } set { throw new NotImplementedException(); } }
+        public virtual new WzImageProperty? this[string name] { get { return null; } set { throw new NotImplementedException(); } }
 
-        public virtual WzImageProperty GetFromPath(string path)
+        public virtual WzImageProperty? GetFromPath(string path)
         {
             return null;
         }
@@ -39,7 +42,7 @@ namespace MapleLib.WzLib
         /// segment is stripped before delegating so parent resolution consumes
         /// it instead of looking up a literal "../name" child.
         /// </summary>
-        internal static WzImageProperty GetFromParentPath(WzObject parent, string path)
+        internal static WzImageProperty? GetFromParentPath(WzObject parent, string path)
         {
             if (parent == null || string.IsNullOrEmpty(path))
                 return null;
@@ -67,7 +70,7 @@ namespace MapleLib.WzLib
         /// child view, and a UOL with a broken or cyclic link reports no
         /// child instead of raising InvalidDataException from the accessors.
         /// </summary>
-        public WzImageProperty GetChildOrDefault(string name)
+        public WzImageProperty? GetChildOrDefault(string name)
         {
             try
             {
@@ -84,7 +87,7 @@ namespace MapleLib.WzLib
         /// GetChildOrDefault(string): non-container properties and
         /// unresolvable links report no children.
         /// </summary>
-        public WzPropertyCollection GetChildrenOrDefault()
+        public WzPropertyCollection? GetChildrenOrDefault()
         {
             try
             {
@@ -111,7 +114,7 @@ namespace MapleLib.WzLib
         /// <summary>
         /// The image that this property is contained in
         /// </summary>
-        public WzImage ParentImage
+        public WzImage? ParentImage
         {
             get
             {
@@ -147,7 +150,7 @@ namespace MapleLib.WzLib
             writer.WriteLine(XmlUtil.Indentation(level) + XmlUtil.CloseTag(this.PropertyType.ToString()));
         }
 
-        public override WzFile WzFileParent
+        public override WzFile? WzFileParent
         {
             get { return ParentImage?.WzFileParent; }
         }

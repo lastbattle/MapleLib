@@ -32,7 +32,7 @@ namespace MapleLib.WzLib
         /// <summary>
         /// Returns the parent WZ File
         /// </summary>
-        public abstract WzFile WzFileParent { get; }
+        public abstract WzFile? WzFileParent { get; }
 
         public WzObject this[string name]
         {
