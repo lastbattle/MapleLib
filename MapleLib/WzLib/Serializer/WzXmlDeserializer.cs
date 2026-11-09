@@ -289,7 +289,7 @@ namespace MapleLib.WzLib.Serializer
 
                 case "sound":
                     if (!element.HasAttribute("basedata") || !element.HasAttribute("basehead") || !element.HasAttribute("length")) throw new NoBase64DataException("no base64 data in sound element with name " + element.GetAttribute("name"));
-                    if (!int.TryParse(element.GetAttribute("length"), NumberStyles.Integer, CultureInfo.InvariantCulture, out int soundLengthMs) || soundLengthMs < 0)
+                    if (!WzParse.TryInt(element.GetAttribute("length"), out int soundLengthMs) || soundLengthMs < 0)
                         throw new InvalidDataException($"Sound '{element.GetAttribute("name")}' has an invalid length attribute.");
 
                     string base64Header = element.GetAttribute("basehead");
@@ -401,7 +401,7 @@ namespace MapleLib.WzLib.Serializer
         private static int ReadOptionalDimension(XmlElement element, string attributeName)
         {
             string raw = element.GetAttribute(attributeName);
-            if (int.TryParse(raw, NumberStyles.Integer, CultureInfo.InvariantCulture, out int value) && value > 0)
+            if (WzParse.TryInt(raw, out int value) && value > 0)
                 return value;
 
             return 0;
@@ -410,7 +410,7 @@ namespace MapleLib.WzLib.Serializer
         private static WzPngFormat ParsePngFormatAttribute(XmlElement element)
         {
             string raw = element.GetAttribute("format");
-            if (int.TryParse(raw, NumberStyles.Integer, CultureInfo.InvariantCulture, out int value) &&
+            if (WzParse.TryInt(raw, out int value) &&
                 Enum.IsDefined(typeof(WzPngFormat), value))
             {
                 return (WzPngFormat)value;
@@ -422,7 +422,7 @@ namespace MapleLib.WzLib.Serializer
         private static int ParseIntAttribute(XmlElement element, string attributeName)
         {
             string raw = element.GetAttribute(attributeName);
-            if (int.TryParse(raw, NumberStyles.Integer, CultureInfo.InvariantCulture, out int value) ||
+            if (WzParse.TryInt(raw, out int value) ||
                 int.TryParse(raw, NumberStyles.Integer, CultureInfo.CurrentCulture, out value))
             {
                 return value;
@@ -434,7 +434,7 @@ namespace MapleLib.WzLib.Serializer
         private static short ParseShortAttribute(XmlElement element, string attributeName)
         {
             string raw = element.GetAttribute(attributeName);
-            if (short.TryParse(raw, NumberStyles.Integer, CultureInfo.InvariantCulture, out short value) ||
+            if (WzParse.TryShort(raw, out short value) ||
                 short.TryParse(raw, NumberStyles.Integer, CultureInfo.CurrentCulture, out value))
             {
                 return value;
@@ -446,7 +446,7 @@ namespace MapleLib.WzLib.Serializer
         private static long ParseLongAttribute(XmlElement element, string attributeName)
         {
             string raw = element.GetAttribute(attributeName);
-            if (long.TryParse(raw, NumberStyles.Integer, CultureInfo.InvariantCulture, out long value) ||
+            if (WzParse.TryLong(raw, out long value) ||
                 long.TryParse(raw, NumberStyles.Integer, CultureInfo.CurrentCulture, out value))
             {
                 return value;
@@ -458,7 +458,7 @@ namespace MapleLib.WzLib.Serializer
         private static float ParseFloatAttribute(XmlElement element, string attributeName)
         {
             string raw = element.GetAttribute(attributeName);
-            if (float.TryParse(raw, NumberStyles.Float, CultureInfo.InvariantCulture, out float value) ||
+            if (WzParse.TryFloat(raw, out float value) ||
                 float.TryParse(raw, NumberStyles.Float, CultureInfo.CurrentCulture, out value))
             {
                 return value;
@@ -470,7 +470,7 @@ namespace MapleLib.WzLib.Serializer
         private static double ParseDoubleAttribute(XmlElement element, string attributeName)
         {
             string raw = element.GetAttribute(attributeName);
-            if (double.TryParse(raw, NumberStyles.Float, CultureInfo.InvariantCulture, out double value) ||
+            if (WzParse.TryDouble(raw, out double value) ||
                 double.TryParse(raw, NumberStyles.Float, CultureInfo.CurrentCulture, out value))
             {
                 return value;
