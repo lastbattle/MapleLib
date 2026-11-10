@@ -140,7 +140,7 @@ namespace MapleLib.WzLib.Serializer
             }
             else if (currObj is IPropertyContainer container)
             {
-                outPath += EscapeInvalidFilePathNames(currObj.Name) + ".";
+                outPath = GetBoundOutputPath(outPath, EscapeInvalidFilePathNames(currObj.Name)) + ".";
 
                 foreach (WzImageProperty subprop in container.WzProperties)
                 {
