@@ -241,6 +241,30 @@ namespace MapleLib.WzLib.MSFile
                 }
             }
 
+            // Cross-category mirrors ship under a foreign category's name; a
+            // sibling shard's identity may be the one this copy was built from.
+            string? directory = Path.GetDirectoryName(this.msFilePath);
+            if (!string.IsNullOrEmpty(directory) && Directory.Exists(directory))
+            {
+                foreach (string sibling in Directory.EnumerateFiles(directory, "*.ms"))
+                {
+                    string siblingName = Path.GetFileName(sibling).ToLowerInvariant();
+                    if (string.Equals(siblingName, lowerName, StringComparison.Ordinal) ||
+                        string.Equals(siblingName, mateName, StringComparison.Ordinal))
+                        continue;
+
+                    try
+                    {
+                        ReadHeaderVersion4(fullFileName, siblingName);
+                        return;
+                    }
+                    catch
+                    {
+                        // Not a match; keep scanning.
+                    }
+                }
+            }
+
             throw new InvalidDataException(
                 $"Unable to read MS file header as version {WzMsConstants.Version2} or {WzMsConstants.Version4}. " +
                 $"Version {WzMsConstants.Version2}: {version2Exception.Message}; " +
