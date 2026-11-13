@@ -521,6 +521,13 @@ namespace MapleLib.WzLib
                                         $"WZ image prologue mismatch: name '{prop}', version {val}.");
                                 break;
                             }
+                        case 0x23: // '#Property' text-encoded image (newer .ms packs)
+                            {
+                                parsed = true;
+                                properties.AddRange(WzTextImageParser.ReadFrom(reader, size));
+                                return true;
+                            }
+
                         default:
                             {
                                 string error = "[WzImage] New Wz image header found. b = " + b;
