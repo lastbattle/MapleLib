@@ -214,18 +214,38 @@ namespace MapleLib.WzLib.MSFile
                 version2Exception = ex;
             }
 
+            Exception version4Exception;
             try
             {
                 ReadHeaderVersion4(fullFileName);
+                return;
             }
-            catch (Exception version4Exception)
+            catch (Exception ex)
             {
-                throw new InvalidDataException(
-                    $"Unable to read MS file header as version {WzMsConstants.Version2} or {WzMsConstants.Version4}. " +
-                    $"Version {WzMsConstants.Version2}: {version2Exception.Message}; " +
-                    $"Version {WzMsConstants.Version4}: {version4Exception.Message}",
-                    version4Exception);
+                version4Exception = ex;
             }
+
+            string lowerName = Path.GetFileName(fullFileName).ToLowerInvariant();
+            string mateName = FlipIndexDigit(lowerName);
+            if (!string.Equals(mateName, lowerName, StringComparison.Ordinal))
+            {
+                try
+                {
+                    // Mirror shards are laid out and keyed under their neighbour's name.
+                    ReadHeaderVersion4(fullFileName, mateName);
+                    return;
+                }
+                catch
+                {
+                    // Fall through to the aggregate failure below.
+                }
+            }
+
+            throw new InvalidDataException(
+                $"Unable to read MS file header as version {WzMsConstants.Version2} or {WzMsConstants.Version4}. " +
+                $"Version {WzMsConstants.Version2}: {version2Exception.Message}; " +
+                $"Version {WzMsConstants.Version4}: {version4Exception.Message}",
+                version4Exception);
         }
 
         private void ReadHeaderVersion2(string fullFileName)
@@ -281,7 +301,12 @@ namespace MapleLib.WzLib.MSFile
 
         private void ReadHeaderVersion4(string fullFileName)
         {
-            string fileName = Path.GetFileName(fullFileName).ToLower();
+            ReadHeaderVersion4(fullFileName, null);
+        }
+
+        private void ReadHeaderVersion4(string fullFileName, string? fileNameOverride)
+        {
+            string fileName = fileNameOverride ?? Path.GetFileName(fullFileName).ToLower();
             this.BaseStream.Position = 0;
             using var bReader = new BinaryReader(this.BaseStream, Encoding.ASCII, true);
 
@@ -345,6 +370,28 @@ namespace MapleLib.WzLib.MSFile
 
             var header = new WzMsHeader(fullFileName, saltStr, fileNameWithSalt, headerHash, WzMsConstants.Version4, entryCount, headerStartPos, entryStartPos);
             this.Header = header;
+        }
+
+        private static string FlipIndexDigit(string fileName)
+        {
+            int index = fileName.Length - 4; // index digit directly precedes the ".ms" suffix
+            if (index < 1 || index + 3 >= fileName.Length)
+                return fileName;
+
+            if (fileName[index + 1] != '.' || fileName[index + 2] != 'm' || fileName[index + 3] != 's')
+                return fileName;
+
+            char digit = fileName[index];
+            if (digit < '0' || digit > '9')
+                return fileName;
+
+            char flipped = (char)(digit ^ 1);
+            if (flipped < '0' || flipped > '9')
+                return fileName;
+
+            var chars = fileName.ToCharArray();
+            chars[index] = flipped;
+            return new string(chars);
         }
 
         /// <summary>
