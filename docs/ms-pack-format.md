@@ -164,3 +164,9 @@ ancillaries.
 - `WzLib/MSFile/WzMsConstants.cs` - every constant in this document.
 - `WzLib/MSFile/WzTextImageParser.cs` and the `0x23` case in `WzLib/WzImage.cs` - text images.
 - Verification: `dotnet test MapleLib.Tests -c Release --filter "FullyQualifiedName~WzMsFile"`.
+
+## 11. Related
+
+- [`client-modules/`](client-modules/README.md) - per-module reference for the
+  client binaries that consume this container format (MSEA and GMS v270 audits); the
+  key schedule in this document is implemented there as `pack_decrypt.py`.
