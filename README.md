@@ -289,6 +289,11 @@ writer.WriteMapleString("Hello Maple");
  - [Newtonsoft.Json.Bson](https://www.nuget.org/packages/Newtonsoft.Json.Bson/)
  - [SharpDX 4.2.0](https://www.nuget.org/packages/SharpDX)
 
+## Documentation
+
+- [Safety and API contracts](docs/safety-contracts.md): parser, serializer, tree navigation, and payload lifetime rules.
+- [MS pack format](docs/ms-pack-format.md): `.ms` container layout, encryption, and MapleLib implementation mapping.
+
 ## Contributing
 
 Contributions are welcome! Fork the repository, make changes, and submit a pull request. 
