@@ -295,7 +295,7 @@ namespace MapleLib.WzLib.WzProperties
         /// </summary>
         /// <param name="reader"></param>
         /// <param name="parseNow"></param>
-        internal WzPngProperty(WzBinaryReader reader, bool parseNow)
+        internal WzPngProperty(WzBinaryReader reader, bool parseNow, long? blockEnd = null)
         {
             // Keep reader available during eager parse.
             // In ParseEverything mode we decode inside this constructor, before Parent is assigned.
@@ -332,6 +332,14 @@ namespace MapleLib.WzLib.WzProperties
             EnsureAvailable(reader, 1, "PNG payload marker");
             reader.BaseStream.Position += 1;
             EnsureAvailable(reader, len, "PNG payload");
+            if (blockEnd.HasValue)
+            {
+                // Confined extended-block leg: the payload must end inside the
+                // declared canvas block, not spill into the sibling following it.
+                long remainingInBlock = blockEnd.Value - reader.BaseStream.Position;
+                if (remainingInBlock < 0 || len > remainingInBlock)
+                    throw new InvalidDataException($"PNG payload exceeds its declared block: {len} bytes.");
+            }
 
             lock (reader) // lock WzBinaryReader, allowing it to be loaded from multiple threads at once
             {

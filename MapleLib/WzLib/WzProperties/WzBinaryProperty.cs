@@ -202,7 +202,7 @@ namespace MapleLib.WzLib.WzProperties
         /// <param name="name">The name of the property</param>
         /// <param name="reader">The wz reader</param>
         /// <param name="parseNow">Indicating whether to parse the property now</param>
-        public WzBinaryProperty(string name, WzBinaryReader reader, bool parseNow)
+        public WzBinaryProperty(string name, WzBinaryReader reader, bool parseNow, long? blockEnd = null)
         {
             this.name = name;
             wzReader = reader;
@@ -243,6 +243,14 @@ namespace MapleLib.WzLib.WzProperties
             //sound file offs
             this.offs = reader.BaseStream.Position;
             EnsurePayloadAvailable(reader, soundDataLen, "Sound data");
+            if (blockEnd.HasValue)
+            {
+                // Confined extended-block leg: the payload must end inside the
+                // declared block, not spill into the sibling following it.
+                long remainingInBlock = blockEnd.Value - reader.BaseStream.Position;
+                if (remainingInBlock < 0 || soundDataLen > remainingInBlock)
+                    throw new InvalidDataException($"Sound data exceeds its declared block: {soundDataLen} bytes.");
+            }
             if (parseNow)
             {
                 fileBytes = reader.ReadBytes(soundDataLen);
