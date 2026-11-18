@@ -602,7 +602,12 @@ namespace MapleLib.WzLib.WzProperties
 
                             try
                             {
-                                Marshal.Copy(rawBytes, 0, bmpData.Scan0, rawBytes.Length);
+                                // A crafted image can decode to more bytes than
+                                // the bitmap holds; copy at most one bitmap, not
+                                // the whole payload, or the native heap after the
+                                // GDI buffer gets overwritten.
+                                int copyBytes = Math.Min(rawBytes.Length, checked(width * height * 4));
+                                Marshal.Copy(rawBytes, 0, bmpData.Scan0, copyBytes);
                             }
                             finally
                             {
