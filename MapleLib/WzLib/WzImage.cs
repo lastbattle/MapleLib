@@ -488,6 +488,11 @@ namespace MapleLib.WzLib
                 if (!forceReadFromData && (Parsed || Changed))
                     return true;
 
+                // A reparse replaces, never appends: clear any children left
+                // by an earlier parse so a forced re-read cannot duplicate the
+                // tree and a retry starts from an empty container.
+                properties.Clear();
+
                 long originalPos = reader.BaseStream.Position;
                 try
                 {
@@ -523,8 +528,8 @@ namespace MapleLib.WzLib
                             }
                         case 0x23: // '#Property' text-encoded image (newer .ms packs)
                             {
-                                parsed = true;
                                 properties.AddRange(WzTextImageParser.ReadFrom(reader, size));
+                                parsed = true;
                                 return true;
                             }
 
