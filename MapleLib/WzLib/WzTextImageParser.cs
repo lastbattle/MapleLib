@@ -1,5 +1,8 @@
+#nullable enable
+
 using System;
 using System.Text;
+using System.IO;
 using System.Collections.Generic;
 using MapleLib.WzLib.WzProperties;
 using MapleLib.WzLib.Util;
@@ -51,6 +54,15 @@ namespace MapleLib.WzLib
 
                 if (value == "{")
                 {
+                    // Mirror the binary parser's nesting contract: an
+                    // unbounded container chain kills the first recursive
+                    // tree walk with an uncatchable stack overflow.
+                    if (containers.Count + 1 > WzImageProperty.MaxPropertyNestingDepth)
+                    {
+                        throw new InvalidDataException(
+                            $"WZ property nesting exceeds the supported depth of {WzImageProperty.MaxPropertyNestingDepth}.");
+                    }
+
                     var sub = new WzSubProperty(name);
                     Add(sub);
                     containers.Add(sub);
