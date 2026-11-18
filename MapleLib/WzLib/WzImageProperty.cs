@@ -343,6 +343,7 @@ namespace MapleLib.WzLib
             ValidateNestingDepth(depth);
             if (iname == "")
             {
+                EnsureWithinBlock(reader, eob, "extended property name", 1);
                 iname = reader.ReadString();
             }
             switch (iname)
@@ -372,7 +373,9 @@ namespace MapleLib.WzLib
                 case "Shape2D#Vector2D":
                     {
                         WzVectorProperty vecProp = new WzVectorProperty(name) { Parent = parent };
+                        EnsureWithinBlock(reader, eob, "vector X operand", 1);
                         vecProp.X = new WzIntProperty("X", reader.ReadCompressedInt()) { Parent = vecProp };
+                        EnsureWithinBlock(reader, eob, "vector Y operand", 1);
                         vecProp.Y = new WzIntProperty("Y", reader.ReadCompressedInt()) { Parent = vecProp };
                         return vecProp;
                     }
@@ -400,6 +403,7 @@ namespace MapleLib.WzLib
                         switch (reader.ReadByte())
                         {
                             case 0:
+                                EnsureWithinBlock(reader, eob, "uol linked path", 1);
                                 return new WzUOLProperty(name, reader.ReadString()) { Parent = parent };
                             case 1:
                                 EnsureWithinBlock(reader, eob, "UOL string offset", sizeof(int));
