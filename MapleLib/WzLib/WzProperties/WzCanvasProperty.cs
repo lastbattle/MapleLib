@@ -39,7 +39,7 @@ namespace MapleLib.WzLib.WzProperties {
 
         #region Inherited Members
         public override void SetValue(object value) {
-            imageProp.SetValue(value);
+            PngProperty.SetValue(value);
         }
 
         public override WzImageProperty DeepClone() {
@@ -223,13 +223,15 @@ namespace MapleLib.WzLib.WzProperties {
         /// </summary>
         public override void Dispose() {
             name = null;
-            imageProp.Dispose();
+            imageProp?.Dispose();
             imageProp = null;
-            foreach (WzImageProperty prop in properties) {
-                prop.Dispose();
+            if (properties != null) {
+                foreach (WzImageProperty prop in properties) {
+                    prop.Dispose();
+                }
+                properties.Clear();
+                properties = null;
             }
-            properties.Clear();
-            properties = null;
         }
         #endregion
 
@@ -618,7 +620,7 @@ namespace MapleLib.WzLib.WzProperties {
         #region Cast Values
 
         public override Bitmap GetBitmap() {
-            return imageProp.GetImage(false);
+            return PngProperty.GetImage(false);
         }
         #endregion
     }
