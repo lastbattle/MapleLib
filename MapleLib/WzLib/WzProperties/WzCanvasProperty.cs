@@ -48,6 +48,7 @@ namespace MapleLib.WzLib.WzProperties {
                 clone.AddProperty(prop.DeepClone());
             }
             clone.imageProp = (WzPngProperty)PngProperty.DeepClone();
+            clone.imageProp.Parent = clone;
             return clone;
         }
 
