@@ -18,6 +18,7 @@ namespace MapleLib.WzLib.WzProperties
         internal long _rawDataOffset; // 
         internal int _length;
         internal byte[] _bytes;
+        private long? _blockEnd;
         internal WzPropertyCollection properties;
 
         private static void EnsurePayloadAvailable(WzBinaryReader reader, int length, string description)
@@ -152,6 +153,7 @@ namespace MapleLib.WzLib.WzProperties
         {
             _length = _wzReader.ReadCompressedInt();
             EnsurePayloadAvailable(_wzReader, _length, "Raw data");
+            _blockEnd = endOfBlock;
             long remainingInBlock = endOfBlock - _wzReader.BaseStream.Position;
             if (remainingInBlock < 0 || _length > remainingInBlock)
                 throw new InvalidDataException($"Raw data payload exceeds its declared block: {_length} bytes.");
@@ -184,6 +186,12 @@ namespace MapleLib.WzLib.WzProperties
 
                         this._wzReader.BaseStream.Position = _rawDataOffset;
                         EnsurePayloadAvailable(_wzReader, _length, "Raw data");
+                        if (_blockEnd.HasValue)
+                        {
+                            long payloadEnd = _wzReader.BaseStream.Position + _length;
+                            if (payloadEnd > _blockEnd.Value)
+                                throw new InvalidDataException($"Raw data exceeds its declared block on lazy reload: {_length} bytes.");
+                        }
                         this._bytes = _wzReader.ReadBytes(_length);
                         if (this._bytes.Length != _length)
                             throw new InvalidDataException("Raw data is truncated.");

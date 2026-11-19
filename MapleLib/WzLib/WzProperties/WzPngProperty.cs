@@ -31,6 +31,7 @@ namespace MapleLib.WzLib.WzProperties
 
         internal WzBinaryReader wzReader;
         internal long offs;
+        private readonly long? _blockEnd;
         private readonly object imageLock = new();
 
         private static void EnsureAvailable(WzBinaryReader reader, long byteCount, string description)
@@ -301,6 +302,7 @@ namespace MapleLib.WzLib.WzProperties
             // In ParseEverything mode we decode inside this constructor, before Parent is assigned.
             // list.wz-formatted PNGs require WzKey from reader, so set it upfront.
             this.wzReader = reader;
+            _blockEnd = blockEnd;
 
             // Read compressed bytes
             width = reader.ReadCompressedInt();
@@ -391,6 +393,12 @@ namespace MapleLib.WzLib.WzProperties
                                 EnsureAvailable(this.wzReader, 1, "PNG payload marker");
                                 this.wzReader.BaseStream.Position += 1;
                                 EnsureAvailable(this.wzReader, len, "PNG payload");
+                                if (_blockEnd.HasValue)
+                                {
+                                    long payloadEnd = this.wzReader.BaseStream.Position + len;
+                                    if (payloadEnd > _blockEnd.Value)
+                                        throw new InvalidDataException($"PNG payload exceeds its declared block on lazy reload: {len} bytes.");
+                                }
 
                                 if (len > 0)
                                 {

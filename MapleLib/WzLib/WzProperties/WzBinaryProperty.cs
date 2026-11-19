@@ -66,6 +66,7 @@ namespace MapleLib.WzLib.WzProperties
 
         internal long offs;
         internal int soundDataLen;
+        private long? _blockEnd;
 
         internal WaveFormat wavFormat;
 
@@ -266,6 +267,7 @@ namespace MapleLib.WzLib.WzProperties
 
             //sound file offs
             this.offs = reader.BaseStream.Position;
+            _blockEnd = blockEnd;
             EnsurePayloadAvailable(reader, soundDataLen, "Sound data");
             if (blockEnd.HasValue)
             {
@@ -568,6 +570,12 @@ namespace MapleLib.WzLib.WzProperties
 
                         wzReader.BaseStream.Position = offs;
                         EnsurePayloadAvailable(wzReader, soundDataLen, "Sound data");
+                        if (_blockEnd.HasValue)
+                        {
+                            long payloadEnd = wzReader.BaseStream.Position + soundDataLen;
+                            if (payloadEnd > _blockEnd.Value)
+                                throw new InvalidDataException($"Sound data exceeds its declared block on lazy reload: {soundDataLen} bytes.");
+                        }
                         fileBytes = wzReader.ReadBytes(soundDataLen);
                         if (fileBytes.Length != soundDataLen)
                             throw new InvalidDataException("Sound data is truncated.");

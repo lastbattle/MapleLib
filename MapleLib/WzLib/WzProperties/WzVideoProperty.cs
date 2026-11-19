@@ -16,6 +16,7 @@ namespace MapleLib.WzLib.WzProperties
         internal WzPropertyCollection properties;
 
         internal long _offset;
+        private long? _blockEnd;
         internal int _length;
         internal int type;
         internal byte[] _bytes;
@@ -139,6 +140,7 @@ namespace MapleLib.WzLib.WzProperties
                 throw new InvalidDataException("WZ video type byte exceeds its declared block.");
             type = wzReader.ReadByte();
             _length = wzReader.ReadCompressedInt();
+            _blockEnd = endOfBlock;
             EnsurePayloadAvailable(wzReader, _length, "Video data");
             long remainingInBlock = endOfBlock - wzReader.BaseStream.Position;
             if (remainingInBlock < 0 || _length > remainingInBlock)
@@ -247,6 +249,12 @@ namespace MapleLib.WzLib.WzProperties
 
                         this.wzReader.BaseStream.Position = _offset;
                         EnsurePayloadAvailable(wzReader, _length, "Video data");
+                        if (_blockEnd.HasValue)
+                        {
+                            long payloadEnd = wzReader.BaseStream.Position + _length;
+                            if (payloadEnd > _blockEnd.Value)
+                                throw new InvalidDataException($"Video data exceeds its declared block on lazy reload: {_length} bytes.");
+                        }
                         this._bytes = wzReader.ReadBytes(_length);
                         if (this._bytes.Length != _length)
                             throw new InvalidDataException("Video data is truncated.");
