@@ -206,6 +206,13 @@ namespace MapleLib.WzLib.WzProperties
         {
             this.name = name;
             wzReader = reader;
+            if (blockEnd.HasValue && blockEnd.Value - reader.BaseStream.Position < 1)
+            {
+                // Confined extended-block leg: the type marker must sit inside
+                // the declared block, not on the sibling that follows it.
+                throw new InvalidDataException("WZ sound prologue exceeds its declared block.");
+            }
+
             reader.BaseStream.Position++;
 
             //note - soundDataLen does NOT include the length of the header.
@@ -213,6 +220,13 @@ namespace MapleLib.WzLib.WzProperties
             if (soundDataLen < 0)
                 throw new InvalidDataException($"Invalid sound data length: {soundDataLen}.");
             len_ms = reader.ReadCompressedInt();
+
+            if (blockEnd.HasValue && reader.BaseStream.Position > blockEnd.Value)
+            {
+                // A length leg spanning the boundary would silently feed the
+                // sibling's bytes into the envelope below.
+                throw new InvalidDataException("WZ sound prologue lengths exceed their declared block.");
+            }
 
             long headerOff = reader.BaseStream.Position;
             EnsurePayloadAvailable(reader, soundHeader.Length + 2, "Sound header");
@@ -224,6 +238,16 @@ namespace MapleLib.WzLib.WzProperties
             // declared envelope, prologue plus wave-format leg, before the
             // header is assembled from partial reads.
             EnsurePayloadAvailable(reader, soundHeader.Length + 1 + wavFormatLen, "Sound envelope");
+            if (blockEnd.HasValue)
+            {
+                // The wave-format leg must end inside the declared block too,
+                // or the header is assembled from the sibling that follows it.
+                long envelopeRemaining = blockEnd.Value - reader.BaseStream.Position;
+                if (envelopeRemaining < 0 || soundHeader.Length + 1 + wavFormatLen > envelopeRemaining)
+                {
+                    throw new InvalidDataException($"Sound envelope of {soundHeader.Length + 1 + wavFormatLen} bytes exceeds its declared block.");
+                }
+            }
 
             byte[] soundHeaderBytes = reader.ReadBytes(soundHeader.Length);
             byte[] unk1 = reader.ReadBytes(1);
