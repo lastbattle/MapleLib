@@ -235,6 +235,14 @@ namespace MapleLib.WzLib.Serializer
                             // decoded image is consumed below, so keep it alive
                             // for the whole scope.
                             using MemoryStream pngstream = new(imagePayload);
+                            // The exporter writes canvas basedata as PNG and
+                            // the binary parser never leaves the raw pixel
+                            // path; pin the import to that single container so
+                            // a crafted dump cannot reach the remaining native
+                            // GDI+ decoders (TIFF/JPEG/GIF/BMP and the
+                            // metafile interpreters) during parse.
+                            if (!HasPngSignature(imagePayload))
+                                throw new InvalidDataException($"Canvas '{canvas.Name}' basedata is not a PNG payload.");
                             Image decodedImage;
                             try
                             {
@@ -410,6 +418,19 @@ namespace MapleLib.WzLib.Serializer
                 return value;
 
             return 0;
+        }
+
+        private static bool HasPngSignature(byte[] payload)
+        {
+            return payload.Length >= 8 &&
+                payload[0] == 0x89 &&
+                payload[1] == (byte)'P' &&
+                payload[2] == (byte)'N' &&
+                payload[3] == (byte)'G' &&
+                payload[4] == 0x0D &&
+                payload[5] == 0x0A &&
+                payload[6] == 0x1A &&
+                payload[7] == 0x0A;
         }
 
         private static WzPngFormat ParsePngFormatAttribute(XmlElement element)
