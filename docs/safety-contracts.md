@@ -94,4 +94,4 @@ Enable a file in the same change that touches it.
 ## Verification
 
     dotnet test MapleLib/MapleLib.Tests/MapleLib.Tests.csproj
-    dotnet test MapleLib/MapleLib.Tests/MapleLib.Tests.csproj --filter FullyQualifiedName~WzMutationContract
+    dotnet test MapleLib/MapleLib.Tests/MapleLib.Tests.csproj --filter FullyQualifiedName~MutationContract
