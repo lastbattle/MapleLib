@@ -238,7 +238,12 @@ namespace MapleLib.WzLib.Serializer
                             Image decodedImage;
                             try
                             {
-                                decodedImage = Image.FromStream(pngstream, true, true);
+                                // The binary parser hands canvas pixels straight
+                                // through and never runs the embedded color
+                                // management engine; keep the XML import on the
+                                // same raw-pixel path so crafted ICC chunks are
+                                // not parsed by a second native parser here.
+                                decodedImage = Image.FromStream(pngstream, false, true);
                             }
                             catch (Exception ex) when (ex is ArgumentException or ExternalException or OutOfMemoryException)
                             {
