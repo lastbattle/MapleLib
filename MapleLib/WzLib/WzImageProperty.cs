@@ -220,6 +220,12 @@ namespace MapleLib.WzLib
             ValidateNestingDepth(depth);
             EnsureWithinBlock(reader, endOfBlock, "property list");
             int entryCount = reader.ReadCompressedInt();
+            if (reader.BaseStream.Position > endOfBlock)
+            {
+                // A count leg spanning the boundary would silently feed the
+                // sibling's bytes into the entry loop below.
+                throw new InvalidDataException("WZ property entry count exceeds its declared block.");
+            }
             ValidateEntryCount(entryCount, reader, endOfBlock, "property");
             WzPropertyCollection properties = new WzPropertyCollection(parent);
             properties.Capacity = entryCount;
