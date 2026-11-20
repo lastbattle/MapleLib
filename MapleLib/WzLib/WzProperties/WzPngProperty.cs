@@ -310,6 +310,13 @@ namespace MapleLib.WzLib.WzProperties
 
             int format1 = reader.ReadCompressedInt();
             int format2 = reader.ReadCompressedInt();
+            if (blockEnd.HasValue && reader.BaseStream.Position > blockEnd.Value)
+            {
+                // Confined extended-block leg: the geometry legs must end
+                // inside the declared block, not on the sibling that follows.
+                throw new InvalidDataException("WZ PNG geometry exceeds its declared block.");
+            }
+
             // Reconstruct the original format using bit shifting
             long formatValue = (long)format1 + ((long)format2 << 8);
 
@@ -317,10 +324,24 @@ namespace MapleLib.WzLib.WzProperties
                 throw new InvalidDataException("PNG format value is invalid.");
             format = (WzPngFormat)formatValue;
 
+            if (blockEnd.HasValue && blockEnd.Value - reader.BaseStream.Position < 4)
+            {
+                // The metadata window must sit inside the block too, or the
+                // skip below walks into the sibling that follows it.
+                throw new InvalidDataException("WZ PNG metadata exceeds its declared block.");
+            }
+
             EnsureAvailable(reader, 4, "PNG metadata");
             reader.BaseStream.Position += 4;
             offs = reader.BaseStream.Position;
             int len = ReadPayloadLength(reader, "PNG payload");
+            if (blockEnd.HasValue && reader.BaseStream.Position > blockEnd.Value)
+            {
+                // A length leg spanning the boundary would silently feed the
+                // sibling's bytes into the payload below.
+                throw new InvalidDataException("WZ PNG payload length exceeds its declared block.");
+            }
+
             // An empty canvas carries no intrinsic dimensions. Newly built
             // nodes write 0x0 with an empty payload, so give that shape the
             // same degenerate 1x1 view a bare canvas gets; a payload still
