@@ -383,6 +383,12 @@ namespace MapleLib.WzLib
                     {
                         WzConvexProperty convexProp = new WzConvexProperty(name) { Parent = parent };
                         int convexEntryCount = reader.ReadCompressedInt();
+                        if (reader.BaseStream.Position > eob)
+                        {
+                            // A count leg spanning the boundary would silently
+                            // feed the sibling's bytes into the entry loop below.
+                            throw new InvalidDataException("WZ convex entry count exceeds its declared block.");
+                        }
                         ValidateEntryCount(convexEntryCount, reader, eob, "convex");
                         convexProp.WzProperties.Capacity = convexEntryCount;
                         for (int i = 0; i < convexEntryCount; i++)
