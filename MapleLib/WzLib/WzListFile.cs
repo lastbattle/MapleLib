@@ -40,6 +40,11 @@ namespace MapleLib.WzLib
                 using MemoryStream memoryStream = new MemoryStream(fileBuffer, 0, fileLength, writable: false, publiclyVisible: true);
                 using WzBinaryReader wzParser = new WzBinaryReader(memoryStream, WzIv);
                 while (wzParser.BaseStream.Position < wzParser.BaseStream.Length) {
+                    // One to three trailing bytes used to escape as a raw
+                    // BinaryReader EndOfStreamException; name the boundary like
+                    // every other leg of this loop.
+                    if (wzParser.BaseStream.Length - wzParser.BaseStream.Position < sizeof(int))
+                        throw new InvalidDataException("List.wz string length is truncated.");
                     int len = wzParser.ReadInt32();
                     if (len < 0)
                         throw new InvalidDataException("List.wz contains a negative string length.");
