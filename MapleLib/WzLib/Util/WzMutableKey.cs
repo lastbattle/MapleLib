@@ -14,7 +14,8 @@ namespace MapleLib.WzLib.Util
         private static readonly int BatchSize = 4096;
         private readonly byte[] _iv;
         private readonly byte[] _aesUserKey;
-        private byte[]? _keys;
+        private volatile byte[]? _keys;
+        private readonly object _growLock = new();
 
         /// <summary>
         /// Constructor
@@ -58,54 +59,67 @@ namespace MapleLib.WzLib.Util
                 return;
             }
 
-            if (_iv == null || _iv.Length < 4)
-                throw new InvalidDataException("The WZ key IV must contain at least four bytes.");
-
-            int batchCount = (size + BatchSize - 1) / BatchSize;
-
-            size = batchCount * BatchSize;
-            byte[] newKeys = new byte[size];
-
-            if (BitConverter.ToInt32(this._iv, 0) == 0)
+            lock (_growLock)
             {
-                this._keys = newKeys;
-                return;
-            }
-
-            if (_aesUserKey == null || _aesUserKey.Length != 32)
-                throw new InvalidDataException("The WZ AES user key must contain exactly 32 bytes.");
-
-            int startIndex = 0;
-            if (_keys != null)
-            {
-                _keys.CopyTo(newKeys, 0);
-                startIndex = _keys.Length;
-            }
-
-            this._keys = newKeys;
-            using var aes = Aes.Create();
-            aes.KeySize = 256;
-            aes.BlockSize = 128;
-            aes.Key = _aesUserKey;
-            aes.Mode = CipherMode.ECB;
-            aes.Padding = PaddingMode.None;   // Ensure no padding is added
-
-            using var encryptor = aes.CreateEncryptor();
-            for (int i = startIndex; i < size; i += 16)
-            {
-                if (i == 0)
+                // A concurrent grow may have completed while this caller
+                // waited; recheck before rebuilding the stream.
+                if (_keys != null && _keys.Length >= size)
                 {
-                    for (int j = 0; j < 16; j++)
-                        newKeys[j] = _iv[j % 4];
-                    encryptor.TransformBlock(newKeys, 0, 16, newKeys, 0);
+                    return;
                 }
-                else
-                {
-                    encryptor.TransformBlock(newKeys, i - 16, 16, newKeys, i);
-                }
-            }
 
-            _keys = newKeys;
+                if (_iv == null || _iv.Length < 4)
+                    throw new InvalidDataException("The WZ key IV must contain at least four bytes.");
+
+                int batchCount = (size + BatchSize - 1) / BatchSize;
+
+                size = batchCount * BatchSize;
+                byte[] newKeys = new byte[size];
+
+                if (BitConverter.ToInt32(this._iv, 0) == 0)
+                {
+                    this._keys = newKeys;
+                    return;
+                }
+
+                if (_aesUserKey == null || _aesUserKey.Length != 32)
+                    throw new InvalidDataException("The WZ AES user key must contain exactly 32 bytes.");
+
+                int startIndex = 0;
+                if (_keys != null)
+                {
+                    _keys.CopyTo(newKeys, 0);
+                    startIndex = _keys.Length;
+                }
+
+                using var aes = Aes.Create();
+                aes.KeySize = 256;
+                aes.BlockSize = 128;
+                aes.Key = _aesUserKey;
+                aes.Mode = CipherMode.ECB;
+                aes.Padding = PaddingMode.None;   // Ensure no padding is added
+
+                using var encryptor = aes.CreateEncryptor();
+                for (int i = startIndex; i < size; i += 16)
+                {
+                    if (i == 0)
+                    {
+                        for (int j = 0; j < 16; j++)
+                            newKeys[j] = _iv[j % 4];
+                        encryptor.TransformBlock(newKeys, 0, 16, newKeys, 0);
+                    }
+                    else
+                    {
+                        encryptor.TransformBlock(newKeys, i - 16, 16, newKeys, i);
+                    }
+                }
+
+                // Publish once, after the fill: the array becomes visible to
+                // lock free readers on assignment, so a half written stream
+                // must never be observable and the final length is the promise
+                // every caller saw on return.
+                _keys = newKeys;
+            }
         }
 
         public bool Equals(WzMutableKey? other) =>
