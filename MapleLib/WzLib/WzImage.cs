@@ -517,10 +517,25 @@ namespace MapleLib.WzLib
                         case WzImageHeaderByte_WithoutOffset:
                             {
                                 string prop = reader.ReadString();
+                                long prologueBlockEnd = size > 0 ? offset + size : reader.BaseStream.Length;
+                                if (reader.BaseStream.Position > prologueBlockEnd)
+                                {
+                                    // A signature leg spanning the boundary would
+                                    // silently feed the following image's bytes into
+                                    // the name check below.
+                                    throw new InvalidDataException("WZ image prologue name exceeds its declared block.");
+                                }
                                 if (reader.BaseStream.Length - reader.BaseStream.Position < sizeof(ushort))
                                     throw new InvalidDataException("WZ image prologue is truncated before the version field.");
 
                                 ushort val = reader.ReadUInt16();
+                                if (reader.BaseStream.Position > prologueBlockEnd)
+                                {
+                                    // A version leg spanning the boundary would
+                                    // silently feed the following image's bytes into
+                                    // the version field.
+                                    throw new InvalidDataException("WZ image prologue version exceeds its declared block.");
+                                }
                                 if (prop != "Property" || val != 0)
                                     throw new InvalidDataException(
                                         $"WZ image prologue mismatch: name '{prop}', version {val}.");
