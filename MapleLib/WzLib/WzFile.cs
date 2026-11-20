@@ -286,7 +286,13 @@ namespace MapleLib.WzLib
 
             this.Header = new WzHeader();
             this.Header.Ident = reader.ReadString(4);
+            // A cut inside either header word died in the blanket
+            // truncated-file wrapper; name the leg like every neighbor.
+            if (reader.BaseStream.Length - reader.BaseStream.Position < sizeof(ulong))
+                throw new InvalidDataException("WZ header FSize is truncated.");
             this.Header.FSize = reader.ReadUInt64();
+            if (reader.BaseStream.Length - reader.BaseStream.Position < sizeof(uint))
+                throw new InvalidDataException("WZ header FStart is truncated.");
             this.Header.FStart = reader.ReadUInt32();
 
             long fileLength = reader.BaseStream.Length;
