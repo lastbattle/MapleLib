@@ -91,11 +91,16 @@ namespace MapleLib.WzLib.Spine
             }
             WzObject parent = atlasNode.Parent;
 
-            List<WzImageProperty> childProperties;
-            if (parent is WzImageProperty)
-                childProperties = ((WzImageProperty)parent).WzProperties;
-            else
-                childProperties = ((WzImage)parent).WzProperties;
+            // The parent of a root-level property is the image itself; a
+            // detached or directory-held node has no sibling view at all.
+            // The former hard cast threw InvalidCastException on exactly
+            // those states.
+            List<WzImageProperty>? childProperties = parent switch
+            {
+                WzImageProperty propertyParent => propertyParent.WzProperties,
+                WzImage imageParent => imageParent.WzProperties,
+                _ => null,
+            };
 
 
             if (childProperties != null)

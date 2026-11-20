@@ -93,10 +93,20 @@ namespace MapleLib.WzLib.Spine
             }
 
             bool pma;
-            if (wzSpineAtlasPropertyNode.parent is WzImageProperty imgProperty)
-                pma = imgProperty["PMA"].ReadValue(0) > 0;
-            else
-                pma = ((WzImage)wzSpineAtlasPropertyNode.parent)["PMA"].ReadValue(0) > 0;
+            switch (wzSpineAtlasPropertyNode.Parent)
+            {
+                case WzImageProperty imgProperty:
+                    pma = imgProperty["PMA"].ReadValue(0) > 0;
+                    break;
+                case WzImage parentImage:
+                    pma = parentImage["PMA"].ReadValue(0) > 0;
+                    break;
+                default:
+                    // Detached or foreign parents carry no sibling view; the
+                    // PMA default applies instead of a hard cast.
+                    pma = false;
+                    break;
+            }
 
             this.SkeletonData = skeletonData;
             this.PremultipliedAlpha = pma; //  whether the renderer will assume that colors have premultiplied alpha. Default is true.
