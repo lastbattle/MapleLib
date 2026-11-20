@@ -152,6 +152,13 @@ namespace MapleLib.WzLib.WzProperties
         internal void Parse(bool parseNow, long endOfBlock)
         {
             _length = _wzReader.ReadCompressedInt();
+            if (_wzReader.BaseStream.Position > endOfBlock)
+            {
+                // A length leg spanning the boundary would silently feed
+                // the sibling's bytes into the payload below.
+                throw new InvalidDataException("WZ raw data length exceeds its declared block.");
+            }
+
             EnsurePayloadAvailable(_wzReader, _length, "Raw data");
             _blockEnd = endOfBlock;
             long remainingInBlock = endOfBlock - _wzReader.BaseStream.Position;
