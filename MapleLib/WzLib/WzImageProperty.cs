@@ -414,8 +414,18 @@ namespace MapleLib.WzLib
                         WzVectorProperty vecProp = new WzVectorProperty(name) { Parent = parent };
                         EnsureWithinBlock(reader, eob, "vector X operand", 1);
                         vecProp.X = new WzIntProperty("X", reader.ReadCompressedInt()) { Parent = vecProp };
+                        if (reader.BaseStream.Position > eob)
+                        {
+                            // An operand escape spanning the boundary would
+                            // silently feed the sibling's bytes into the value.
+                            throw new InvalidDataException("WZ vector X operand exceeds its declared block.");
+                        }
                         EnsureWithinBlock(reader, eob, "vector Y operand", 1);
                         vecProp.Y = new WzIntProperty("Y", reader.ReadCompressedInt()) { Parent = vecProp };
+                        if (reader.BaseStream.Position > eob)
+                        {
+                            throw new InvalidDataException("WZ vector Y operand exceeds its declared block.");
+                        }
                         return vecProp;
                     }
                 case "Shape2D#Convex2D":
