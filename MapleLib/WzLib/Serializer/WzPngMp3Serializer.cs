@@ -140,7 +140,12 @@ namespace MapleLib.WzLib.Serializer
             }
             else if (currObj is IPropertyContainer container)
             {
-                outPath = GetBoundOutputPath(outPath, EscapeInvalidFilePathNames(currObj.Name)) + ".";
+                // The bound-path helper eats a trailing dot, so the legacy
+                // "name." prefix retargeted children into an uncreated
+                // "name" directory; bind a real directory like the image leg.
+                outPath = GetBoundOutputPath(outPath, EscapeInvalidFilePathNames(currObj.Name)) + @"\";
+                if (!Directory.Exists(outPath))
+                    Directory.CreateDirectory(outPath);
 
                 foreach (WzImageProperty subprop in container.WzProperties)
                 {
