@@ -196,6 +196,12 @@ namespace MapleLib.WzLib
             if (parentImg.BlockSize > 0)
             {
                 long imageEnd = GetImageEnd(reader, parentImg);
+                if (reader.BaseStream.Position > imageEnd)
+                {
+                    // A length leg spanning the boundary would silently feed
+                    // the following image's bytes into the payload check below.
+                    throw new InvalidDataException("WZ lua length exceeds its declared block.");
+                }
                 remaining = Math.Min(remaining, imageEnd - reader.BaseStream.Position);
             }
 
