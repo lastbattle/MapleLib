@@ -232,6 +232,12 @@ namespace MapleLib.WzLib
             for (int i = 0; i < entryCount; i++)
             {
                 string name = reader.ReadStringBlock(offset);
+                if (reader.BaseStream.Position > endOfBlock)
+                {
+                    // A name leg spanning the boundary would silently feed
+                    // the sibling's bytes into the entry header below.
+                    throw new InvalidDataException("WZ property name exceeds its declared block.");
+                }
                 EnsureWithinBlock(reader, endOfBlock, "property type byte", 1);
                 byte ptype = reader.ReadByte();
                 switch (ptype) // header value
@@ -303,7 +309,14 @@ namespace MapleLib.WzLib
                         properties.Add(new WzDoubleProperty(name, reader.ReadDouble()) { Parent = parent });
                         break;
                     case 8:
-                        properties.Add(new WzStringProperty(name, reader.ReadStringBlock(offset)) { Parent = parent });
+                        string stringValue = reader.ReadStringBlock(offset);
+                        if (reader.BaseStream.Position > endOfBlock)
+                        {
+                            // A string value leg spanning the boundary would
+                            // silently feed the sibling's bytes into the value.
+                            throw new InvalidDataException("WZ string value exceeds its declared block.");
+                        }
+                        properties.Add(new WzStringProperty(name, stringValue) { Parent = parent });
                         break;
                     case 9:
                         EnsureWithinBlock(reader, endOfBlock, "extended property length", sizeof(uint));
