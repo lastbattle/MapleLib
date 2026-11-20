@@ -299,6 +299,15 @@ namespace MapleLib.WzLib.Serializer
                 // names cannot traverse outside or become executable artifacts.
                 string luaDirectory = Path.GetFullPath(Path.GetDirectoryName(exportFilePath) ?? string.Empty);
                 string luaFileName = Path.GetFileName(ProgressingWzSerializer.EscapeInvalidFilePathNames(parentName));
+                // Siblings under one parent share the parent stem, so the
+                // plain parent name alone would make the second sidecar
+                // replace the first. Disambiguate with the property name.
+                if (CountLuaSiblingsUnderParent(propertyLua) > 1)
+                {
+                    string propertyStem = Path.GetFileName(ProgressingWzSerializer.EscapeInvalidFilePathNames(propertyLua.Name ?? string.Empty));
+                    if (propertyStem.Length > 0)
+                        luaFileName = $"{luaFileName}.{propertyStem}";
+                }
                 if (!luaFileName.EndsWith(".lua", StringComparison.OrdinalIgnoreCase))
                     luaFileName += ".lua";
                 string luaPath = Path.Combine(luaDirectory, luaFileName);
@@ -358,6 +367,16 @@ namespace MapleLib.WzLib.Serializer
         /// <param name="depth"></param>
         /// <param name="prop"></param>
         /// <param name="exportFilePath"></param>
+        private static int CountLuaSiblingsUnderParent(WzLuaProperty property)
+        {
+            return property.Parent switch
+            {
+                WzImage image => image.WzProperties?.OfType<WzLuaProperty>().Count() ?? 0,
+                WzImageProperty container => container.WzProperties?.OfType<WzLuaProperty>().Count() ?? 0,
+                _ => 0
+            };
+        }
+
         protected void WritePropertyToJsonBson(Dictionary<string, object> json, WzImageProperty prop, string exportFilePath)
         {
             const string FIELD_TYPE_NAME = "_dirType"; // avoid the same naming as anything in the WZ to avoid exceptions
