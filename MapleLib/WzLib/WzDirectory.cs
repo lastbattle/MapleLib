@@ -221,6 +221,13 @@ namespace MapleLib.WzLib
             if (!visitedOffsets.Add(directoryPosition))
                 throw new InvalidDataException("WZ directory contains a cyclic offset.");
 
+            // A parent entry declares the byte size of a sub directory's
+            // table. When present, every entry leg must end inside it; the
+            // root directory has no such declaration and keeps the stream
+            // level rules.
+            bool hasDeclaredBlock = size > 0;
+            long declaredBlockEnd = directoryPosition + size;
+
             //reader.PrintHexBytes(20);
             long available = reader.Available();
             if (available < 0)
@@ -229,6 +236,12 @@ namespace MapleLib.WzLib
                 return;
 
             int entryCount = reader.ReadCompressedInt();
+            if (hasDeclaredBlock && reader.BaseStream.Position > declaredBlockEnd)
+            {
+                // A count leg spanning the boundary would silently feed the
+                // region that follows into the entry loop below.
+                throw new InvalidDataException("WZ directory entry count exceeds its declared block.");
+            }
             if (entryCount < 0 || entryCount > 100000 || (long)entryCount * MinDirectoryEntryBytes > reader.Available()) // probably nothing > 100k folders for now.
                 throw new InvalidDataException("Invalid WZ directory entry count.");
 
@@ -236,6 +249,13 @@ namespace MapleLib.WzLib
             {
                 if (reader.Available() < 1)
                     throw new InvalidDataException("WZ directory entry type is truncated.");
+
+                if (hasDeclaredBlock && reader.BaseStream.Position + 1 > declaredBlockEnd)
+                {
+                    // A type byte past the boundary would come from the
+                    // table or image that follows this directory.
+                    throw new InvalidDataException("WZ directory entry type exceeds its declared block.");
+                }
 
                 byte type = reader.ReadByte(); // see WzBinaryWriter.WriteWzObjectValue
                 string fname = null;
@@ -288,6 +308,13 @@ namespace MapleLib.WzLib
                     case (byte) WzDirectoryType.WzImage_4:
                         {
                             fname = reader.ReadString();
+                            if (hasDeclaredBlock && reader.BaseStream.Position > declaredBlockEnd)
+                            {
+                                // A name leg spanning the boundary would
+                                // silently feed the following table's bytes
+                                // into the entry name.
+                                throw new InvalidDataException("WZ directory entry name exceeds its declared block.");
+                            }
                             rememberPos = reader.BaseStream.Position;
                             break;
                         }
@@ -308,6 +335,13 @@ namespace MapleLib.WzLib
                     throw new InvalidDataException("WZ directory entry offset is outside the stream.");
                 if (fsize > reader.BaseStream.Length - offset)
                     throw new InvalidDataException("WZ directory entry block exceeds the containing stream.");
+
+                if (hasDeclaredBlock && reader.BaseStream.Position > declaredBlockEnd)
+                {
+                    // Trailing legs past the boundary would silently feed
+                    // the following region into the stored entry geometry.
+                    throw new InvalidDataException("WZ directory entry exceeds its declared block.");
+                }
 
                 if (type == (byte) WzDirectoryType.WzDirectory_3)
                 {
