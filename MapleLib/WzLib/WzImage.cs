@@ -516,8 +516,17 @@ namespace MapleLib.WzLib
                             }
                         case WzImageHeaderByte_WithoutOffset:
                             {
+                                if (size == 0)
+                                {
+                                    // The signature and version must end inside
+                                    // the block. An empty declared block has no
+                                    // room for either, so the legs would be read
+                                    // from the region that follows it.
+                                    throw new InvalidDataException("WZ image prologue exceeds its empty declared block.");
+                                }
+
                                 string prop = reader.ReadString();
-                                long prologueBlockEnd = size > 0 ? offset + size : reader.BaseStream.Length;
+                                long prologueBlockEnd = offset + size;
                                 if (reader.BaseStream.Position > prologueBlockEnd)
                                 {
                                     // A signature leg spanning the boundary would
