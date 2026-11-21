@@ -543,7 +543,10 @@ namespace MapleLib.WzLib
                             }
                         case 0x23: // '#Property' text-encoded image (newer .ms packs)
                             {
-                                properties.AddRange(WzTextImageParser.ReadFrom(reader, size));
+                                // The leading marker byte is part of the declared block; the text
+                                // body gets the remainder, so a size-exact image cannot swallow
+                                // the first byte of the sibling image that follows it.
+                                properties.AddRange(WzTextImageParser.ReadFrom(reader, size - 1));
                                 parsed = true;
                                 return true;
                             }
